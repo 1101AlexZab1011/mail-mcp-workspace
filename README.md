@@ -7,7 +7,9 @@ A portable, local setup for [email-mcp](https://github.com/codefuturist/email-mc
 ## What is included
 
 - A version-pinned local installation of `@codefuturist/email-mcp`.
+- `mail-workflow-mcp`, an optional provider-neutral IMAP workflow server.
 - Commands to configure, verify, and run the MCP server.
+- Portable skills for Pending-mail review and chronological email summaries.
 - Documentation for setting up the same mailbox on another machine.
 
 No account details, server addresses, passwords, OAuth tokens, or Thunderbird profiles are stored here.
@@ -41,9 +43,53 @@ Use the locally installed, locked dependency in your MCP client's user-level con
 [mcp_servers.email]
 command = "/absolute/path/to/mail-mcp-workspace/node_modules/.bin/email-mcp"
 args = ["stdio"]
+
+[mcp_servers.mail_workflow]
+command = "node"
+args = ["/absolute/path/to/mail-mcp-workspace/src/main.mjs", "stdio"]
 ```
 
-For Codex, add that block to `~/.codex/config.toml`. Restart the client after editing its configuration. Other MCP clients use the same command and argument in their equivalent user configuration.
+For Codex, add both blocks to `~/.codex/config.toml`. Restart the client after editing its configuration. Other MCP clients use the same command and argument in their equivalent user configuration.
+
+## Workflow automation
+
+The optional workflow MCP server is provider-neutral: it uses IMAP and the
+existing local `email-mcp` account configuration, but keeps its policy and state
+outside this repository.
+
+```bash
+npm run workflow:init              # create ~/.config/mail-mcp-workspace/policy.toml
+npm run workflow:sync -- personal  # preview routing, status classification, and filing
+npm run workflow:sync -- personal --apply
+npm run workflow:watch -- personal 300 --apply
+```
+
+Start with the generated policy's `review` mode. The supported filing modes are
+`review`, `propose`, `existing-folders`, and `managed-groups`; the last two are
+explicit opt-ins. In `existing-folders` mode, only allowlisted Active folders
+can receive automatic moves. New groups require `managed-groups` plus
+`allow_new_groups = true`. Every move is recorded in a local action journal and
+can be undone with the `undo_last_workflow_action` MCP tool.
+
+For accounts with provider-side filtering, leave `routing_mode = "provider"`.
+For a generic IMAP fallback, choose `routing_mode = "watcher"` and configure
+account-local subject rules. Never enable both routing mechanisms for one
+account at the same time.
+
+`mail-workflow-mcp` currently supports password-authenticated IMAP accounts
+configured by email-mcp. Providers requiring OAuth-only access need an upstream
+email-mcp OAuth extension before this workflow process can connect directly.
+
+## Agent skills
+
+- [email-review-pending](skills/email-review-pending/SKILL.md) reviews pending
+  mail, reports urgent items, and files only non-urgent mail when policy allows.
+- [email-summary](skills/email-summary/SKILL.md) summarizes received mail from
+  the requested number of days in chronological order.
+
+Copy a skill directory into the skill location used by Codex, Claude Code, or
+another SKILL.md-compatible agent. The agent must also have access to the email
+and workflow MCP servers above.
 
 ## Everyday commands
 
@@ -51,6 +97,8 @@ For Codex, add that block to `~/.codex/config.toml`. Restart the client after ed
 npm run configure  # add or update an account interactively
 npm run verify     # test all configured accounts
 npm run mcp        # run the MCP server over stdio
+npm run workflow:mcp # run the workflow MCP server over stdio
+npm test            # run local workflow tests
 ```
 
 ## Privacy and security

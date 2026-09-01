@@ -1,0 +1,17 @@
+# Copy with: npm run workflow:init
+# This file controls behavior only. Credentials remain in email-mcp's local config.
+
+[defaults]
+routing_mode = "provider" # provider | watcher; only one router may be active per account
+filing_mode = "review" # review | propose | existing-folders | managed-groups
+approved_folders = []
+
+# [accounts.personal]
+# routing_mode = "watcher"
+# filing_mode = "existing-folders"
+# approved_folders = ["Receipts", "Newsletters"]
+# allow_new_groups = false # only applies to managed-groups mode
+#
+# [[accounts.personal.subject_rules]]
+# group = "Receipts"
+# keywords = ["receipt", "invoice", "order confirmation"]

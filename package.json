@@ -1,7 +1,7 @@
 {
   "name": "mail-mcp-workspace",
   "version": "1.0.0",
-  "description": "Portable local setup for email-mcp and Thunderbird",
+  "description": "Provider-neutral email MCP workspace with optional workflow automation",
   "private": true,
   "engines": {
     "node": ">=24.0.0"
@@ -9,11 +9,30 @@
   "scripts": {
     "configure": "email-mcp account add",
     "verify": "email-mcp test",
-    "mcp": "email-mcp stdio"
+    "mcp": "email-mcp stdio",
+    "workflow": "node src/main.mjs",
+    "workflow:mcp": "node src/main.mjs stdio",
+    "workflow:sync": "node src/main.mjs sync",
+    "workflow:watch": "node src/main.mjs watch",
+    "workflow:init": "node src/main.mjs init",
+    "test": "node --test"
   },
-  "keywords": ["mcp", "email", "imap", "smtp", "thunderbird"],
-  "type": "commonjs",
+  "keywords": [
+    "mcp",
+    "email",
+    "imap",
+    "smtp",
+    "thunderbird"
+  ],
+  "bin": {
+    "mail-workflow-mcp": "src/main.mjs"
+  },
+  "type": "module",
   "dependencies": {
-    "@codefuturist/email-mcp": "^0.2.3"
+    "@codefuturist/email-mcp": "^0.2.3",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "imapflow": "^1.7.7",
+    "smol-toml": "^1.8.0",
+    "zod": "^4.5.4"
   }
 }
