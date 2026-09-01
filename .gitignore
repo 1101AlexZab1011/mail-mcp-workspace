@@ -21,6 +21,9 @@ email-mcp.config.toml
 .vscode/
 .thunderbird/
 
+# Local implementation notes and plans
+plans/
+
 # Editor and operating-system files
 .DS_Store
 .idea/
