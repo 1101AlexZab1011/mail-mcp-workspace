@@ -1,0 +1,27 @@
+# Dependencies and package-manager diagnostics
+node_modules/
+npm-debug.log*
+
+# Credentials and locally generated configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+config.toml
+email-mcp.config.toml
+.codefuturist/
+
+# MCP client and mail-client profiles
+.codex/
+.claude/
+.cursor/
+.vscode/
+.thunderbird/
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+*.swp
