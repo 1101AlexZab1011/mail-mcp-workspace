@@ -12,8 +12,9 @@ chat message asks for it.
 1. Call `start_chat_listener`. If it reports that the user service is not
    installed, explain the required local installation command; do not attempt
    to invent a background agent runtime.
-2. Enter the monitoring loop: call `wait_for_chat_message` with 45–60 seconds.
-   If it times out, call it again immediately. Do not finish, report that there
+2. Enter the monitoring loop: call `wait_for_chat_message` with no
+   `wait_seconds`. The default of -1 never times out, so the call returns only
+   when a message actually arrives; there is no empty polling result to handle. Do not finish, report that there
    are no messages, or claim to monitor chat unless a wait call is outstanding.
 3. When a message arrives, handle it, then call `send_to_chat` with a concise
    response in the same `conversation_id`.

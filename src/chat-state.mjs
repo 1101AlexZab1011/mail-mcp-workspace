@@ -10,6 +10,21 @@ export const defaultChatStatePath = process.env.MAIL_AGENT_CHAT_STATE ?? resolve
 
 const emptyState = () => ({ version: 1, next_sequence: 1, messages: [], replies: [] });
 
+export const historyLimit = 500;
+
+// Keep only the newest `historyLimit` entries across both messages and replies,
+// so the stored transcript matches what the chat panel renders. Unacknowledged
+// messages are never dropped: the agent still owes them a response.
+function trimHistory(state) {
+  const total = state.messages.length + state.replies.length;
+  if (total <= historyLimit) return state;
+  const keep = [...state.messages, ...state.replies].sort((a, b) => a.sequence - b.sequence).slice(-historyLimit);
+  const kept = new Set(keep.map((item) => item.sequence));
+  state.messages = state.messages.filter((item) => kept.has(item.sequence) || !item.acknowledged_at);
+  state.replies = state.replies.filter((item) => kept.has(item.sequence));
+  return state;
+}
+
 async function writePrivate(path, value) {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
@@ -39,6 +54,37 @@ export async function setChatExtensionOrigin(origin, path = defaultChatConfigPat
   return { origin, path };
 }
 
+export const defaultAttachmentRoot = process.env.MAIL_AGENT_CHAT_ATTACHMENTS ?? resolve(stateRoot, "mail-mcp-workspace/attachments");
+export const maxAttachmentBytes = 25 * 1024 * 1024;
+
+// Attachments are written to a private local directory and referenced by path: chat carries
+// text only, so the agent reads the file from disk rather than through the conversation.
+export async function saveAttachment({ root = defaultAttachmentRoot, name, type, data }) {
+  const bytes = Buffer.from(data, "base64");
+  if (!bytes.length) throw new Error("Attachment is empty");
+  if (bytes.length > maxAttachmentBytes) throw new Error(`Attachment exceeds ${maxAttachmentBytes} bytes`);
+  const safe = (name ?? "attachment").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[.-]+/, "").slice(-80) || "attachment";
+  const day = new Date().toISOString().slice(0, 10);
+  const directory = resolve(root, day);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const path = resolve(directory, `${randomUUID().slice(0, 8)}-${safe}`);
+  await writeFile(path, bytes, { mode: 0o600 });
+  return { path, name: safe, type: type ?? "application/octet-stream", size: bytes.length };
+}
+
+const contentTypes = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", avif: "image/avif", pdf: "application/pdf", txt: "text/plain", md: "text/markdown", json: "application/json", csv: "text/csv" };
+
+// Serving stored files needs a path check, not trust: the panel supplies the path from a
+// message, so anything resolving outside the attachment root is refused rather than read.
+export async function readAttachment({ root = defaultAttachmentRoot, path }) {
+  const resolved = resolve(path);
+  const base = resolve(root);
+  if (resolved !== base && !resolved.startsWith(`${base}/`)) throw new Error("Attachment path is outside the attachment directory");
+  const bytes = await readFile(resolved);
+  const extension = resolved.split(".").pop()?.toLowerCase() ?? "";
+  return { bytes, type: contentTypes[extension] ?? "application/octet-stream" };
+}
+
 export async function readChatState(path = defaultChatStatePath) {
   try { return { ...emptyState(), ...JSON.parse(await readFile(path, "utf8")) }; }
   catch (error) { if (error.code === "ENOENT") return emptyState(); throw error; }
@@ -48,11 +94,35 @@ export async function writeChatState(path, state) { await writePrivate(path, sta
 
 export async function addMessage({ statePath = defaultChatStatePath, conversationId = "default", text }) {
   const state = await readChatState(statePath);
-  const message = { id: randomUUID(), sequence: state.next_sequence++, conversation_id: conversationId, text, created_at: new Date().toISOString(), acknowledged_at: null };
+  const message = { id: randomUUID(), sequence: state.next_sequence++, conversation_id: conversationId, text, created_at: new Date().toISOString(), delivered_at: null, acknowledged_at: null };
   state.messages.push(message);
-  state.messages = state.messages.slice(-1000);
+  trimHistory(state);
   await writeChatState(statePath, state);
   return message;
+}
+
+// A message is "in progress" once the agent has taken delivery of it and before it
+// has replied. Work that never finishes (a session that died mid-task) stops counting
+// after this window, so the panel cannot show a busy agent forever.
+export const deliveryStaleMs = 15 * 60_000;
+export const agentActiveMs = 90_000;
+
+export async function markDelivered({ statePath = defaultChatStatePath, ids = [] }) {
+  if (!ids.length) return [];
+  const state = await readChatState(statePath);
+  const stamp = new Date().toISOString();
+  const marked = state.messages.filter((item) => ids.includes(item.id) && !item.delivered_at);
+  for (const item of marked) item.delivered_at = stamp;
+  if (marked.length) await writeChatState(statePath, state);
+  return marked;
+}
+
+export async function agentBusy({ statePath = defaultChatStatePath, conversationId = "default" }) {
+  const state = await readChatState(statePath);
+  const seen = Date.parse(state.agent_seen_at ?? "");
+  // An agent that stopped heartbeating is gone, whatever it had picked up.
+  if (!Number.isFinite(seen) || Date.now() - seen >= agentActiveMs) return false;
+  return state.messages.some((item) => item.conversation_id === conversationId && !item.acknowledged_at && item.delivered_at && Date.now() - Date.parse(item.delivered_at) < deliveryStaleMs);
 }
 
 export async function acknowledgeMessage({ statePath = defaultChatStatePath, messageId }) {
@@ -68,7 +138,7 @@ export async function addReply({ statePath = defaultChatStatePath, conversationI
   const state = await readChatState(statePath);
   const reply = { id: randomUUID(), sequence: state.next_sequence++, conversation_id: conversationId, text, created_at: new Date().toISOString() };
   state.replies.push(reply);
-  state.replies = state.replies.slice(-1000);
+  trimHistory(state);
   await writeChatState(statePath, state);
   return reply;
 }
@@ -83,7 +153,7 @@ export async function recordAgentHeartbeat(statePath = defaultChatStatePath) {
 export async function agentStatus(statePath = defaultChatStatePath) {
   const state = await readChatState(statePath);
   const seen = Date.parse(state.agent_seen_at ?? "");
-  return { agent_active: Number.isFinite(seen) && Date.now() - seen < 90_000, agent_seen_at: state.agent_seen_at ?? null };
+  return { agent_active: Number.isFinite(seen) && Date.now() - seen < agentActiveMs, agent_seen_at: state.agent_seen_at ?? null };
 }
 
 export async function pendingMessages({ statePath = defaultChatStatePath, conversationId = "default" }) {

@@ -40,8 +40,13 @@
   "dependencies": {
     "@codefuturist/email-mcp": "^0.2.3",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "dompurify": "^3.4.14",
+    "highlight.js": "^11.12.0",
     "imapflow": "^1.7.7",
+    "katex": "^0.18.5",
+    "marked": "^18.0.11",
     "nodemailer": "^7.0.13",
+    "prismjs": "^1.30.0",
     "smol-toml": "^1.8.0",
     "zod": "^4.5.4"
   }

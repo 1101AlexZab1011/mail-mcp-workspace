@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "mail-agent-chat": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["src/chat-main.mjs", "stdio"]
+    },
+    "mail-workflow": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["src/main.mjs", "stdio"]
+    }
+  }
+}

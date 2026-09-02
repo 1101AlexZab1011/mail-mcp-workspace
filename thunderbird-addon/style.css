@@ -1,11 +1,83 @@
 * { box-sizing: border-box; }
-body { margin: 0; background: #f7f8fb; color: #1f2937; font: 15px system-ui, sans-serif; }
-.chat { min-height: 100vh; max-width: 920px; margin: auto; padding: 20px 24px; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+body { margin: 0; overflow: hidden; background: #f7f8fb; color: #1f2937; font: 15px system-ui, sans-serif; }
+/* The transcript scrolls, so it must span the full window: otherwise its scrollbar sits
+   inside the reading column and overlaps the messages. Content is centred with a gutter
+   instead of a max-width wrapper, which keeps the scrollbar at the window edge. */
+.chat { --gutter: max(24px, calc((100% - 920px) / 2)); height: 100vh; height: 100dvh; width: 100%; padding: 20px 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto; }
+.chat > header, .chat > .notice, .chat > #compose { padding-left: var(--gutter); padding-right: var(--gutter); }
 .settings { max-width: 850px; margin: auto; padding: 24px; }
 header { display: flex; align-items: center; gap: 12px; } h1 { margin-right: auto; font-size: 20px; } #connection { color: #6b7280; font-size: 13px; }
 .icon-button { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 8px; color: #4b5563; background: transparent; cursor: pointer; } .icon-button:hover, .icon-button:focus-visible { background: #e5e7eb; color: #111827; outline: none; } .icon-button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.notice { margin: 10px 0 8px; color: #6b7280; font-size: 13px; } #messages { min-height: 0; overflow: auto; display: grid; align-content: start; gap: 10px; padding: 12px 0; }
-article { max-width: 75%; white-space: pre-wrap; padding: 10px 12px; border-radius: 10px; } article.user { justify-self: end; background: #dbeafe; } article.agent { background: white; border: 1px solid #d1d5db; }
-#compose { padding-top: 10px; } .composer-field { position: relative; } textarea { display: block; width: 100%; min-height: 72px; resize: vertical; padding: 12px 52px 12px 12px; border: 1px solid #cbd5e1; border-radius: 12px; background: white; color: inherit; font: inherit; } textarea:focus { outline: 2px solid #93c5fd; border-color: #60a5fa; } .send { position: absolute; right: 8px; bottom: 8px; color: #2563eb; } .send:hover, .send:focus-visible { background: #dbeafe; }
+.notice { margin: 10px 0 8px; color: #6b7280; font-size: 13px; } #messages { min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 10px; padding: 12px var(--gutter); }
+article.typing[hidden] { display: none; }
+article.typing { display: flex; gap: 5px; align-items: center; width: max-content; padding: 8px 2px; border: 0; background: none; }
+.typing span { width: 7px; height: 7px; border-radius: 50%; background: #9ca3af; animation: typing-pulse 1.2s ease-in-out infinite; }
+.typing span:nth-child(2) { animation-delay: 0.2s; } .typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typing-pulse { 0%, 60%, 100% { transform: scale(0.7); opacity: 0.45; } 30% { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .typing span { animation: none; opacity: 0.7; } }
+article { max-width: 75%; min-width: 0; overflow-wrap: anywhere; padding: 10px 12px; border-radius: 10px; }
+.markdown > :first-child { margin-top: 0; } .markdown > :last-child { margin-bottom: 0; }
+.markdown p { margin: 0 0 8px; } .markdown ul, .markdown ol { margin: 0 0 8px; padding-left: 20px; }
+.markdown h1, .markdown h2, .markdown h3 { margin: 10px 0 6px; font-size: 1.05em; }
+.markdown a { color: #1d4ed8; }
+.markdown code { padding: 1px 4px; border-radius: 4px; background: #eef2f7; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+.markdown pre { margin: 0 0 8px; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
+.markdown pre code { padding: 0; background: none; }
+/* prism.css sets white-space: pre on code[class*="language-"], which outranks the rule on
+   pre and lets a long line push past the bubble. Restate it with enough specificity. */
+.markdown pre code[class*="language-"], .markdown pre[class*="language-"] { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.markdown blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 3px solid #cbd5e1; color: #475569; }
+.markdown table { border-collapse: collapse; } .markdown th, .markdown td { padding: 4px 8px; border: 1px solid #d1d5db; }
+.message-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.attachment-tile { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 72px; min-height: 72px; padding: 8px; border: 1px solid #e2e8f0; border-radius: 8px; background: white; color: #6b7280; }
+.attachment-tile img { display: block; max-width: 220px; max-height: 160px; border-radius: 6px; object-fit: contain; }
+.attachment-tile svg { width: 28px; height: 28px; }
+.attachment-tile .file-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.attachment-tile.missing-tile { border-style: dashed; color: #9ca3af; }
+.email-card { margin: 4px 0 10px; border: 1px solid #cbd5e1; border-radius: 10px; background: white; overflow: hidden; }
+.email-headers { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 12px; margin: 0; padding: 12px 14px; border-bottom: 1px solid #e5e7eb; background: #f8fafc; font-size: 13px; }
+.email-headers dt { color: #6b7280; }
+.email-headers dd { margin: 0; overflow-wrap: anywhere; }
+.email-headers .email-subject { font-weight: 600; }
+.email-body { padding: 14px; }
+.code-block { position: relative; }
+.copy-button { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; color: #94a3b8; background: none; opacity: 0; transition: opacity 120ms, color 120ms; }
+.code-block:hover .copy-button, .copy-button:focus-visible { opacity: 1; }
+.copy-button:hover { color: #334155; background: none; }
+/* Confirmation should register and get out of the way: a bright flash that eases back to
+   the resting colour, rather than a state that sits there. */
+.copy-button.copied { opacity: 1; animation: copy-flash 600ms ease-out; }
+@keyframes copy-flash {
+  0% { color: #60a5fa; transform: scale(1.15); }
+  25% { color: #2563eb; transform: scale(1.05); }
+  100% { color: #94a3b8; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { .copy-button.copied { animation-duration: 1ms; color: #2563eb; } }
+.copy-button svg { width: 17px; height: 17px; fill: currentColor; stroke: none; }
+.svg-preview { display: flex; align-items: center; justify-content: center; gap: 8px; margin: -4px 0 8px; padding: 12px; border: 1px dashed #cbd5e1; border-radius: 8px; background: white; }
+.svg-preview svg { width: 48px; height: 48px; max-width: 100%; color: #4b5563; }
+.math-block { margin: 0 0 8px; padding: 4px 0; overflow-x: auto; }
+#preview { min-width: 0; max-height: 220px; margin-bottom: 8px; padding: 10px 14px; overflow-y: auto; overflow-x: hidden; border: 1px dashed #cbd5e1; border-radius: 10px; background: #fbfcfe; color: #374151; }
+#preview[hidden] { display: none; } article.user { justify-self: end; background: #dbeafe; } article.agent { background: white; border: 1px solid #d1d5db; }
+#compose { min-width: 0; padding-top: 10px; } .composer-field { position: relative; min-width: 0; padding: 14px 92px 16px 16px; border: 1px solid #cbd5e1; border-radius: 12px; background: white; }
+.composer-field:focus-within { outline: 2px solid #93c5fd; border-color: #60a5fa; } textarea { display: block; width: 100%; min-height: 24px; max-height: 200px; overflow-y: auto; resize: none; padding: 0; border: 0; background: none; color: inherit; font: inherit; line-height: 1.55; } textarea:focus { outline: none; } .composer-actions { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 2px; }
+#attach { color: #6b7280; background: none; } #attach:hover:enabled, #attach:focus-visible:enabled { background: none; color: #111827; } #attach:active:enabled { color: #2563eb; } #attach:disabled { color: #d1d5db; background: none; cursor: not-allowed; }
+.send { color: #2563eb; }
+/* Text scrolled under the top edge reads as cut off; the fade shows it continues. */
+.composer-field::before { content: ""; position: absolute; top: 1px; left: 1px; right: 1px; height: 16px; border-radius: 12px 12px 0 0; background: linear-gradient(#0f172a24, #0f172a00); opacity: 0; transition: opacity 120ms; pointer-events: none; }
+.composer-field:has(textarea.scrolled)::before { opacity: 1; }
+.composer-stack { display: grid; }
+.composer-stack > * { grid-area: 1 / 1; }
+#attachments { align-self: end; display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; transition: opacity 140ms; }
+#attachments[hidden] { display: none; }
+/* With a preview underneath, hovering the stack fades the thumbnails so the rendered
+   markdown can be read without dismissing anything. */
+.composer-stack:has(#preview:not([hidden])):hover #attachments { opacity: 0.12; }
+.attachment-chip { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 10px; background: white; font-size: 13px; }
+.attachment-chip img { display: block; width: 96px; height: 72px; object-fit: cover; border-radius: 6px; background: #eef2f7; }
+.attachment-chip .file-name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-remove { position: absolute; top: 2px; right: 2px; }
+.attachment-remove { width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: #eef2f7; color: #4b5563; line-height: 1; cursor: pointer; }
+.attachment-remove:hover { background: #dbeafe; color: #1d4ed8; } .send:hover:enabled, .send:focus-visible:enabled { background: #dbeafe; } .send:disabled { color: #9ca3af; background: none; cursor: not-allowed; }
 #skill-suggestions { position: absolute; z-index: 2; bottom: calc(100% + 8px); left: 0; width: min(440px, 100%); overflow: hidden; border: 1px solid #cbd5e1; border-radius: 10px; background: white; box-shadow: 0 8px 24px #1f293726; } .skill-suggestion { display: grid; gap: 2px; padding: 9px 12px; cursor: pointer; } .skill-suggestion[aria-selected="true"], .skill-suggestion:hover { background: #eff6ff; } .skill-suggestion span { color: #1d4ed8; font-weight: 600; } .skill-suggestion small { color: #6b7280; }
 label { display: grid; gap: 6px; margin: 14px 0; max-width: 600px; } input { padding: 8px; font: inherit; } #status { margin-left: 8px; }

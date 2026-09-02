@@ -29,6 +29,9 @@ export async function mailboxCursor(account, mailbox) {
 
 export async function fetchMessages(account, mailbox, limit = 100, { includeSource = true } = {}) {
   return withMailbox(account, mailbox, async (client) => {
+    // A "1:*" range is a parse error on an empty mailbox, and empty Pending folders are
+    // the normal state, so an empty mailbox has to short-circuit before the fetch.
+    if (!client.mailbox?.exists) return [];
     const result = [];
     const query = { uid: true, envelope: true, flags: true, internalDate: true };
     if (includeSource) query.source = true;
@@ -49,6 +52,7 @@ export async function fetchMessages(account, mailbox, limit = 100, { includeSour
 
 export async function fetchMessagesAfterUid(account, mailbox, afterUid, { includeSource = false } = {}) {
   return withMailbox(account, mailbox, async (client) => {
+    if (!client.mailbox?.exists) return [];
     const result = [];
     const query = { uid: true, envelope: true, flags: true, internalDate: true };
     if (includeSource) query.source = true;
@@ -88,6 +92,16 @@ export async function copyMessageAsUnread(account, mailbox, uid, destination) {
   });
 }
 
+// Creating a mailbox that already exists is a NO/ALREADYEXISTS on the server, which
+// imapflow raises as an error. Routing calls this before every copy, so treating an
+// existing folder as success is what makes the destination guarantee usable.
 export async function ensureMailbox(account, mailbox) {
-  return withMailbox(account, "INBOX", async (client) => client.mailboxCreate(mailbox));
+  return withMailbox(account, "INBOX", async (client) => {
+    try { return await client.mailboxCreate(mailbox); }
+    catch (error) {
+      const existing = error.serverResponseCode === "ALREADYEXISTS" || /already exists/i.test(error.responseText ?? "");
+      if (!existing) throw error;
+      return { path: mailbox, created: false };
+    }
+  });
 }
