@@ -1,6 +1,6 @@
 import { accountPolicy } from "./config.mjs";
 import { classifyResponseStatus, classifyUrgency, matchGroup } from "./classification.mjs";
-import { ensureMailbox, fetchMessages, listMailboxes, moveMessage } from "./imap.mjs";
+import { copyMessageAsUnread, ensureMailbox, fetchMessages, fetchMessagesAfterUid, listMailboxes, mailboxCursor, moveMessage } from "./imap.mjs";
 import { readState, recordKey, writeState } from "./state.mjs";
 
 function serialize(record) { const { body, ...safe } = record; return safe; }
@@ -68,24 +68,56 @@ export async function reviewPending({ accountName, account, policy, statePath, d
   return results;
 }
 
-export async function routeInbox({ accountName, account, policy, statePath, dryRun = true, limit = 100 }) {
+const nonDeliveryMailbox = (mailbox) => ["Active", "Archived", "Drafts", "Junk", "Pending", "Sent", "Trash"].some((root) => mailbox === root || mailbox.startsWith(`${root}/`));
+
+export function routingSourceMailboxes(mailboxes, configured) {
+  const configuredSources = configured.routing_source_mailboxes;
+  if (Array.isArray(configuredSources) && configuredSources.length) return configuredSources.filter((mailbox) => mailboxes.includes(mailbox));
+  return mailboxes.filter((mailbox) => !nonDeliveryMailbox(mailbox));
+}
+
+export async function routeInbox({ accountName, account, policy, statePath, dryRun = true }) {
   const configured = accountPolicy(policy, accountName);
   if (configured.routing_mode !== "watcher") return { routed: [], skipped: "routing_mode is provider; the provider is responsible for inbound routing." };
-  const messages = await fetchMessages(account, "INBOX", limit);
+  const sources = routingSourceMailboxes(await listMailboxes(account), configured);
+  const state = await readState(statePath);
+  const routing = state.routing ?? {};
+  const accountRouting = routing[accountName] ?? { mailboxes: {} };
+  const checkpoints = accountRouting.mailboxes ?? {};
   const routed = [];
-  for (const message of messages) {
-    const group = matchGroup(message.subject, configured.subject_rules);
-    const destination = `Pending/${group}`;
-    if (!dryRun) {
-      await ensureMailbox(account, destination);
-      await moveMessage(account, "INBOX", message.uid, destination);
-      const state = await readState(statePath);
-      state.actions.push({ type: "route", account: accountName, messageId: message.messageId, uid: message.uid, from: "INBOX", to: destination, at: new Date().toISOString() });
-      await writeState(statePath, state);
+  const initialized = [];
+
+  // A per-mailbox UID cursor makes the first live run a baseline. This avoids
+  // copying historic mail, including mail delivered outside INBOX, while later
+  // polls fetch only messages that arrived after that baseline.
+  for (const mailbox of sources) {
+    const cursor = await mailboxCursor(account, mailbox);
+    const checkpoint = checkpoints[mailbox];
+    if (!checkpoint || cursor < checkpoint.lastUid) {
+      if (!dryRun) {
+        checkpoints[mailbox] = { lastUid: cursor, initializedAt: new Date().toISOString() };
+        initialized.push(mailbox);
+      }
+      continue;
     }
-    routed.push({ ...serialize(message), destination, action: dryRun ? "proposed" : "moved" });
+    if (dryRun || cursor === checkpoint.lastUid) continue;
+    const messages = await fetchMessagesAfterUid(account, mailbox, checkpoint.lastUid);
+    for (const message of messages) {
+      const group = matchGroup(message.subject, configured.subject_rules);
+      const destination = `Pending/${group}`;
+      await ensureMailbox(account, destination);
+      await copyMessageAsUnread(account, mailbox, message.uid, destination);
+      state.actions.push({ type: "route-copy", account: accountName, messageId: message.messageId, uid: message.uid, from: mailbox, to: destination, at: new Date().toISOString() });
+      routed.push({ ...serialize(message), mailbox, destination, action: "copied" });
+    }
+    checkpoints[mailbox] = { ...checkpoint, lastUid: cursor, lastRunAt: new Date().toISOString() };
   }
-  return { routed };
+  if (!dryRun) {
+    routing[accountName] = { ...accountRouting, mailboxes: checkpoints, initializedAt: accountRouting.initializedAt ?? new Date().toISOString(), lastRunAt: new Date().toISOString() };
+    state.routing = routing;
+    await writeState(statePath, state);
+  }
+  return { routed, initialized, sources, dry_run: dryRun };
 }
 
 export async function undoLastRun({ accountName, account, statePath }) {

@@ -1,0 +1,34 @@
+{
+  "manifest_version": 2,
+  "name": "Mail MCP Agent Chat",
+  "description": "A local-only chat tab for a connected AI agent.",
+  "version": "1.0.7",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "agent-chat@mail-mcp-workspace.local",
+      "strict_min_version": "128.0"
+    }
+  },
+  "browser_action": {
+    "default_title": "Open Agent Chat"
+  },
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "experiment_apis": {
+    "ChatOverride": {
+      "schema": "experiments/chat-override/schema.json",
+      "parent": {
+        "scopes": ["addon_parent"],
+        "paths": [["ChatOverride"]],
+        "script": "experiments/chat-override/implementation.js",
+        "events": ["startup"]
+      }
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "permissions": ["storage", "tabs", "http://127.0.0.1/*"]
+}

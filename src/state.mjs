@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-const emptyState = () => ({ version: 1, records: {}, actions: [] });
+const emptyState = () => ({ version: 1, records: {}, actions: [], routing: {} });
 
 export async function readState(path) {
   try { return { ...emptyState(), ...JSON.parse(await readFile(path, "utf8")) }; }

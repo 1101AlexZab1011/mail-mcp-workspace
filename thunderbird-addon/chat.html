@@ -1,0 +1,11 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Agent Chat</title>
+<link rel="stylesheet" href="style.css">
+<main class="chat">
+  <header><h1>Agent Chat</h1><span id="connection" role="status">Connecting…</span><button id="settings" class="icon-button" title="Agent Chat settings" aria-label="Agent Chat settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg></button></header>
+  <p class="notice">Messages remain local. An agent replies only while an agent session is available.</p>
+  <section id="messages" aria-live="polite"></section>
+  <form id="compose"><div class="composer-field"><textarea id="text" maxlength="12000" placeholder="Write to your agent" required></textarea><div id="skill-suggestions" role="listbox" aria-label="Email skills" hidden></div><button class="icon-button send" title="Send message" aria-label="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 3-7.2 18-3.6-7.2L3 10.2 21 3Z"/><path d="m10.2 13.8 4.2-4.2"/></svg></button></div></form>
+</main>
+<script src="chat.js"></script>

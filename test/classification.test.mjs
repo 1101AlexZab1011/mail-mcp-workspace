@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { classifyResponseStatus, matchGroup, normalizeSubject } from "../src/classification.mjs";
 import { readState, writeState } from "../src/state.mjs";
+import { routingSourceMailboxes } from "../src/workflow.mjs";
 
 test("normalizes repeated reply prefixes", () => assert.equal(normalizeSubject("Re: Fwd:  Project update"), "project update"));
 test("response status distinguishes no-reply, unreplied, and replied", () => {
@@ -16,6 +17,12 @@ test("uses first matching account rule and safe fallback", () => {
   const rules = [{ group: "Finance", keywords: ["invoice"] }, { group: "General", keywords: ["update"] }];
   assert.equal(matchGroup("Re: Invoice update", rules), "Finance");
   assert.equal(matchGroup("Hello", rules), "General");
+});
+
+test("routes delivery folders but never workflow or special-use folders", () => {
+  const mailboxes = ["INBOX", "Additional", "Important", "Active/Research", "Pending/General", "Sent", "Archived"];
+  assert.deepEqual(routingSourceMailboxes(mailboxes, {}), ["INBOX", "Additional", "Important"]);
+  assert.deepEqual(routingSourceMailboxes(mailboxes, { routing_source_mailboxes: ["INBOX", "Important", "Missing"] }), ["INBOX", "Important"]);
 });
 
 test("workflow state is local and persists response records", async () => {

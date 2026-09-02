@@ -20,6 +20,11 @@ email-mcp.config.toml
 .cursor/
 .vscode/
 .thunderbird/
+dist/
+
+# Local Agent Chat listener configuration and conversations
+agent-chat.json
+agent-chat-state.json
 
 # Local implementation notes and plans
 plans/

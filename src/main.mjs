@@ -1,9 +1,18 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
+import { promisify } from "node:util";
 import { z } from "zod";
 import { accountPolicy, defaultStatePath, initPolicy, loadEmailConfig, loadPolicy } from "./config.mjs";
 import { classifyMailbox, fileReviewedMessage, overrideStatus, reviewPending, routeInbox, searchStatuses, undoLastRun } from "./workflow.mjs";
+
+const execFileAsync = promisify(execFile);
+const watcherService = "mail-mcp-workflow-watcher.service";
 
 async function context() {
   return { accounts: await loadEmailConfig(), policy: await loadPolicy(), statePath: process.env.MAIL_WORKFLOW_STATE ?? defaultStatePath };
@@ -23,6 +32,19 @@ async function sync(accountName, dryRun = true) {
   const classified = await classifyMailbox({ ...selected, policy: selected.policy, limit: 250 });
   const pending = await reviewPending({ ...selected, dryRun, limit: 250 });
   return { routed, classified: classified.length + pending.length, policy: accountPolicy(selected.policy, accountName) };
+}
+
+async function installWatcherService(account, seconds) {
+  if (!account || !Number.isFinite(seconds) || seconds < 30) throw new Error("Usage: mail-workflow-mcp install-watcher-service <account> [seconds, minimum 30]");
+  await select(account);
+  const unitPath = resolve(process.env.XDG_CONFIG_HOME ?? resolve(homedir(), ".config"), `systemd/user/${watcherService}`);
+  const scriptPath = fileURLToPath(import.meta.url);
+  await mkdir(dirname(unitPath), { recursive: true, mode: 0o700 });
+  await writeFile(unitPath, `[Unit]\nDescription=Mail MCP workflow watcher\n\n[Service]\nWorkingDirectory=${resolve(dirname(scriptPath), "..")}\nExecStart=${process.execPath} ${scriptPath} watch ${account} ${seconds} --apply\nRestart=on-failure\nRestartSec=15\n\n[Install]\nWantedBy=default.target\n`, { mode: 0o600 });
+  await chmod(unitPath, 0o600);
+  await execFileAsync("systemctl", ["--user", "daemon-reload"]);
+  await execFileAsync("systemctl", ["--user", "enable", "--now", watcherService]);
+  return { service: watcherService, account, interval_seconds: seconds, unit_path: unitPath };
 }
 
 async function runMcp() {
@@ -55,7 +77,7 @@ async function runMcp() {
 }
 
 const command = process.argv[2] ?? "stdio";
-if (command === "help" || command === "--help" || command === "-h") console.log("Usage: mail-workflow-mcp [stdio|init|sync <account> [--apply]|watch <account> [seconds] [--apply]]");
+if (command === "help" || command === "--help" || command === "-h") console.log("Usage: mail-workflow-mcp [stdio|init|sync <account> [--apply]|watch <account> [seconds] [--apply]|install-watcher-service <account> [seconds]]");
 else if (command === "init") console.log(`Created policy template: ${await initPolicy()}`);
 else if (command === "sync") {
   const account = process.argv[3];
@@ -66,8 +88,16 @@ else if (command === "sync") {
   const seconds = Number(process.argv[4] ?? 300);
   const apply = process.argv.includes("--apply");
   if (!account || !Number.isFinite(seconds) || seconds < 30) throw new Error("Usage: mail-workflow-mcp watch <account> [seconds, minimum 30]");
-  await sync(account, !apply);
-  setInterval(() => { void sync(account, !apply).catch((e) => console.error(e.message)); }, seconds * 1000);
+  const run = async () => {
+    const selected = await select(account);
+    return routeInbox({ ...selected, dryRun: !apply });
+  };
+  await run();
+  setInterval(() => { void run().catch((e) => console.error(e.message)); }, seconds * 1000);
   console.error(`Watching ${account} every ${seconds} seconds in ${apply ? "apply" : "dry-run"} mode.`);
+} else if (command === "install-watcher-service") {
+  const account = process.argv[3];
+  const seconds = Number(process.argv[4] ?? 60);
+  console.log(JSON.stringify(await installWatcherService(account, seconds), null, 2));
 } else if (command === "stdio") await runMcp();
-else throw new Error("Usage: mail-workflow-mcp [stdio|init|sync <account> [--apply]|watch <account> [seconds] [--apply]]");
+else throw new Error("Usage: mail-workflow-mcp [stdio|init|sync <account> [--apply]|watch <account> [seconds] [--apply]|install-watcher-service <account> [seconds]]");

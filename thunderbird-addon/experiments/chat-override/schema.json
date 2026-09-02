@@ -1,0 +1,13 @@
+[
+  {
+    "namespace": "ChatOverride",
+    "events": [
+      {
+        "name": "onNativeChat",
+        "type": "function",
+        "description": "Fires when the Thunderbird Chat control is activated.",
+        "parameters": [{ "name": "callback", "type": "function" }]
+      }
+    ]
+  }
+]
