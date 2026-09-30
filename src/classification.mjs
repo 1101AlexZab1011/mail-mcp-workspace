@@ -20,10 +20,17 @@ export function classifyUrgency({ subject = "", body = "" }) {
     : { important: false, reason: "No immediate action, deadline, or security signal was detected." };
 }
 
+const escapeKeyword = (keyword) => keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Substring matching made short keywords catch anything: "it" matched Invitation and
+// Institute, so most institute mail was filed as IT. Keywords match whole words instead,
+// with the boundaries written out because \b does not work next to non-ASCII letters.
+const keywordPattern = (keyword) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeKeyword(keyword.toLowerCase())}(?![\\p{L}\\p{N}])`, "u");
+
 export function matchGroup(subject, rules = []) {
   const normalized = normalizeSubject(subject);
   for (const rule of rules) {
-    if ((rule.keywords ?? []).some((keyword) => normalized.includes(keyword.toLowerCase()))) return rule.group;
+    if ((rule.keywords ?? []).some((keyword) => keywordPattern(keyword).test(normalized))) return rule.group;
   }
   return "General";
 }

@@ -32,3 +32,17 @@ test("workflow state is local and persists response records", async () => {
   await writeState(path, state);
   assert.equal((await readState(path)).records["personal:<one@example.test>"].status, "unreplied");
 });
+
+test("subject keywords match whole words, not fragments", () => {
+  const rules = [
+    { group: "IT-and-access", keywords: ["it", "hpc", "account"] },
+    { group: "Meetings-and-events", keywords: ["meeting", "colloquium", "defense"] },
+  ];
+  // "it" used to match inside Invitation and Institute, filing most institute mail as IT.
+  assert.equal(matchGroup("Invitation to Guest Lecture", rules), "General");
+  assert.equal(matchGroup("Ice Cream Day at the Institute", rules), "General");
+  assert.equal(matchGroup("IT ticket about your account", rules), "IT-and-access");
+  assert.equal(matchGroup("[Hpc-users] Maintenance of the HPC cluster", rules), "IT-and-access");
+  assert.equal(matchGroup("Cognition Colloquium Rentrée", rules), "Meetings-and-events");
+  assert.equal(matchGroup("Re: Department Meeting September 7th", rules), "Meetings-and-events");
+});

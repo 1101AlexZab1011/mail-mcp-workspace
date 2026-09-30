@@ -10,7 +10,10 @@ const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 function inside(path, parent) { const value = relative(parent, path); return value === "" || (!value.startsWith("..") && !isAbsolute(value)); }
 function protectedPaths() { const home = homedir(); return [resolve(home, ".config/email-mcp"), resolve(home, ".config/mail-mcp-workspace")]; }
 export async function validateAttachments(attachments) {
-  if (!Array.isArray(attachments) || attachments.length === 0) throw new Error("Provide at least one attachment.");
+  // A reply often carries no file, and sending it here rather than through the mail
+  // server's own reply tool is what gets a copy filed in Sent.
+  if (attachments === undefined || attachments === null) return [];
+  if (!Array.isArray(attachments)) throw new Error("Attachments must be a list.");
   if (attachments.length > MAX_ATTACHMENTS) throw new Error(`At most ${MAX_ATTACHMENTS} attachments are allowed.`);
   let totalBytes = 0; const validated = [];
   for (const attachment of attachments) {
@@ -43,9 +46,15 @@ async function appendSentCopy(account, raw) {
     return sent;
   } finally { await client.logout(); }
 }
-export async function sendWithAttachments({ account, to, cc, bcc, subject, body, html, attachments }) {
+// Threading is by header: In-Reply-To carries the message being answered, References the
+// chain it belongs to. Without both, mail clients file the reply as a new conversation.
+export function messageFor({ account, to, cc, bcc, subject, body, html, files, in_reply_to, references }) {
+  const chain = references ?? (in_reply_to ? [in_reply_to] : undefined);
+  return { from: sender(account), to, cc, bcc, subject, text: html ? undefined : body, html: html ? body : undefined, inReplyTo: in_reply_to, references: chain, attachments: files.map(({ path, filename, contentType }) => ({ path, filename, contentType })) };
+}
+export async function sendWithAttachments({ account, to, cc, bcc, subject, body, html, attachments, in_reply_to, references }) {
   const files = await validateAttachments(attachments);
-  const message = { from: sender(account), to, cc, bcc, subject, text: html ? undefined : body, html: html ? body : undefined, attachments: files.map(({ path, filename, contentType }) => ({ path, filename, contentType })) };
+  const message = messageFor({ account, to, cc, bcc, subject, body, html, files, in_reply_to, references });
   const built = await nodemailer.createTransport({ streamTransport: true, buffer: true }).sendMail(message);
   const recipients = [to, cc, bcc].flatMap((value) => value ? (Array.isArray(value) ? value : [value]) : []);
   const result = await smtpTransport(account).sendMail({ raw: built.message, envelope: { from: account.email, to: recipients } });
