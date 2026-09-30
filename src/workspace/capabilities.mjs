@@ -134,7 +134,11 @@ export class Capabilities {
       waiters = [];
     };
     child.stdout.on("data", (data) => push("stdout", data));
-    child.stderr.on("data", (data) => push("stderr", data));
+    // A shell without a terminal warns about job control on start; that is noise here.
+    child.stderr.on("data", (data) => {
+      const text = String(data).replace(/^bash: (cannot set terminal process group.*|no job control in this shell)\n?/gm, "");
+      if (text) push("stderr", text);
+    });
     child.on("close", (code) => { closed = true; clearTimeout(idle); push("exit", String(code)); setTimeout(() => this.sessions.delete(id), 60_000).unref(); });
     // Sessions nobody touches for 30 minutes are ended.
     const arm = () => setTimeout(() => child.kill("SIGHUP"), 30 * 60_000).unref();

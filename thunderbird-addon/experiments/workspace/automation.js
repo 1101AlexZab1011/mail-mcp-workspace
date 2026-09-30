@@ -13,6 +13,8 @@
 /* global Services, ChromeUtils, Cc, Ci */
 
 var MW_XHTML = "http://www.w3.org/1999/xhtml";
+/** The window an element lives in (some chrome elements lack ownerGlobal). */
+const winOf = (el) => el.ownerDocument?.defaultView ?? el.ownerGlobal;
 
 function preparePrefs() {
   // Without a tab bar a message opened "in a new tab" would be invisible, so
@@ -69,7 +71,8 @@ function getState(window, docks) {
   const tabmail = window.gTabmail;
   const info = tabmail?.currentTabInfo;
   const state = {
-    space: window.gSpacesToolbar?.currentSpace?.name ?? null,
+    // Add-on spaces carry an internal prefix ("…-spacesButton-viewer"); report the short name.
+    space: window.gSpacesToolbar?.currentSpace?.name?.replace(/^.*-spacesButton-/, "") ?? null,
     tab: info ? { mode: info.mode?.name, title: info.title, url: info.browser?.currentURI?.spec ?? null } : null,
     docks,
   };
@@ -79,7 +82,7 @@ function getState(window, docks) {
       const folder = about3Pane.gFolder;
       const hdrs = about3Pane.gDBView?.getSelectedMsgHdrs?.() ?? [];
       state.mail = {
-        folder: folder ? { uri: folder.URI, name: folder.prettyName, account: folder.server?.prettyName, unread: folder.getNumUnread(false), total: folder.getTotalMessages(false) } : null,
+        folder: folder ? { uri: folder.URI, name: folder.localizedName ?? folder.prettyName ?? folder.name, account: folder.server?.prettyName, unread: folder.getNumUnread(false), total: folder.getTotalMessages(false) } : null,
         selected: hdrs.slice(0, 50).map(describeHeader),
         selectedCount: hdrs.length,
       };
@@ -128,6 +131,9 @@ function documentsOf(window) {
       if (!inner || !inner.documentElement) continue;
       const rect = frame.getBoundingClientRect();
       if (!rect.width || !rect.height) continue;
+      // A background tab's document still lays itself out; only frames that are
+      // actually showing in their parent count.
+      if (!isVisible(frame)) continue;
       const next = { x: offset.x + rect.x, y: offset.y + rect.y };
       docs.push({ doc: inner, offset: next, where: inner.location?.href?.split("?")[0] ?? "frame" });
       visit(inner, next, depth + 1);
@@ -154,8 +160,15 @@ function isVisible(el) {
   if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
   const rect = el.getBoundingClientRect();
   if (rect.width < 2 || rect.height < 2) return false;
-  const view = el.ownerGlobal;
-  return rect.bottom > 0 && rect.right > 0 && rect.top < view.innerHeight && rect.left < view.innerWidth;
+  const view = winOf(el);
+  if (!(rect.bottom > 0 && rect.right > 0 && rect.top < view.innerHeight && rect.left < view.innerWidth)) return false;
+  // Hidden toolbars can still report a box; what is actually under the element's
+  // centre decides. Shadow DOM reports its host, so containment counts both ways.
+  const x = Math.min(Math.max(rect.left + rect.width / 2, 0), view.innerWidth - 1);
+  const y = Math.min(Math.max(rect.top + rect.height / 2, 0), view.innerHeight - 1);
+  const top = el.ownerDocument.elementFromPoint(x, y);
+  if (!top) return false;
+  return top === el || el.contains(top) || top.contains(el) || (el.getRootNode?.().host && top.contains(el.getRootNode().host));
 }
 
 function snapshot(window, { limit = 400, query } = {}) {
@@ -232,7 +245,7 @@ function centerOf(el) {
 }
 
 function mouse(el, type, button = 0, count = 1) {
-  const utils = el.ownerGlobal.windowUtils;
+  const utils = winOf(el).windowUtils;
   const { x, y } = centerOf(el);
   utils.sendMouseEvent(type, x, y, button, count, 0);
 }
@@ -262,13 +275,13 @@ async function act(window, ref, action, value, { check } = {}) {
       el.focus();
       if (typeof el.setUserInput === "function") el.setUserInput(value ?? "");
       else if (el.isContentEditable) el.ownerDocument.execCommand("insertText", false, value ?? "");
-      else if ("value" in el) { el.value = value ?? ""; el.dispatchEvent(new el.ownerGlobal.Event("input", { bubbles: true })); el.dispatchEvent(new el.ownerGlobal.Event("change", { bubbles: true })); }
+      else if ("value" in el) { el.value = value ?? ""; el.dispatchEvent(new winOf(el).Event("input", { bubbles: true })); el.dispatchEvent(new winOf(el).Event("change", { bubbles: true })); }
       break;
     }
     case "select": {
       if (el.localName === "menulist" || el.localName === "select") {
         el.value = value;
-        el.dispatchEvent(new el.ownerGlobal.Event(el.localName === "select" ? "change" : "command", { bubbles: true }));
+        el.dispatchEvent(new winOf(el).Event(el.localName === "select" ? "change" : "command", { bubbles: true }));
       } else click(el);
       break;
     }
@@ -328,7 +341,7 @@ async function screenshot(window, { ref, scale } = {}) {
     // Elements in embedded documents are offset by their browser's position.
     let x = box.x;
     let y = box.y;
-    for (let frame = el.ownerGlobal.browsingContext?.embedderElement; frame; frame = frame.ownerGlobal.browsingContext?.embedderElement) {
+    for (let frame = winOf(el).browsingContext?.embedderElement; frame; frame = winOf(frame).browsingContext?.embedderElement) {
       const r = frame.getBoundingClientRect();
       x += r.x; y += r.y;
     }

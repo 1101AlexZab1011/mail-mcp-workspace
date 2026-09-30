@@ -62,12 +62,13 @@ const commands = {
 
   async act({ ref, action = "click", value, confirmed }) {
     const page = await pageFor(ref);
-    if (page) return browser.runtime.sendMessage({ to: page, type: "act", ref, action, value });
+    if (page) { await announceAgentInput(); return browser.runtime.sendMessage({ to: page, type: "act", ref, action, value }); }
     const verdict = await browser.workspace.act(ref, action, value, { check: true });
     if (verdict.irreversible && !confirmed) {
       const approved = await askUser({ kind: verdict.kind, title: `The agent wants to ${action} “${verdict.name}”`, detail: verdict.reason });
       if (!approved) return { declined: true, reason: "The user declined this action" };
     }
+    await announceAgentInput();
     return browser.workspace.act(ref, action, value);
   },
 
@@ -77,6 +78,7 @@ const commands = {
       const approved = await askUser({ kind: verdict.kind, title: `The agent wants to press ${combo}`, detail: verdict.reason });
       if (!approved) return { declined: true, reason: "The user declined this action" };
     }
+    await announceAgentInput();
     return browser.workspace.pressKey(combo);
   },
 
@@ -101,6 +103,9 @@ const commands = {
 
   async "calendar.goto"({ date, view }) { return browser.workspace.calendarGoto(date, view); },
 };
+
+/** Tell every page the agent is about to send input, so user-only controls ignore it. */
+const announceAgentInput = (ms = 2500) => browser.runtime.sendMessage({ to: "*", type: "agent-input", ms }).catch(() => {});
 
 async function run(event) {
   const { command, args = {} } = event.data ?? {};

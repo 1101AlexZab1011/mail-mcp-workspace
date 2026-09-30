@@ -362,6 +362,7 @@ registerPage("files", {
 
 // ------------------------------------------------------------------ start --
 
+$(".filterbar").prepend(icon("search", { size: 18 }));
 watchDockWidth();
 const saved = await browser.storage.local.get({ "files.root": "~", "files.hidden": false }).catch(() => ({ "files.root": "~", "files.hidden": false }));
 state.hidden = saved["files.hidden"];

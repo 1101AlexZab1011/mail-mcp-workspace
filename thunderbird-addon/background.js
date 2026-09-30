@@ -59,6 +59,10 @@ const pageRequests = {
   "attach-to-chat": ({ files }) => deliver("chat", { type: "attach", files }),
   "open-space": ({ name, query }) => openSpace(name, query),
   "set-dock": ({ side, change }) => browser.workspace.setDock(side, change),
+  "chat-draft": async ({ text }) => {
+    await browser.workspace.setDock("left", { state: "open" });
+    return deliver("chat", { type: "draft", text });
+  },
   "files-reveal": async ({ path }) => {
     const docks = await browser.workspace.getDocks();
     if (docks.find((d) => d.side === "right")?.state === "minimized") await browser.workspace.setDock("right", { state: "open" });

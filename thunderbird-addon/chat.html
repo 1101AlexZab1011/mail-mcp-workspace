@@ -1,20 +1,50 @@
 <!doctype html>
+<html lang="en">
 <meta charset="utf-8">
-<title>Agent Chat</title>
-<link rel="icon" href="chat-icon.svg">
+<title>Agent</title>
+<link rel="icon" href="icons/smart_toy.svg">
+<link rel="stylesheet" href="shared/ui.css">
 <link rel="stylesheet" href="vendor/prism.css">
 <link rel="stylesheet" href="vendor/katex.css">
 <link rel="stylesheet" href="style.css">
-<main class="chat">
-  <header><h1>Agent Chat</h1><span id="connection" role="status">Connecting…</span><button id="settings" class="icon-button" title="Agent Chat settings" aria-label="Agent Chat settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg></button></header>
-  <p class="notice">Messages remain local. An agent replies only while an agent session is available.</p>
-  <section id="messages" aria-live="polite"><article id="typing" class="typing" role="status" aria-label="Agent is working on a response" hidden><span></span><span></span><span></span></article></section>
-  <form id="compose"><div class="composer-stack"><div id="preview" class="markdown" aria-live="off" hidden></div><div id="attachments" hidden></div></div><div class="composer-field"><textarea id="text" maxlength="12000" placeholder="Write to your agent" required></textarea><div id="skill-suggestions" role="listbox" aria-label="Email skills" hidden></div><div class="composer-actions"><input id="file-input" type="file" multiple hidden><button id="attach" type="button" class="icon-button" title="Attach files" aria-label="Attach files"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m3.845 10.224l5.739-5.53c5.429-5.237 14.246 2.843 8.596 8.294l-7.112 6.862c-3.684 3.554-9.667-1.929-5.833-5.628l7.01-6.763c1.939-1.87 5.087 1.015 3.07 2.962L9.492 16"/></svg></button><button id="send" class="icon-button send" title="Send message" aria-label="Send message" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 3-7.2 18-3.6-7.2L3 10.2 21 3Z"/><path d="m10.2 13.8 4.2-4.2"/></svg></button></div></div></form>
-</main>
-<script src="vendor/prism-init.js"></script>
-<script src="vendor/prism.js"></script>
-<script src="vendor/prism-languages.js"></script>
-<script src="vendor/katex.js"></script>
-<script src="vendor/marked.js"></script>
-<script src="vendor/purify.js"></script>
-<script src="chat.js"></script>
+<body>
+  <div id="rail" class="rail">
+    <button id="rail-open" class="icon-btn" type="button" title="Show chat (Ctrl+5)" aria-label="Show chat"></button>
+    <span id="rail-dot" class="dot"></span>
+    <span id="rail-badge" class="badge" hidden></span>
+  </div>
+  <main class="chat">
+    <header class="appbar chat-bar">
+      <span class="avatar" id="avatar"></span>
+      <div class="identity">
+        <h1>Agent</h1>
+        <span class="presence"><span id="presence-dot" class="dot"></span><span id="connection" role="status">Connecting…</span></span>
+      </div>
+      <span class="spacer"></span>
+      <span id="dock-actions" class="actions"><button id="settings" class="icon-btn small" type="button" title="Chat settings" aria-label="Chat settings"></button></span>
+    </header>
+    <section id="messages" aria-live="polite"><article id="typing" class="typing" role="status" aria-label="Agent is working on a response" hidden><span></span><span></span><span></span></article></section>
+    <div id="confirmations" class="confirmations" aria-live="assertive"></div>
+    <form id="compose">
+      <div class="composer-stack"><div id="preview" class="markdown" aria-live="off" hidden></div><div id="attachments" hidden></div></div>
+      <div class="composer-field">
+        <textarea id="text" maxlength="12000" placeholder="Message your agent" required></textarea>
+        <div id="skill-suggestions" role="listbox" aria-label="Skills" hidden></div>
+        <div class="composer-actions">
+          <input id="file-input" type="file" multiple hidden>
+          <button id="attach" type="button" class="icon-btn small" title="Attach files" aria-label="Attach files"></button>
+          <span class="hint"><kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</span>
+          <button id="send" class="send" title="Send message" aria-label="Send message" disabled></button>
+        </div>
+      </div>
+    </form>
+  </main>
+  <script src="vendor/prism-init.js"></script>
+  <script src="vendor/prism.js"></script>
+  <script src="vendor/prism-languages.js"></script>
+  <script src="vendor/katex.js"></script>
+  <script src="vendor/marked.js"></script>
+  <script src="vendor/purify.js"></script>
+  <script type="module" src="chat.js"></script>
+</body>
+</html>

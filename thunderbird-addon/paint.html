@@ -1,5 +1,36 @@
 <!doctype html>
+<html lang="en">
 <meta charset="utf-8">
-<title>paint</title>
+<title>Paint</title>
 <link rel="stylesheet" href="shared/ui.css">
-<body><div class="empty"><h2>paint</h2><p>Coming up.</p></div></body>
+<link rel="stylesheet" href="paint.css">
+<body>
+  <header class="appbar">
+    <h1>Paint</h1>
+    <span id="doc-size" class="subtitle"></span>
+    <span class="spacer"></span>
+    <span id="history" class="actions"></span>
+    <span class="divider"></span>
+    <span id="file-actions" class="actions"></span>
+    <button id="send" class="btn primary" type="button"></button>
+  </header>
+  <div class="workspace">
+    <nav id="tools" class="tools" aria-label="Tools"></nav>
+    <div id="viewport" class="viewport" tabindex="0">
+      <canvas id="canvas"></canvas>
+      <textarea id="text-editor" class="text-editor" hidden spellcheck="false"></textarea>
+      <div id="empty" class="paint-empty">
+        <div class="empty-card"></div>
+      </div>
+    </div>
+    <aside id="props" class="props" aria-label="Style"></aside>
+  </div>
+  <footer class="statusbar">
+    <span id="status"></span>
+    <span class="spacer"></span>
+    <span id="zoom-controls" class="actions"></span>
+  </footer>
+  <input id="file-input" type="file" accept="image/*" hidden>
+  <script type="module" src="paint.js"></script>
+</body>
+</html>

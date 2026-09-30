@@ -1,3 +1,9 @@
+// Agent chat, docked on the left. Messages are listener-mcp events on
+// mail/chat/default; the agent's answers come back on the same channel.
+import { icon } from "./shared/icons.js";
+import { registerPage, watchDockWidth, iconButton, h, agentIsActing, toast } from "./shared/page.js";
+import { HOST_ENDPOINT } from "./shared/broker.js";
+
 const messages = document.querySelector("#messages");
 const connection = document.querySelector("#connection");
 const text = document.querySelector("#text");
@@ -183,7 +189,14 @@ function setCanSend(value) {
   canSend = value;
   sendButton.disabled = !value;
   attachButton.disabled = !value;
-  text.placeholder = value ? "Write to your agent" : "Agent disconnected";
+  text.placeholder = value ? "Message your agent" : "No agent is listening · start one with /email-start-chat";
+}
+function setPresence(kind, label) {
+  connection.textContent = label;
+  for (const dot of [document.querySelector("#presence-dot"), document.querySelector("#rail-dot")]) {
+    dot.classList.toggle("on", kind === "on");
+    dot.classList.toggle("busy", kind === "busy");
+  }
 }
 let settings; let cursor = 0;
 let selectedSuggestion = 0;
@@ -223,10 +236,17 @@ async function hydrateAttachment(tile, file) {
   const id = blobId(file.path);
   const name = id ? file.path.split("/").pop().slice(id.length + 1) : file.path.split("/").pop();
   tile.title = [name, file.type, file.size].filter(Boolean).join(" · ");
+  tile.addEventListener("click", () => browser.runtime.sendMessage({ to: "background", type: "open-file", path: file.path }));
   try {
-    if (!id) throw new Error("not a listener-mcp blob");
     await ensureSettings();
-    const response = await fetch(`${settings.endpoint}/v1/blobs/${encodeURIComponent(id)}`, { headers: { authorization: `Bearer ${settings.token}` } });
+    let response;
+    if (id) response = await fetch(`${settings.endpoint}/v1/blobs/${encodeURIComponent(id)}`, { headers: { authorization: `Bearer ${settings.token}` } });
+    else {
+      // A file attached from the file browser lives where it is; the host serves it.
+      const link = await fetch(`${HOST_ENDPOINT}/v1/links`, { method: "POST", headers: { authorization: `Bearer ${settings.token}`, "content-type": "application/json" }, body: JSON.stringify({ path: file.path }) });
+      if (!link.ok) throw new Error(String(link.status));
+      response = await fetch(`${HOST_ENDPOINT}${(await link.json()).url}`);
+    }
     if (!response.ok) throw new Error(String(response.status));
     const blob = await response.blob();
     if (!blob.type.startsWith("image/")) {
@@ -316,18 +336,26 @@ async function refresh() {
     const [{ events }, presence] = await Promise.all([api(`/v1/events?channel=${channel}&after=${cursor}&limit=500`), api(`/v1/presence?channel=${channel}`)]);
     const pinned = cursor === 0 || atBottom();
     for (const event of events) { show(toItem(event), false); cursor = Math.max(cursor, event.seq); }
-    // "Active" means an agent is parked on the broker right now or is working on a message.
-    setCanSend(presence.listening || presence.busy);
+    // An attached agent receives the message even if it is between waits right now.
+    setCanSend(presence.listening || presence.busy || presence.attached);
+    if (events.some((event) => event.from.agent) && document.documentElement.hasAttribute("data-rail")) {
+      unread += events.filter((event) => event.from.agent).length;
+      railBadge.hidden = false;
+      railBadge.textContent = String(unread);
+    }
     const wasBusy = !typing.hidden;
     typing.hidden = !presence.busy;
     if ((events.length || typing.hidden !== wasBusy) && pinned) scrollToBottom();
-    connection.textContent = presence.busy ? "Agent working…" : presence.listening ? "Agent active" : "Agent disconnected";
+    if (presence.busy) setPresence("busy", "Working…");
+    else if (presence.listening) setPresence("on", "Listening");
+    else if (presence.attached) setPresence("on", "Attached");
+    else setPresence("off", "No agent connected");
   } catch (error) {
     setCanSend(false);
     // A failed fetch means the broker is down; either way the user needs the state, not
     // the transport error. Only genuinely unexpected failures keep their message.
     const unreachable = error instanceof TypeError || /NetworkError|Failed to fetch/i.test(error.message);
-    connection.textContent = unreachable ? "Listener unavailable · reconnecting" : error.message;
+    setPresence("off", unreachable ? "Listener unavailable · reconnecting" : error.message);
   }
 }
 document.querySelector("#compose").addEventListener("submit", async (event) => { event.preventDefault(); const value = text.value.trim(); if ((!value && !pending.length) || !canSend) return;
@@ -426,6 +454,91 @@ text.addEventListener("keydown", (event) => {
   }
 });
 document.querySelector("#settings").addEventListener("click", () => browser.runtime.openOptionsPage());
+
+// ---------------------------------------------------------------- dock ----
+
+const railBadge = document.querySelector("#rail-badge");
+let unread = 0;
+let dockState = "open";
+document.querySelector("#avatar").append(icon("smart_toy"));
+document.querySelector("#settings").append(icon("settings"));
+attachButton.append(icon("attach_file"));
+sendButton.append(icon("send", { fill: true }));
+document.querySelector("#rail-open").append(icon("forum"));
+document.querySelector("#rail-open").addEventListener("click", () => browser.workspace.setDock("left", { state: "open" }));
+function renderDockActions() {
+  const maximized = dockState === "maximized";
+  document.querySelector("#dock-actions").replaceChildren(
+    document.querySelector("#settings"),
+    iconButton(maximized ? "close_fullscreen" : "open_in_full", maximized ? "Restore" : "Maximize", () => browser.workspace.setDock("left", { state: maximized ? "open" : "maximized" }), { small: true }),
+    iconButton("left_panel_close", "Minimize (Ctrl+5)", () => browser.workspace.setDock("left", { state: "minimized" }), { small: true }),
+  );
+}
+browser.workspace.onDockChanged.addListener((dock) => { if (dock.side === "left") { dockState = dock.state; renderDockActions(); } });
+browser.workspace.getDocks().then((docks) => { dockState = docks.find((d) => d.side === "left")?.state ?? "open"; renderDockActions(); });
+watchDockWidth((rail) => { if (!rail) { unread = 0; railBadge.hidden = true; } });
+new ResizeObserver(() => document.documentElement.toggleAttribute("data-narrow", innerWidth < 360)).observe(document.body);
+
+// Confirmation cards: the GUI bridge asks here before irreversible agent actions.
+function confirmAction({ kind, title, detail }) {
+  if (dockState === "minimized") void browser.workspace.setDock("left", { state: "open" });
+  return new Promise((resolve) => {
+    const card = h("div.confirm-card", { role: "alertdialog", "aria-label": title, "data-user-only": "" });
+    const finish = (approved) => {
+      // Only the user's own input counts: the agent cannot approve its own request.
+      if (approved && agentIsActing()) { toast("This needs your own click"); return; }
+      clearTimeout(timer); card.remove(); resolve({ approved });
+    };
+    const timer = setTimeout(() => finish(false), 5 * 60_000);
+    const iconName = { send: "send", delete: "delete", move: "folder_open", settings: "settings" }[kind] ?? "warning";
+    card.append(
+      h("div.head", {}, icon(iconName), title),
+      detail ? h("div.detail", {}, detail) : null,
+      h("div.buttons", {},
+        h("button.btn", { type: "button", onclick: () => finish(false) }, "Decline"),
+        h("button.btn.primary", { type: "button", onclick: () => finish(true) }, "Allow")),
+    );
+    document.querySelector("#confirmations").append(card);
+    card.querySelector(".btn:not(.primary)").focus();
+  });
+}
+
+async function attachExisting(files, { focus } = {}) {
+  for (const file of files) {
+    let thumbnail = null;
+    if (file.type?.startsWith("image/")) {
+      try {
+        await ensureSettings();
+        const blobId = file.path.split("/").pop().match(/^(blob_[A-Za-z0-9_-]+)\./)?.[1];
+        const response = blobId
+          ? await fetch(`${settings.endpoint}/v1/blobs/${blobId}`, { headers: { authorization: `Bearer ${settings.token}` } })
+          : await fetch(`${HOST_ENDPOINT}${(await (await fetch(`${HOST_ENDPOINT}/v1/links`, { method: "POST", headers: { authorization: `Bearer ${settings.token}`, "content-type": "application/json" }, body: JSON.stringify({ path: file.path }) })).json()).url}`);
+        thumbnail = URL.createObjectURL(await response.blob());
+      } catch { thumbnail = null; }
+    }
+    if (!pending.some((item) => item.path === file.path)) pending.push({ ...file, thumbnail });
+  }
+  renderAttachments();
+  if (focus || dockState === "minimized") await browser.workspace.setDock("left", { state: "open" });
+  text.focus();
+  return { attached: files.length, pending: pending.length };
+}
+
+registerPage("chat", {
+  state: () => ({
+    status: connection.textContent,
+    canSend,
+    draft: text.value,
+    pendingAttachments: pending.map((file) => file.path),
+    dock: dockState,
+  }),
+  commands: {
+    attach: ({ files, focus }) => attachExisting(files ?? [], { focus }),
+    confirm: (request) => confirmAction(request),
+    focus: () => { text.focus(); return { ok: true }; },
+    draft: ({ text: value }) => { text.value = value ?? ""; autosize(); renderPreview(); text.focus(); return { ok: true }; },
+  },
+});
 autosize();
 renderPreview();
 void refresh();

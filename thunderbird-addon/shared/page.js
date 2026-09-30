@@ -3,6 +3,9 @@
 import { icon } from "./icons.js";
 
 const handlers = new Map();
+let agentInputUntil = 0;
+/** True while the agent is sending keyboard or mouse input: user-only controls ignore it. */
+export const agentIsActing = () => Date.now() < agentInputUntil;
 let pageName = "page";
 let stateProvider = () => ({});
 
@@ -15,6 +18,7 @@ export function registerPage(name, { commands = {}, state } = {}) {
   if (state) stateProvider = state;
   for (const [type, handler] of Object.entries(commands)) handlers.set(type, handler);
   browser.runtime.onMessage.addListener((message) => {
+    if (message?.to === "*" && message.type === "agent-input") { agentInputUntil = Date.now() + (message.ms ?? 2000); return undefined; }
     if (message?.to !== pageName) return undefined;
     const handler = handlers.get(message.type) ?? builtin[message.type];
     if (!handler) return Promise.resolve({ error: `Unknown command ${message.type} for ${pageName}` });
@@ -42,6 +46,7 @@ const builtin = {
       if (items.length >= limit) break;
       const rect = el.getBoundingClientRect();
       if (rect.width < 2 || rect.height < 2 || rect.bottom < 0 || rect.top > innerHeight || !el.checkVisibility()) continue;
+      if (el.closest("[data-user-only]")) continue; // approvals are the user's alone
       const name = label(el);
       if (query && !name.toLowerCase().includes(query.toLowerCase())) continue;
       const ref = `${pageName}:p${++n}`;
@@ -57,6 +62,7 @@ const builtin = {
   act: ({ ref, action, value }) => {
     const el = refs.get(ref)?.deref();
     if (!el?.isConnected) throw new Error(`Ref ${ref} is stale; take a new snapshot`);
+    if (el.closest("[data-user-only]")) throw new Error("This control is reserved for the user");
     el.scrollIntoView({ block: "nearest" });
     if (action === "click") el.click();
     else if (action === "dblclick") el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
