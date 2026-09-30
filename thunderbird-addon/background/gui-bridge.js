@@ -12,6 +12,7 @@ const AGENT = "thunderbird:gui";
 const GROUP = "mail-gui";
 const CHANNEL = "mail/gui/commands";
 const OWN_PAGES = ["viewer", "artifacts", "paint"];
+const PANELS = ["terminal"]; // pages outside the spaces, answered when loaded
 
 let ctx = null;
 
@@ -43,7 +44,7 @@ const commands = {
   async state() {
     const chrome = await browser.workspace.getState();
     const pages = {};
-    for (const page of ["chat", "files", ...OWN_PAGES]) {
+    for (const page of ["chat", "files", ...OWN_PAGES, ...PANELS]) {
       const value = await browser.runtime.sendMessage({ to: page, type: "state" }).catch(() => null);
       if (value && !value.error) pages[page] = value;
     }
@@ -106,6 +107,28 @@ const commands = {
   async "mail.select"({ folder, keys }) { await ctx.openSpace("mail"); return browser.workspace.selectMail(folder, keys); },
 
   async "calendar.goto"({ date, view }) { return browser.workspace.calendarGoto(date, view); },
+
+  async settings({ appearance, codeTheme }) {
+    if (appearance) {
+      if (!["system", "light", "dark"].includes(appearance)) throw new Error("appearance must be system, light or dark");
+      await browser.storage.local.set({ appearance });
+      await browser.workspace.setAppearance(appearance);
+    }
+    if (codeTheme) await browser.storage.local.set({ codeTheme });
+    return browser.storage.local.get({ appearance: "system", codeTheme: "one-dark-pro" });
+  },
+
+  async terminal({ visible, toggle, maximized, height }) { return browser.workspace.setTerminal({ visible, toggle, maximized, height }); },
+
+  /** Open a terminal in the panel (new tab, or split right/down) and return its id. */
+  async "terminal.open"({ placement = "tab", cwd, show = true }) {
+    await browser.workspace.setTerminal({ visible: true });
+    const result = await ctx.deliver("terminal", { type: "open", placement, cwd }, 60);
+    if (!show) await browser.workspace.setTerminal({ visible: false });
+    return result;
+  },
+
+  async "open-settings"() { await browser.runtime.openOptionsPage(); await browser.workspace.focusOwnTab(); return { ok: true }; },
 };
 
 /** Tell every page the agent is about to send input, so user-only controls ignore it. */

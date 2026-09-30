@@ -10,7 +10,9 @@
 
 var XHTML = "http://www.w3.org/1999/xhtml";
 var PREF_ROOT = "extensions.mailworkspace.";
-var RAIL_WIDTH = 52;
+// A minimized dock: the chat keeps a rail on the right; the file browser
+// disappears (its button lives in the spaces sidebar).
+var RAIL = { left: 0, right: 52 };
 var MIN_WIDTH = 260;
 // Files on the left (minimized), chat on the right (open): see shared/docks.js.
 var DEFAULTS = {
@@ -67,13 +69,22 @@ function createExtensionBrowser(document, extension, url) {
   }
   browser.setAttribute("flex", "1");
   browser.classList.add("mw-dock-browser");
+  let loaded = false;
   const load = () => {
+    if (loaded) return;
+    loaded = true;
     ExtensionParent.apiManager.emit("extension-browser-inserted", browser);
     browser.fixupAndLoadURIString(url, { triggeringPrincipal: extension.principal });
   };
   // Navigation is only possible once the frame loader exists, and not inside the
   // event that announces it: Thunderbird's popups defer to a promise tick too.
-  if (extension.remote) browser.addEventListener("XULFrameLoaderCreated", () => Promise.resolve().then(load), { once: true });
+  if (extension.remote) {
+    browser.addEventListener("XULFrameLoaderCreated", () => Promise.resolve().then(load), { once: true });
+    // A browser inserted while hidden may never announce its frame loader; load
+    // it directly once it has one.
+    const fallback = () => { if (loaded) return; if (browser.frameLoader && browser.webNavigation) load(); else browser.ownerGlobal?.setTimeout(fallback, 250); };
+    browser.ownerGlobal?.setTimeout(fallback, 500);
+  }
   return { browser, load: extension.remote ? null : load };
 }
 
@@ -84,7 +95,8 @@ function applyDock(window, dock) {
   const container = document.getElementById("tabmail-container");
   if (!element || !container) return;
   element.dataset.state = dock.state;
-  element.style.width = dock.state === "minimized" ? `${RAIL_WIDTH}px` : dock.state === "maximized" ? "" : `${dock.width}px`;
+  element.style.width = dock.state === "minimized" ? `${RAIL[dock.side]}px` : dock.state === "maximized" ? "" : `${dock.width}px`;
+  element.hidden = dock.state === "minimized" && RAIL[dock.side] === 0;
   resizer.hidden = dock.state !== "open";
   // Only one dock can be maximized; it hides everything else in the container.
   if (dock.state === "maximized") container.setAttribute("mw-maximized", dock.side);
@@ -110,7 +122,9 @@ function makeResizer(window, side, onResize) {
     const max = () => window.innerWidth - 360;
     const move = (e) => {
       const delta = side === "left" ? e.clientX - startX : startX - e.clientX;
-      dock.style.width = `${Math.max(MIN_WIDTH, Math.min(max(), startWidth + delta))}px`;
+      // The space manager decides how wide it may get, minimizing other panels first.
+      const width = fit(window, { side, width: Math.max(MIN_WIDTH, Math.min(max(), startWidth + delta)) }, ctxNotify(window));
+      dock.style.width = `${width}px`;
     };
     const up = () => {
       resizer.releasePointerCapture(event.pointerId);
@@ -140,6 +154,7 @@ function applyLayout(window, ctx) {
   if (!container || !tabmail) return;
 
   document.documentElement.setAttribute("mw-workspace", "true");
+  markAppearance(document);
   window.windowUtils.loadSheetUsingURIString(ctx.sheetUrl, window.windowUtils.AUTHOR_SHEET);
 
   for (const side of ["left", "right"]) {
@@ -161,10 +176,22 @@ function applyLayout(window, ctx) {
     load?.();
     applyDock(window, dock);
   }
+  window.mwCtx = ctx;
+  installSidebarButtons(window, ctx);
+  markSidebar(window, ctx.filesSide);
+  const stopSearch = installSearch(window);
+  dropEchoTooltips(window);
+  // Refit when the window changes size (debounced to a frame).
+  let pending = 0;
+  const refit = () => { if (pending) return; pending = window.requestAnimationFrame(() => { pending = 0; fit(window, null, ctxNotify(window)); }); };
+  const observer = new window.ResizeObserver(refit);
+  observer.observe(container);
 
   // Keyboard: Ctrl+5 toggles chat (right), Ctrl+6 files (left); Ctrl+7/8/9 open the add-on spaces.
   const onKey = (event) => {
     if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+    // Ctrl+` toggles the terminal (handled before the dock/space shortcuts).
+    if (event.code === "Backquote") { event.preventDefault(); event.stopPropagation(); setTerminal(window, ctx, { toggle: true }); return; }
     const map = { Digit5: "dock:right", Digit6: "dock:left", Digit7: "space:viewer", Digit8: "space:artifacts", Digit9: "space:paint" };
     const name = map[event.code];
     if (!name) return;
@@ -181,7 +208,7 @@ function applyLayout(window, ctx) {
     monitorName: "mailWorkspace",
     // A tab is opened before its page loads; the title change marks the load.
     onTabTitleChanged: markOwnTabs,
-    onTabSwitched: markOwnTabs,
+    onTabSwitched: () => { markOwnTabs(); window.setTimeout(() => fit(window, null, ctxNotify(window)), 50); },
     onTabOpened: markOwnTabs,
     onTabClosing() {},
     onTabPersist() {},
@@ -193,6 +220,13 @@ function applyLayout(window, ctx) {
   window.mailWorkspaceCleanup = () => {
     window.removeEventListener("keydown", onKey, true);
     tabmail.unregisterTabMonitor(monitor);
+    observer.disconnect();
+    stopSearch();
+    document.getElementById("mw-files-dock-button")?.remove();
+    document.getElementById("mw-appmenu-button")?.remove();
+    document.getElementById("mw-terminal")?.remove();
+    delete window.mwCtx;
+    delete window.mwAutoStack;
   };
 }
 
@@ -225,8 +259,35 @@ var PANE_DOCS = /^about:(3pane|message|addressbook)/;
 var themeObserver = null;
 var themedDocs = new Set();
 
+function ctxNotify(window) {
+  return (dock) => { window.mwCtx?.notify?.(dock); markSidebar(window, window.mwCtx?.filesSide ?? "left"); };
+}
+
+var APPEARANCE_PREF = "extensions.mailworkspace.appearance";
+var THEME_ADDONS = { light: "thunderbird-compact-light@mozilla.org", dark: "thunderbird-compact-dark@mozilla.org", system: "default-theme@mozilla.org" };
+
+/** Mark a document with the chosen appearance (tokens.css reads data-theme). */
+function markAppearance(doc) {
+  const mode = Services.prefs.getStringPref(APPEARANCE_PREF, "system");
+  if (mode === "light" || mode === "dark") doc.documentElement?.setAttribute("data-theme", mode);
+  else doc.documentElement?.removeAttribute("data-theme");
+}
+
+async function setAppearance(mode, windows) {
+  Services.prefs.setStringPref(APPEARANCE_PREF, mode);
+  const { AddonManager } = ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");
+  const theme = await AddonManager.getAddonByID(THEME_ADDONS[mode] ?? THEME_ADDONS.system);
+  if (theme && !theme.isActive) await theme.enable();
+  for (const window of windows) markAppearance(window.document);
+  for (const doc of themedDocs) markAppearance(doc);
+  return { appearance: mode };
+}
+
 function themeDocument(doc, url) {
   if (!doc?.defaultView || themedDocs.has(doc)) return;
+  markAppearance(doc);
+  onePaneBehaviour(doc);
+  dropEchoTooltips(doc);
   try {
     doc.defaultView.windowUtils.loadSheetUsingURIString(url, doc.defaultView.windowUtils.AUTHOR_SHEET);
     themedDocs.add(doc);
@@ -270,4 +331,70 @@ function removeTheme(url) {
     try { doc.defaultView.windowUtils.removeSheetUsingURIString(url, doc.defaultView.windowUtils.AUTHOR_SHEET); } catch { /* gone */ }
   }
   themedDocs.clear();
+}
+
+
+// --------------------------------------------------------------- terminal --
+// Ctrl+` slides a terminal up from the bottom. It covers what is under it
+// (panels keep their layout) and keeps running while hidden.
+
+var TERMINAL_HEIGHT_PREF = "extensions.mailworkspace.terminal.height";
+
+function terminalState(window) {
+  const panel = window.document.getElementById("mw-terminal");
+  return {
+    visible: Boolean(panel && !panel.hidden),
+    maximized: panel?.hasAttribute("maximized") ?? false,
+    height: Services.prefs.getIntPref(TERMINAL_HEIGHT_PREF, Math.round(window.innerHeight * 0.42)),
+  };
+}
+
+function ensureTerminal(window, ctx) {
+  const document = window.document;
+  let panel = document.getElementById("mw-terminal");
+  if (panel) return panel;
+  panel = document.createElementNS(XHTML, "div");
+  panel.id = "mw-terminal";
+  panel.hidden = true;
+  const grip = document.createElementNS(XHTML, "div");
+  grip.className = "mw-terminal-grip";
+  grip.title = "Drag to resize the terminal";
+  grip.addEventListener("pointerdown", (event) => {
+    grip.setPointerCapture(event.pointerId);
+    panel.classList.add("resizing");
+    const startY = event.clientY;
+    const startHeight = panel.getBoundingClientRect().height;
+    const move = (e) => { panel.style.height = `${Math.max(120, Math.min(window.innerHeight - 60, startHeight + startY - e.clientY))}px`; };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", () => {
+      grip.removeEventListener("pointermove", move);
+      panel.classList.remove("resizing");
+      Services.prefs.setIntPref(TERMINAL_HEIGHT_PREF, Math.round(panel.getBoundingClientRect().height));
+    }, { once: true });
+  });
+  panel.append(grip);
+  document.getElementById("messengerBody").append(panel);
+  return panel;
+}
+
+function setTerminal(window, ctx, change = {}) {
+  const panel = ensureTerminal(window, ctx);
+  const visible = change.toggle ? panel.hidden : change.visible ?? !panel.hidden;
+  if (change.maximized !== undefined) panel.toggleAttribute("maximized", change.maximized);
+  if (Number.isInteger(change.height)) Services.prefs.setIntPref(TERMINAL_HEIGHT_PREF, Math.max(120, change.height));
+  panel.style.height = panel.hasAttribute("maximized") ? "" : `${terminalState(window).height}px`;
+  // The page (and its first shell) is created the first time the panel opens,
+  // after the panel is shown, so its frame is laid out.
+  if (visible) panel.hidden = false;
+  if (visible && !panel.querySelector("browser")) {
+    const { browser, load } = createExtensionBrowser(window.document, ctx.extension, ctx.terminalUrl);
+    browser.id = "mw-terminal-browser";
+    panel.append(browser);
+    load?.();
+  }
+  panel.hidden = !visible;
+  const browser = panel.querySelector("browser");
+  if (visible) window.setTimeout(() => browser?.focus(), 50);
+  else if (window.document.activeElement === browser) window.gTabmail?.currentTabInfo?.browser?.focus?.();
+  return terminalState(window);
 }

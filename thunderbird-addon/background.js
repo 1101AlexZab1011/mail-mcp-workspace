@@ -5,9 +5,9 @@ import { startGuiBridge } from "./background/gui-bridge.js";
 import { CHAT_SIDE, FILES_SIDE } from "./shared/docks.js";
 
 const SPACES = [
-  { name: "viewer", title: "Files", url: "viewer.html", icon: "preview" },
-  { name: "artifacts", title: "Artifacts", url: "artifacts.html", icon: "artifact" },
-  { name: "paint", title: "Paint", url: "paint.html", icon: "brush" },
+  { name: "viewer", title: "File viewer (Ctrl+7)", url: "viewer.html", icon: "preview" },
+  { name: "artifacts", title: "Artifacts (Ctrl+8)", url: "artifacts.html", icon: "artifact" },
+  { name: "paint", title: "Paint (Ctrl+9)", url: "paint.html", icon: "brush" },
 ];
 
 async function installSpaces() {
@@ -81,7 +81,7 @@ browser.runtime.onMessage.addListener((message) => {
 
 async function start() {
   const pages = { [CHAT_SIDE]: browser.runtime.getURL("chat.html?dock=1"), [FILES_SIDE]: browser.runtime.getURL("files.html") };
-  await browser.workspace.install({ leftUrl: pages.left, rightUrl: pages.right });
+  await browser.workspace.install({ filesSide: FILES_SIDE, terminalUrl: browser.runtime.getURL("terminal.html"), leftUrl: pages.left, rightUrl: pages.right });
   await installSpaces();
   await closeLegacyChatTabs();
   await ensurePaired().catch(() => {});

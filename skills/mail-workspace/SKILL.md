@@ -1,13 +1,14 @@
 ---
 name: mail-workspace
-description: Operate the Mail Workspace GUI in Thunderbird for the user through the mail-gui MCP server - see what is selected, open spaces, files, artifacts and paint, click and type in any part of the interface, build artifacts. Use when the user asks you to do something in their mail client, file viewer, artifacts, paint, calendar, contacts or tasks, or refers to what they are looking at.
+description: Operate the Mail Workspace GUI in Thunderbird for the user through the mail-gui MCP server - see what is selected, open spaces, files, artifacts and paint, click and type in any part of the interface, build artifacts, run commands in the shared terminal. Use when the user asks you to do something in their mail client, file viewer, artifacts, paint, calendar, contacts or tasks, or refers to what they are looking at.
 ---
 
 # Mail Workspace
 
 The user works in Thunderbird with the Mail Workspace add-on: chat on the right
 (this conversation), a file browser dock on the left, and spaces for Mail,
-Address Book, Calendar, Tasks, Files (viewer), Artifacts and Paint. The
+Address Book, Calendar, Tasks, Files (viewer), Artifacts and Paint, plus a
+terminal that slides up over the window (Ctrl+`). The
 `mail-gui` MCP server lets you see and operate all of it. Do the job for the
 user instead of describing clicks.
 
@@ -38,6 +39,27 @@ user instead of describing clicks.
   read mail with the email tools instead.
 - You can never approve an artifact's permissions or a confirmation card:
   those buttons are hidden from you and ignore your input. Ask the user.
+
+## Terminal
+
+The terminal is shared with the user: whatever you type there, they see.
+
+- `terminal_list` shows the open terminals. `terminal_open` starts one
+  (`placement`: `tab`, `right` or `down`; `cwd`), and `terminal_panel` shows
+  or hides the panel.
+- `terminal_run` types a command and returns what it printed. It finishes when
+  the output goes quiet, or when `wait_for` (a regex) matches. For long jobs,
+  set `wait_for` or read later with `terminal_read`.
+- `terminal_send` sends raw keys (answers to prompts, `\u0003` for Ctrl+C).
+- Use your own shell tool for work the user doesn't need to watch; use the
+  terminal when they asked for it or should see it happen.
+
+## Settings
+
+`workspace_settings` sets the appearance (`system`, `light`, `dark`) and the
+code viewer theme (`one-dark-pro` by default; the tool lists the themes).
+With no arguments it returns the current settings. Change them only when the
+user asks.
 
 ## Artifacts
 

@@ -27,7 +27,7 @@ export const NAMES = [
   // spaces
   "mail", "calendar_month", "contacts", "task_alt", "preview", "widgets", "brush", "palette",
   // paint
-  "arrow_selector_tool", "draw", "ink_highlighter", "ink_eraser", "horizontal_rule", "north_east", "rectangle", "circle",
+  "menu", "splitscreen_right", "splitscreen_bottom", "select", "lasso_select", "polyline", "select_all", "deselect", "content_cut", "aspect_ratio", "note_add", "keyboard", "arrow_selector_tool", "draw", "ink_highlighter", "ink_eraser", "horizontal_rule", "north_east", "rectangle", "circle",
   "title", "format_color_fill", "colorize", "crop", "undo", "redo", "pan_tool", "layers", "photo_library", "content_paste",
   "flip_to_front", "flip_to_back", "opacity", "line_weight",
   // agent / artifacts

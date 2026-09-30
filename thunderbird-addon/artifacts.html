@@ -6,8 +6,19 @@
 <link rel="stylesheet" href="artifacts.css">
 <body>
   <div class="layout">
+    <aside id="sidebar" class="sidebar" aria-label="Artifacts">
+      <div class="side-head">
+        <strong>Library</strong>
+        <span class="spacer"></span>
+        <span id="side-actions" class="actions"></span>
+      </div>
+      <div class="side-search search-field"><input id="search" class="input" placeholder="Search artifacts" spellcheck="false" aria-label="Search artifacts"></div>
+      <div id="tree" class="tree" role="tree" tabindex="0"></div>
+      <footer id="root-path" class="side-foot"></footer>
+    </aside>
     <section class="main">
       <header class="appbar">
+        <span id="library-toggle"></span>
         <span id="glyph" class="glyph"></span>
         <div class="identity">
           <h1 id="title">Artifacts</h1>
@@ -20,16 +31,6 @@
       <div id="banner" class="banner" hidden></div>
       <div id="stage" class="stage"></div>
     </section>
-    <aside id="sidebar" class="sidebar" aria-label="Artifacts">
-      <div class="side-head">
-        <strong>Library</strong>
-        <span class="spacer"></span>
-        <span id="side-actions" class="actions"></span>
-      </div>
-      <div class="side-search search-field"><input id="search" class="input" placeholder="Search artifacts" spellcheck="false" aria-label="Search artifacts"></div>
-      <div id="tree" class="tree" role="tree" tabindex="0"></div>
-      <footer id="root-path" class="side-foot"></footer>
-    </aside>
   </div>
   <script type="module" src="artifacts.js"></script>
 </body>

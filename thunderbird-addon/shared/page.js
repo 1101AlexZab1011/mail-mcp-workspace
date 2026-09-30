@@ -1,6 +1,7 @@
 // Plumbing every add-on page shares: a name the background can address, and
 // the agent-facing basics (state, snapshot, act) answered from inside the page.
 import { icon } from "./icons.js";
+import "./theme.js";
 
 const handlers = new Map();
 let agentInputUntil = 0;
@@ -93,7 +94,10 @@ export function h(spec, props = {}, ...children) {
     if (value === undefined || value === null || value === false) continue;
     if (key.startsWith("on")) el.addEventListener(key.slice(2), value);
     else if (key === "dataset") Object.assign(el.dataset, value);
-    else if (key === "style" && typeof value === "object") Object.assign(el.style, value);
+    else if (key === "style" && typeof value === "object") {
+      // Custom properties (--depth) only take effect through setProperty.
+      for (const [name, v] of Object.entries(value)) if (name.startsWith("--")) el.style.setProperty(name, String(v)); else el.style[name] = v;
+    }
     else if (key in el && typeof value !== "string") el[key] = value;
     else el.setAttribute(key, value === true ? "" : value);
   }
@@ -154,4 +158,26 @@ export function watchDockWidth(onRail) {
   const apply = () => { document.documentElement.toggleAttribute("data-rail", media.matches); onRail?.(media.matches); };
   media.addEventListener("change", apply);
   apply();
+}
+
+/**
+ * A dropdown drawn in the page (a native <select> opens an OS popup window,
+ * which some compositors frame oddly). Returns a button element with
+ * `.value` getter/setter; `onChange(value)` runs on a pick.
+ */
+export function dropdown(options, value, onChange, { label = "", width } = {}) {
+  let current = value;
+  const text = () => options.find(([v]) => String(v) === String(current))?.[1] ?? String(current);
+  const button = h("button.btn.dropdown", { type: "button", title: label, "aria-label": label, "aria-haspopup": "menu", style: width ? { minWidth: `${width}px` } : {} });
+  const draw = () => button.replaceChildren(h("span", {}, text()), icon("keyboard_arrow_down", { size: 16 }));
+  draw();
+  button.addEventListener("click", () => {
+    const rect = button.getBoundingClientRect();
+    contextMenu({ preventDefault() {}, clientX: rect.left, clientY: rect.bottom + 4 }, options.map(([v, name]) => ({
+      label: name, icon: String(v) === String(current) ? "check" : undefined,
+      run: () => { current = v; draw(); onChange(v); },
+    })));
+  });
+  Object.defineProperty(button, "value", { get: () => current, set: (v) => { current = v; draw(); } });
+  return button;
 }

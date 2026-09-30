@@ -70,3 +70,21 @@ body { display: flex; flex-direction: column; background: var(--mw-bg); }
 }
 .statusbar .spacer { flex: 1; }
 .statusbar .zoom { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; }
+
+/* Paint owns its surface: no text selection, no page-wide select-all. */
+body { user-select: none; }
+.text-editor, input { user-select: text; }
+
+.size-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: var(--mw-text-2); }
+.size-row .size-input { width: 84px; height: 30px; padding: 0 8px; font-variant-numeric: tabular-nums; }
+.props .row-buttons .btn[aria-pressed="true"] { background: var(--mw-primary-soft); color: var(--mw-primary-soft-text); border-color: transparent; }
+
+/* The style panel gives way when Paint is narrow (toggle it from the bar). */
+body.narrow:not(.props-shown) .props,
+body.props-hidden .props { display: none; }
+body.narrow.props-shown .props { position: absolute; right: 0; top: var(--mw-header-h); bottom: 32px; z-index: 5; box-shadow: var(--mw-shadow-3); }
+
+.dialog.shortcuts { width: min(560px, calc(100vw - 32px)); }
+.dialog.shortcuts dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 8px 0 0; font-size: 13px; }
+.dialog.shortcuts dt { font-family: var(--mw-font-mono); font-size: 12px; color: var(--mw-text); white-space: nowrap; }
+.dialog.shortcuts dd { margin: 0; color: var(--mw-text-2); }

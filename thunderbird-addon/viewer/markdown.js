@@ -1,5 +1,6 @@
 // Markdown: rendered (marked + DOMPurify + KaTeX), or its highlighted source.
 /* global marked, DOMPurify, katex */
+import { codeTheme, paintCode } from "./code-theme.js";
 export async function render(stage, file, { host, linkFor, setToolbar, h }) {
   const { text, truncated } = await host(`/v1/fs/read?path=${encodeURIComponent(file.path)}&limit=${4 * 1024 * 1024}`);
   const folder = file.path.replace(/\/[^/]+$/, "");
@@ -38,9 +39,9 @@ export async function render(stage, file, { host, linkFor, setToolbar, h }) {
   }
 
   async function source() {
-    const result = await host(`/v1/fs/highlight?path=${encodeURIComponent(file.path)}&lang=markdown`);
+    const result = await host(`/v1/fs/highlight?path=${encodeURIComponent(file.path)}&lang=markdown&theme=${await codeTheme()}`);
     const view = h("div.code.wrap");
-    view.innerHTML = result.html;
+    paintCode(view, result);
     return view;
   }
 

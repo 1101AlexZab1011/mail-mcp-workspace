@@ -350,14 +350,21 @@ function renderHeader() {
     iconButton("open_in_new", "Open in its own window", () => window.open(current.url, "_blank", "noopener")),
     iconButton("close", "Close", showGallery),
   ] : [iconButton("add", "New artifact", () => newArtifact(""))]),
-  iconButton($("#sidebar").classList.contains("collapsed") ? "right_panel_open" : "right_panel_close", "Toggle library", toggleSidebar));
+  );
+  $("#library-toggle").replaceChildren(iconButton(libraryVisible() ? "left_panel_close" : "left_panel_open", libraryVisible() ? "Hide the library" : "Show the library", toggleSidebar));
 }
 
+const libraryVisible = () => (document.body.classList.contains("narrow") ? document.body.classList.contains("library-shown") : !$("#sidebar").classList.contains("collapsed"));
+
 function toggleSidebar() {
-  $("#sidebar").classList.toggle("collapsed");
-  localStorage.setItem("artifacts.sidebar", $("#sidebar").classList.contains("collapsed") ? "collapsed" : "open");
+  if (document.body.classList.contains("narrow")) document.body.classList.toggle("library-shown");
+  else {
+    $("#sidebar").classList.toggle("collapsed");
+    localStorage.setItem("artifacts.sidebar", $("#sidebar").classList.contains("collapsed") ? "collapsed" : "open");
+  }
   renderHeader();
 }
+new ResizeObserver(() => { const narrow = innerWidth < 760; if (narrow !== document.body.classList.contains("narrow")) { document.body.classList.toggle("narrow", narrow); renderHeader(); } }).observe(document.body);
 
 async function open(path, { force = false } = {}) {
   if (!force && state.current?.path === path && state.frame) return { path };
@@ -431,12 +438,12 @@ async function watch() {
 // ------------------------------------------------------------- agent API --
 
 registerPage("artifacts", {
-  state: () => ({ open: state.current ? { path: state.current.path, title: state.current.meta?.title, grant: state.current.grant, error: state.error } : null, root: state.root, count: allArtifacts().length, sidebar: !$("#sidebar").classList.contains("collapsed") }),
+  state: () => ({ open: state.current ? { path: state.current.path, title: state.current.meta?.title, grant: state.current.grant, error: state.error } : null, root: state.root, count: allArtifacts().length, sidebar: libraryVisible() }),
   commands: {
     open: ({ query, path }) => open(query ?? path, { force: true }),
     reload: () => (state.current ? open(state.current.path, { force: true }) : loadTree()),
     close: () => { showGallery(); return { ok: true }; },
-    sidebar: ({ open: show }) => { if (Boolean(show) === $("#sidebar").classList.contains("collapsed")) toggleSidebar(); return { sidebar: !$("#sidebar").classList.contains("collapsed") }; },
+    sidebar: ({ open: show }) => { if (Boolean(show) !== libraryVisible()) toggleSidebar(); return { sidebar: libraryVisible() }; },
     tree: () => loadTree(),
   },
 });

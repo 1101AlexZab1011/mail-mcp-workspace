@@ -106,6 +106,11 @@ register("gui_dock", "Show, minimize, maximize or resize a dock: chat (right sid
   width: z.number().int().min(260).max(1600).optional(),
 }, async ({ dock, state, width }) => text(await gui("dock", { dock, state, width })));
 
+register("workspace_settings", "Change Mail Workspace settings: appearance (system, light, dark: Thunderbird switches too) and the code theme of the file viewer (one-dark-pro, dracula, github-dark, github-light, monokai, night-owl, tokyo-night, catppuccin-mocha, catppuccin-latte, nord, material-theme-palenight, solarized-dark, gruvbox-dark-medium, ayu-dark, rose-pine). Without arguments, returns the current settings.", {
+  appearance: z.enum(["system", "light", "dark"]).optional(),
+  code_theme: z.string().optional(),
+}, async ({ appearance, code_theme }) => text(await gui("settings", { appearance, codeTheme: code_theme })));
+
 // ---------------------------------------------------------- mail/calendar --
 
 register("mail_select", "Show a mail folder and/or select messages in it. Folder is a folder URI (see gui_state.mail.folder.uri); keys are message keys (IMAP UIDs, from gui_state or email tools).", {
@@ -139,6 +144,42 @@ register("files_navigate", "Show a folder in the file browser dock (opens the do
 register("files_select", "Select files in the file browser dock (their folders expand).", {
   paths: z.array(z.string()).min(1),
 }, async ({ paths }) => text(await gui("page", { page: "files", type: "select", paths })));
+
+// --------------------------------------------------------- terminal --
+// Terminals are shared with the user: what the agent runs shows in the panel.
+
+register("terminal_list", "The terminals open in the Mail Workspace panel (Ctrl+`), with ids, titles and working directories.", {}, async () => text(await hostCall("/v1/term")), { readOnlyHint: true });
+
+register("terminal_open", "Open a terminal in the panel: a new tab, or a split of the focused one (right or down). Returns its id. The panel slides up unless show is false.", {
+  placement: z.enum(["tab", "right", "down"]).default("tab"),
+  cwd: z.string().optional(),
+  show: z.boolean().default(true),
+}, async ({ placement, cwd, show }) => text(await gui("terminal.open", { placement, cwd, show })));
+
+register("terminal_run", "Type a command into a terminal (the user sees it run) and return what it printed. Returns when the output goes quiet, `wait_for` (a regex) appears, or the timeout passes; long-running programs keep running afterwards.", {
+  id: z.string().describe("Terminal id from terminal_list or terminal_open"),
+  command: z.string(),
+  timeout_seconds: z.number().min(1).max(3600).default(60),
+  wait_for: z.string().optional(),
+  quiet_ms: z.number().int().min(200).max(60000).default(1500),
+}, async ({ id, command, timeout_seconds, wait_for, quiet_ms }) => text(await hostCall(`/v1/term/${encodeURIComponent(id)}/run`, { method: "POST", body: JSON.stringify({ command, timeoutMs: timeout_seconds * 1000, waitFor: wait_for, idleMs: quiet_ms }) })));
+
+register("terminal_read", "The last lines a terminal printed, as plain text.", {
+  id: z.string(),
+  lines: z.number().int().min(1).max(5000).default(200),
+}, async ({ id, lines }) => text(await hostCall(`/v1/term/${encodeURIComponent(id)}/read?lines=${lines}`)), { readOnlyHint: true });
+
+register("terminal_send", "Send raw keystrokes to a terminal, e.g. answers to a prompt, or control keys: \u0003 is Ctrl+C, \u0004 Ctrl+D, \r Enter, \u001b Escape.", {
+  id: z.string(),
+  text: z.string(),
+}, async ({ id, text: data }) => text(await hostCall(`/v1/term/${encodeURIComponent(id)}/input`, { method: "POST", body: JSON.stringify({ data }) })));
+
+register("terminal_close", "Close a terminal (ends its shell).", { id: z.string() }, async ({ id }) => text(await gui("page", { page: "terminal", type: "close", id }).catch(() => hostCall(`/v1/term/${encodeURIComponent(id)}`, { method: "DELETE" }))));
+
+register("terminal_panel", "Show, hide or maximize the terminal panel (Ctrl+`).", {
+  visible: z.boolean().optional(),
+  maximized: z.boolean().optional(),
+}, async ({ visible, maximized }) => text(await gui("terminal", { visible, maximized })));
 
 // ------------------------------------------------------------ paint --
 

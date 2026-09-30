@@ -14,7 +14,7 @@ var workspace = class extends ExtensionAPI {
     const resProto = Services.io.getProtocolHandler("resource").QueryInterface(Ci.nsIResProtocolHandler);
     resProto.setSubstitutionWithFlags(RESOURCE_HOST, this.extension.rootURI, resProto.ALLOW_CONTENT_ACCESS);
     this.scope = { Services, ChromeUtils, Ci, Cc, Cu, ExtensionParent, console };
-    for (const file of ["layout.js", "automation.js"]) {
+    for (const file of ["layout.js", "shell.js", "automation.js"]) {
       // Through resource://, which is trusted also when the add-on runs from a folder.
       Services.scriptloader.loadSubScript(`resource://${RESOURCE_HOST}/experiments/workspace/${file}?${Date.now()}`, this.scope);
     }
@@ -59,6 +59,14 @@ var workspace = class extends ExtensionAPI {
         if (other.state === "maximized") { other.state = "open"; scope.writeDock(other); for (const w of self.messengerWindows()) scope.applyDock(w, other); emitDock(other); }
       }
       scope.writeDock(dock);
+      for (const window of self.messengerWindows()) {
+        scope.forgetAuto(window, `dock:${side}`);
+        scope.applyDock(window, dock);
+        // Opening or widening a dock may need room: the space manager makes it.
+        if (dock.state === "open") dock.width = scope.fit(window, { side, width: dock.width }, (d) => emitDock(d));
+        scope.markSidebar(window, self.filesSide);
+      }
+      scope.writeDock(dock);
       for (const window of self.messengerWindows()) scope.applyDock(window, dock);
       emitDock(dock);
       return dock;
@@ -66,7 +74,8 @@ var workspace = class extends ExtensionAPI {
 
     return {
       workspace: {
-        async install({ leftUrl, rightUrl }) {
+        async install({ leftUrl, rightUrl, filesSide = "left", terminalUrl }) {
+          self.filesSide = filesSide;
           // Before any window is laid out: registering the window listener below
           // already applies the layout to open windows.
           scope.migrateDockPrefs();
@@ -74,8 +83,11 @@ var workspace = class extends ExtensionAPI {
             extension: self.extension,
             leftUrl,
             rightUrl,
+            terminalUrl,
             sheetUrl: self.sheetUrl,
             update,
+            filesSide,
+            notify: (dock) => emitDock(dock),
             shortcut: (name) => { for (const listener of self.listeners.shortcut) listener(name); },
           };
           const apply = (window) => {
@@ -99,6 +111,9 @@ var workspace = class extends ExtensionAPI {
         async screenshot(options = {}) { return scope.screenshot(self.mainWindow(), options); },
         async selectMail(folderUri, messageKeys) { return scope.selectMail(self.mainWindow(), folderUri, messageKeys); },
         async calendarGoto(date, view) { return scope.calendarGoto(self.mainWindow(), date, view); },
+        async setTerminal(change) { const window = self.mainWindow(); return scope.setTerminal(window, window.mwCtx, change); },
+        async getTerminal() { return scope.terminalState(self.mainWindow()); },
+        async setAppearance(mode) { return scope.setAppearance(mode, self.messengerWindows()); },
         async focusOwnTab() { for (const window of self.messengerWindows()) scope.markTabs(window, self.extension); return true; },
         onDockChanged: new ExtensionCommon.EventManager({
           context,

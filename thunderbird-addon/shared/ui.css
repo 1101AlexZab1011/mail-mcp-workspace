@@ -156,3 +156,6 @@ kbd {
   display: inline-block; min-width: 18px; padding: 1px 5px; border-radius: 5px;
   border: 1px solid var(--mw-border); background: var(--mw-surface-2); font-size: 11px; text-align: center;
 }
+
+.btn.dropdown { height: 30px; padding: 0 8px 0 12px; gap: 4px; font-weight: 500; border-radius: var(--mw-radius); justify-content: space-between; }
+.btn.dropdown .icon { color: var(--mw-text-3); }

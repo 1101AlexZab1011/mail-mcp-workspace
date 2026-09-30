@@ -14,9 +14,25 @@
   label { display: grid; gap: 6px; font-size: 13px; color: var(--mw-text-2); }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   #status { color: var(--mw-text-2); font-size: 13px; }
+  .segmented { display: inline-flex; border: 1px solid var(--mw-border); border-radius: var(--mw-radius-pill); overflow: hidden; width: max-content; }
+  .segmented button { border: 0; background: none; height: 32px; padding: 0 18px; font: inherit; font-weight: 560; color: var(--mw-text-2); cursor: pointer; }
+  .segmented button[aria-checked="true"] { background: var(--mw-primary-soft); color: var(--mw-primary-soft-text); }
+  .code-preview { border-radius: var(--mw-radius); overflow: hidden; }
+  .code-preview pre { margin: 0; padding: 14px 16px; font: 13px/1.6 var(--mw-font-mono); overflow-x: auto; }
 </style>
 <main>
   <h1>Mail Workspace</h1>
+  <section>
+    <h2>Appearance</h2>
+    <p>Light, dark, or follow the system. Thunderbird's own window switches with it.</p>
+    <div id="appearance" class="segmented" role="radiogroup" aria-label="Appearance"></div>
+  </section>
+  <section>
+    <h2>Code theme</h2>
+    <p>Colours for code, text and markdown source in the file viewer.</p>
+    <div class="row"><span id="code-theme"></span></div>
+    <div id="code-preview" class="code-preview" aria-label="Preview"></div>
+  </section>
   <section>
     <h2>Pair with listener-mcp</h2>
     <p>The chat, the file browser, the viewer and artifacts talk to the local <a href="https://github.com/1101AlexZab1011/listener-mcp">listener-mcp</a> broker. Run this once, then press Pair now within ten minutes:</p>

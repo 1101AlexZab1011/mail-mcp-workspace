@@ -19,11 +19,12 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { matches } from "listener-mcp";
 import { expand, listDirectory, mimeOf, readText, statPath, complete } from "./files.mjs";
-import { highlight } from "./highlight.mjs";
+import { CODE_THEMES, DEFAULT_CODE_THEME, highlight } from "./highlight.mjs";
 import { needsConversion, toPdf } from "./convert.mjs";
 import { readSheet } from "./sheet.mjs";
 import { ArtifactStore } from "./artifacts.mjs";
 import { Capabilities } from "./capabilities.mjs";
+import { Terminals } from "./terminal.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const modules = join(projectRoot, "node_modules");
@@ -85,6 +86,7 @@ export async function startHost({
     return { sent: true };
   };
   const capabilities = new Capabilities({ grantsPath, publishToAgent });
+  const terminals = new Terminals();
   const theme = iconTheme();
 
   // --- auth: tokens are listener-mcp tokens, verified by the broker, cached briefly.
@@ -162,8 +164,16 @@ export async function startHost({
     const path = url.searchParams.get("path");
     const info = await statPath(path);
     const { text, truncated } = await readText(path, { limit: 1024 * 1024 });
-    return { html: await highlight(text, url.searchParams.get("lang") ?? info.language), language: info.language, truncated, lines: text.split("\n").length };
+    const result = await highlight(text, url.searchParams.get("lang") ?? info.language, url.searchParams.get("theme") ?? undefined);
+    return { ...result, language: info.language, truncated, lines: text.split("\n").length };
   });
+  // Highlight a snippet (theme previews in Settings).
+  route("POST", "/v1/highlight", async ({ request, principal }) => {
+    need(principal, "read", "mail/workspace/files");
+    const { code = "", lang = "typescript", theme } = await readJson(request, 64 * 1024);
+    return highlight(String(code).slice(0, 20_000), lang, theme);
+  });
+  route("GET", "/v1/code-themes", () => ({ themes: CODE_THEMES.map(([id, name]) => ({ id, name })), default: DEFAULT_CODE_THEME }), { auth: false });
   route("GET", "/v1/fs/sheet", async ({ url, principal }) => { need(principal, "read", "mail/workspace/files"); return readSheet(expand(url.searchParams.get("path"))); });
   route("POST", "/v1/links", async ({ request, principal }) => {
     need(principal, "read", "mail/workspace/files");
@@ -214,6 +224,18 @@ export async function startHost({
     spawn(process.platform === "darwin" ? "open" : "xdg-open", [full], { detached: true, stdio: "ignore" }).unref();
     return { opened: full };
   });
+
+  // Terminals (publish:mail/workspace/terminal): the panel and the agent share them.
+  const term = (principal) => need(principal, "publish", "mail/workspace/terminal");
+  route("GET", "/v1/term", ({ principal }) => { term(principal); return { terminals: terminals.list() }; });
+  route("POST", "/v1/term", async ({ request, principal }) => { term(principal); return terminals.create(await readJson(request)); });
+  route("POST", /^\/v1\/term\/([\w-]+)\/input$/, async ({ request, principal, match }) => { term(principal); return terminals.input(match[1], (await readJson(request)).data); });
+  route("POST", /^\/v1\/term\/([\w-]+)\/resize$/, async ({ request, principal, match }) => { term(principal); const { cols, rows } = await readJson(request); return terminals.resize(match[1], cols, rows); });
+  route("POST", /^\/v1\/term\/([\w-]+)\/run$/, async ({ request, principal, match }) => { term(principal); return terminals.run(match[1], await readJson(request)); });
+  route("GET", /^\/v1\/term\/([\w-]+)\/read$/, ({ url, principal, match }) => { term(principal); return terminals.read(match[1], { lines: url.searchParams.get("lines") ?? 200 }); });
+  route("POST", /^\/v1\/term\/([\w-]+)\/ticket$/, ({ principal, match }) => { term(principal); return { ticket: terminals.ticket(match[1]) }; });
+  route("DELETE", /^\/v1\/term\/([\w-]+)$/, ({ principal, match }) => { term(principal); return terminals.close(match[1]); });
+  route("GET", /^\/v1\/term-stream\/([\w-]+)$/, ({ response, match }) => { terminals.stream(match[1], response); }, { auth: false });
 
   // Artifacts
   route("GET", "/v1/artifacts/tree", async ({ principal }) => { need(principal, "read", "mail/workspace/artifacts"); return { root: store.root, tree: await store.tree() }; });
@@ -315,7 +337,7 @@ export async function startHost({
   const actualPort = server.address().port;
   if (actualPort !== port) { allowedHosts.add(`127.0.0.1:${actualPort}`); allowedHosts.add(`localhost:${actualPort}`); }
   log(`mail-workspace host listening on http://127.0.0.1:${actualPort} (artifacts: ${store.root})`);
-  return { server, port: actualPort, store, capabilities, close: () => new Promise((r) => { watcher?.close(); capabilities.closeAll(); for (const wake of changeWaiters) wake(); server.closeAllConnections?.(); server.close(r); }) };
+  return { server, port: actualPort, store, capabilities, terminals, close: () => new Promise((r) => { watcher?.close(); capabilities.closeAll(); terminals.closeAll(); for (const wake of changeWaiters) wake(); server.closeAllConnections?.(); server.close(r); }) };
 }
 
 function escapeHtml(value) {

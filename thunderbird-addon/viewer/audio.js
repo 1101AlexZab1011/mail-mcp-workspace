@@ -6,13 +6,15 @@ const time = (s) => {
   return m >= 60 ? `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
 };
 
+import { dropdown } from "../shared/page.js";
+
 export async function render(stage, file, { linkFor, setToolbar, h, icon, iconButton }) {
   const link = await linkFor(file.path);
   const audio = h("audio", { src: link.url, preload: "metadata" });
   const canvas = h("canvas", { width: 1400, height: 176, "aria-label": "Waveform; click to seek" });
   const clock = h("span.time", {}, "0:00 / –:––");
   const play = h("button.icon-btn.play", { type: "button", title: "Play (Space)", "aria-label": "Play" }, icon("play_arrow", { fill: true }));
-  const speed = h("select.input", { "aria-label": "Speed", style: { height: "30px" } }, ...[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((v) => h("option", { value: v, selected: v === 1 }, `${v}×`)));
+  const speed = dropdown([0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((v) => [v, `${v}×`]), 1, (v) => { audio.playbackRate = Number(v); }, { label: "Playback speed" });
   const volume = h("input", { type: "range", min: 0, max: 1, step: 0.01, value: 1, "aria-label": "Volume", style: { width: "96px" } });
   const player = h("div.player", {},
     h("div.now", {}, h("div.art", {}, icon("music_note")), h("div", { style: { minWidth: 0 } }, h("div.track", {}, file.name), h("div.sub", {}, file.path))),
@@ -58,7 +60,6 @@ export async function render(stage, file, { linkFor, setToolbar, h, icon, iconBu
   audio.addEventListener("timeupdate", () => { clock.textContent = `${time(audio.currentTime)} / ${time(audio.duration)}`; draw(); });
   audio.addEventListener("loadedmetadata", () => { clock.textContent = `0:00 / ${time(audio.duration)}`; });
   canvas.addEventListener("click", (event) => { const rect = canvas.getBoundingClientRect(); if (audio.duration) audio.currentTime = ((event.clientX - rect.left) / rect.width) * audio.duration; });
-  speed.addEventListener("change", () => { audio.playbackRate = Number(speed.value); });
   volume.addEventListener("input", () => { audio.volume = Number(volume.value); });
   setToolbar();
   draw();
@@ -67,7 +68,7 @@ export async function render(stage, file, { linkFor, setToolbar, h, icon, iconBu
     command: (action, args) => {
       if (action === "play") audio.play(); else if (action === "pause") audio.pause();
       else if (action === "seek") audio.currentTime = Number(args.seconds);
-      else if (action === "rate") { audio.playbackRate = Number(args.rate); speed.value = String(args.rate); }
+      else if (action === "rate") { audio.playbackRate = Number(args.rate); speed.value = Number(args.rate); }
       else throw new Error(`Unknown audio action ${action}`);
       return { playing: !audio.paused, position: audio.currentTime };
     },

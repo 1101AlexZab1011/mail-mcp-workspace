@@ -42,18 +42,30 @@ export function languageOf(path) {
   return byExtension.get(ext) ?? null;
 }
 
-let highlighter = null;
-const loaded = new Set();
+// The code themes offered in Settings: the ones most often recommended on
+// Reddit's r/vscode (One Dark Pro first, the default).
+export const CODE_THEMES = [
+  ["one-dark-pro", "One Dark Pro"], ["dracula", "Dracula"], ["github-dark", "GitHub Dark"], ["github-light", "GitHub Light"],
+  ["monokai", "Monokai"], ["night-owl", "Night Owl"], ["tokyo-night", "Tokyo Night"], ["catppuccin-mocha", "Catppuccin Mocha"],
+  ["catppuccin-latte", "Catppuccin Latte"], ["nord", "Nord"], ["material-theme-palenight", "Material Palenight"],
+  ["solarized-dark", "Solarized Dark"], ["gruvbox-dark-medium", "Gruvbox Dark"], ["ayu-dark", "Ayu Dark"], ["rose-pine", "Rosé Pine"],
+];
+export const DEFAULT_CODE_THEME = "one-dark-pro";
 
-export async function highlight(code, lang) {
-  highlighter ??= await createHighlighter({ themes: ["github-light-default", "github-dark-default"], langs: [] });
+let highlighter = null;
+const loadedLangs = new Set();
+const loadedThemes = new Set();
+
+/** Highlighted HTML in one theme, with the theme's own background and text colour. */
+export async function highlight(code, lang, theme = DEFAULT_CODE_THEME) {
+  highlighter ??= await createHighlighter({ themes: [], langs: [] });
+  if (!CODE_THEMES.some(([id]) => id === theme)) theme = DEFAULT_CODE_THEME;
+  if (!loadedThemes.has(theme)) { await highlighter.loadTheme(theme); loadedThemes.add(theme); }
   let language = lang && bundledLanguagesInfo.some((info) => info.id === lang) ? lang : "text";
-  if (language !== "text" && !loaded.has(language)) {
-    try { await highlighter.loadLanguage(language); loaded.add(language); } catch { language = "text"; }
+  if (language !== "text" && !loadedLangs.has(language)) {
+    try { await highlighter.loadLanguage(language); loadedLangs.add(language); } catch { language = "text"; }
   }
-  return highlighter.codeToHtml(code, {
-    lang: language,
-    themes: { light: "github-light-default", dark: "github-dark-default" },
-    defaultColor: false,
-  });
+  const html = highlighter.codeToHtml(code, { lang: language, theme });
+  const colors = highlighter.getTheme(theme);
+  return { html, bg: colors.bg, fg: colors.fg, theme, type: colors.type };
 }

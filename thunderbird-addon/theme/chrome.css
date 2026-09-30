@@ -13,7 +13,7 @@
 
 /* ---- Docks --------------------------------------------------------------- */
 :root[mw-workspace] #tabmail-container { min-width: 0; }
-:root[mw-workspace] #tabmail { min-width: 360px; }
+:root[mw-workspace] #tabmail { min-width: 0; }
 .mw-dock {
   display: flex;
   flex-direction: column;
@@ -95,8 +95,47 @@
 }
 :root[mw-workspace] #spacesToolbar .spaces-toolbar-container { gap: 8px; }
 :root[mw-workspace] .spaces-badge-container { background: var(--mw-danger) !important; }
+/* The file-browser toggle is on while its dock is open. */
+:root[mw-workspace] #spacesToolbar .mw-space-button.mw-active { background: var(--mw-hover) !important; color: var(--mw-text) !important; }
+/* Add-on space buttons: draw their icons like the built-in ones (same fill). */
+:root[mw-workspace] [id$="spacesButton-viewer"] img { content: url("resource://mailworkspace/icons/preview.svg"); }
+:root[mw-workspace] [id$="spacesButton-artifacts"] img { content: url("resource://mailworkspace/icons/artifact.svg"); }
+:root[mw-workspace] [id$="spacesButton-paint"] img { content: url("resource://mailworkspace/icons/brush.svg"); }
 
-/* Top bar: the title bar with search and window buttons. */
+/* Tooltips: compact and on the palette. Square corners: popups are separate
+   windows, and rounded ones show dark corners under some compositors. */
+:root[mw-workspace] tooltip {
+  appearance: none !important;
+  background: var(--mw-text) !important;
+  color: var(--mw-bg) !important;
+  border: 0 !important;
+  padding: 5px 9px !important;
+  font-size: 12px !important;
+  max-width: 420px;
+}
+
+/* Top bar: gone. dwm has no window buttons to host, and search opens as a
+   floating box on Ctrl+F / Ctrl+K (see shell.js). */
+:root[mw-workspace]:not([mw-search]) #navigation-toolbox { display: none !important; }
+:root[mw-workspace][mw-search] #navigation-toolbox {
+  position: fixed !important;
+  top: 14px; left: 50%; transform: translateX(-50%);
+  width: min(720px, 70vw);
+  z-index: 1000;
+  padding: 6px 10px !important;
+  border: 1px solid var(--mw-border) !important;
+  border-radius: 18px !important;
+  background: var(--mw-surface) !important;
+  box-shadow: var(--mw-shadow-3) !important;
+}
+:root[mw-workspace][mw-search] #navigation-toolbox :is(.titlebar-buttonbox-container, #button-appmenu, #toolbar-menubar, #unifiedToolbarContent > li:not(.search-bar)) { display: none !important; }
+:root[mw-workspace][mw-search] #navigation-toolbox #titlebar { padding: 0 !important; margin: 0 !important; width: 100% !important; }
+:root[mw-workspace][mw-search] #navigation-toolbox :is(unified-toolbar, #unifiedToolbarContainer, #unifiedToolbar, #unifiedToolbarContent) {
+  width: 100% !important; min-width: 0 !important; padding-inline: 0 !important; margin-inline: 0 !important;
+}
+:root[mw-workspace][mw-search] #navigation-toolbox global-search-bar { width: 100% !important; flex: 1 !important; }
+:root[mw-workspace][mw-search] #navigation-toolbox #unifiedToolbarContent > li.search-bar { flex: 1 !important; max-width: none !important; }
+/* The rest of the old top bar styling, for the floating search box: */
 :root[mw-workspace] #navigation-toolbox,
 :root[mw-workspace] unified-toolbar,
 :root[mw-workspace] #unifiedToolbarContainer {
@@ -127,17 +166,6 @@
 :root[mw-workspace] #tabmail-container,
 :root[mw-workspace] #messengerBody { background: var(--mw-bg) !important; }
 
-/* Menus and popups */
-:root[mw-workspace] menupopup,
-:root[mw-workspace] panel {
-  --panel-border-radius: 12px;
-  --panel-background: var(--mw-surface);
-  --panel-border-color: var(--mw-border);
-  --panel-shadow: var(--mw-shadow-3);
-}
-:root[mw-workspace] menupopup menuitem,
-:root[mw-workspace] menupopup menu { border-radius: 8px; margin-inline: 4px; }
-
 /* Calendar and tasks: calmer surfaces, rounder events. */
 :root[mw-workspace] #calendarContent,
 :root[mw-workspace] #calendar-view-box,
@@ -152,3 +180,24 @@
 :root[mw-workspace] #calMinimonth { border-radius: var(--mw-radius) !important; }
 :root[mw-workspace] #calendar-deactivated-notification-location-events,
 :root[mw-workspace] notification-message { border-radius: var(--mw-radius) !important; }
+
+/* ---- Terminal (Ctrl+`): an overlay sliding up from the bottom ---------- */
+#mw-terminal {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: #1e2127;
+  border-top: 1px solid var(--mw-border-strong);
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.28);
+  animation: mw-terminal-in 160ms var(--mw-ease);
+}
+#mw-terminal[hidden] { display: none; }
+#mw-terminal[maximized] { top: 0; height: auto !important; }
+#mw-terminal > browser { flex: 1; min-height: 0; }
+.mw-terminal-grip { flex: none; height: 5px; margin-top: -3px; cursor: row-resize; position: relative; z-index: 2; }
+.mw-terminal-grip:hover { background: var(--mw-primary); }
+#messengerBody { position: relative; }
+@keyframes mw-terminal-in { from { transform: translateY(16px); } }

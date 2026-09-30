@@ -1,5 +1,5 @@
 body { background: var(--mw-bg); }
-.layout { height: 100vh; display: flex; }
+.layout { height: 100vh; display: flex; position: relative; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .glyph { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: var(--mw-primary-soft); color: var(--mw-primary-soft-text); flex: none; }
 .glyph .icon { width: 20px; height: 20px; }
@@ -36,7 +36,10 @@ body { background: var(--mw-bg); }
 .card-item .where { color: var(--mw-text-3); font: 11.5px var(--mw-font-mono); }
 
 /* Sidebar */
-.sidebar { width: 300px; flex: none; display: flex; flex-direction: column; background: var(--mw-surface); border-left: 1px solid var(--mw-border); transition: width var(--mw-medium) var(--mw-ease); }
+.sidebar { width: 300px; flex: none; display: flex; flex-direction: column; background: var(--mw-surface); border-right: 1px solid var(--mw-border); transition: width var(--mw-medium) var(--mw-ease); }
+/* Narrow: the library gives way to the artifact unless it was asked for. */
+body.narrow:not(.library-shown) .sidebar { width: 0; border: 0; overflow: hidden; }
+body.narrow.library-shown .sidebar { position: absolute; left: 0; top: 0; bottom: 0; z-index: 5; box-shadow: var(--mw-shadow-3); }
 .sidebar.collapsed { width: 0; border: 0; overflow: hidden; }
 .side-head { display: flex; align-items: center; gap: 6px; height: var(--mw-header-h); padding: 0 6px 0 16px; border-bottom: 1px solid var(--mw-border); flex: none; }
 .side-head .spacer { flex: 1; }

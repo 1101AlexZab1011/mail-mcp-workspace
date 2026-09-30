@@ -1,10 +1,13 @@
 // Code and plain text: highlighted by the host (Shiki, VS Code grammars) with
 // line numbers, wrap toggle, copy, and go-to-line.
+import { codeTheme, paintCode } from "./code-theme.js";
+
 export async function render(stage, file, { host, setToolbar, h, iconButton, toast }) {
-  const result = await host(`/v1/fs/highlight?path=${encodeURIComponent(file.path)}${file.kind === "text" && !file.language ? "&lang=text" : ""}`);
+  const theme = await codeTheme();
+  const result = await host(`/v1/fs/highlight?path=${encodeURIComponent(file.path)}&theme=${theme}${file.kind === "text" && !file.language ? "&lang=text" : ""}`);
   let wrap = file.kind === "text";
   const view = h(`div.code${wrap ? ".wrap" : ""}`, { tabindex: "0" });
-  view.innerHTML = result.html; // Shiki escapes the source; the host renders nothing else.
+  paintCode(view, result);
   if (result.truncated) view.append(h("div.truncated", {}, `Showing the first 1 MB of ${file.name}.`));
   stage.replaceChildren(view);
 

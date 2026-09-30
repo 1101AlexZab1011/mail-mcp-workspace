@@ -133,11 +133,17 @@ and workflow MCP servers above.
 Mail Workspace is an optional Thunderbird add-on (in `thunderbird-addon/`)
 that turns Thunderbird into a workspace built around your agent.
 
-- **No tab bar.** You navigate with the spaces sidebar: Mail, Address Book,
-  Calendar, Tasks, Files, Artifacts and Paint.
+- **One window, no tab bar, no top bar.** You navigate with the spaces
+  sidebar: Mail, Address Book, Calendar, Tasks, Files, Artifacts and Paint.
+  Double-clicking a message shows it in the message pane instead of a new
+  window. <kbd>Ctrl</kbd>+<kbd>F</kbd> opens a floating search box.
+- **Panels never overlap.** Widening a dock minimizes other panels (the other
+  dock, Today pane, folder pane, message pane) and restores them as you shrink
+  it again. When there is nothing left to minimize, the dock stops growing.
 - **Chat dock (right, open by default).** Drag to resize, minimize to a rail,
   or maximize. It stays visible in every space. <kbd>Ctrl</kbd>+<kbd>5</kbd>.
-- **File browser dock (left, minimized by default).** Click any part of the
+- **File browser dock (left, minimized by default).** Toggle it from the
+  spaces sidebar. Click any part of the
   path to go up, or type a path. It shows a VS Code-style tree with Material
   Icon Theme icons. <kbd>Ctrl</kbd>+<kbd>6</kbd>.
 - **Files space: a read-only viewer.** It shows:
@@ -148,26 +154,34 @@ that turns Thunderbird into a workspace built around your agent.
   - images, GIF and SVG;
   - audio (with a waveform) and video.
 - **Artifacts space.** React apps the agent builds for you, stored in
-  `~/Artifacts`:
+  `~/Artifacts`, with the library on the left:
   - they're organised in a folder tree you can collapse, and reload live when
     their files change;
   - they're sandboxed: running commands, calling local HTTP services and
     touching files each need a permission that you approve per artifact.
 - **Paint space.** Paste a screenshot, mark it up, and use **Send to agent**.
+  It has rectangle, lasso and polygon selection (cut, copy, delete, move),
+  a resizable canvas, and the usual paint shortcuts while it has focus
+  (<kbd>?</kbd> lists them).
+- **Terminal.** <kbd>Ctrl</kbd>+<kbd>`</kbd> slides a terminal up over the
+  window, with tabs and horizontal or vertical splits. The agent can open
+  terminals and run commands in them; you see everything it types.
 - **Agent control.** Through the `mail-gui` MCP server, the agent sees what's
   selected, opens spaces and files, and clicks or types anywhere in the GUI.
   Sending, deleting, moving mail and changing settings ask you first, in the
   chat.
-- **Redesign.** Material Symbols icons and a light/dark palette applied to
-  Thunderbird's own UI.
+- **Redesign.** Material Symbols icons, styled tooltips, and a System, Light
+  or Dark appearance applied to Thunderbird's own UI. The settings page also
+  picks the code viewer's theme from 15 popular ones (One Dark Pro by
+  default).
 
 Parts:
 
 | Part | What it is |
 |------|------------|
 | `thunderbird-addon/` | The add-on: an Experiment API for the layout, theme and automation, plus the pages for chat, files, viewer, artifacts and paint |
-| `src/workspace/`, `src/workspace-main.mjs` | Workspace host on `127.0.0.1:47810`: files, conversions, highlighting, artifacts and grants |
-| `src/gui-main.mjs` | `mail-gui` MCP server: GUI, viewer, files, paint and artifact tools |
+| `src/workspace/`, `src/workspace-main.mjs` | Workspace host on `127.0.0.1:47810`: files, conversions, highlighting, artifacts, grants and terminals |
+| `src/gui-main.mjs` | `mail-gui` MCP server: GUI, viewer, files, paint, artifact, settings and terminal tools |
 | [listener-mcp](https://github.com/1101AlexZab1011/listener-mcp) | Local broker the add-on and agents talk through (chat on `mail/chat/*`, GUI commands on `mail/gui/commands`) |
 
 Set it up on each machine:
@@ -194,7 +208,7 @@ scopes:
 
 ```bash
 listener-mcp token create --name email-agent --replace --save --scopes \
-  'subscribe:mail/chat/**,publish:mail/chat/**,read:mail/chat/**,publish:mail/gui/commands,read:mail/gui/**,read:mail/workspace/files,publish:mail/workspace/artifacts,read:mail/workspace/artifacts,blobs'
+  'subscribe:mail/chat/**,publish:mail/chat/**,read:mail/chat/**,publish:mail/gui/commands,read:mail/gui/**,read:mail/workspace/files,publish:mail/workspace/artifacts,read:mail/workspace/artifacts,publish:mail/workspace/terminal,blobs'
 ```
 
 The agent's token deliberately lacks `publish:mail/workspace/grants` and
@@ -214,7 +228,9 @@ enables Marionette), then:
 - `node scripts/gui.mjs state` sends GUI commands the way the agent does.
 
 `node scripts/build-icons.mjs` and `node scripts/vendor.mjs` regenerate the
-icon set and the vendored PDF.js.
+icon set and the vendored PDF.js and xterm.js. `tb.mjs` starts Thunderbird with
+`--class Firefox` (override with `TB_WM_CLASS`) so a window-manager rule can
+keep it on its own workspace.
 
 ## Everyday commands
 

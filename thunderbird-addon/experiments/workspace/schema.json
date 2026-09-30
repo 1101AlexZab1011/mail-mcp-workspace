@@ -51,6 +51,14 @@
                   "type": "any"
                 },
                 "optional": true
+              },
+              "filesSide": {
+                "type": "string",
+                "optional": true
+              },
+              "terminalUrl": {
+                "type": "string",
+                "optional": true
               }
             }
           }
@@ -262,6 +270,59 @@
         "type": "function",
         "async": true,
         "description": "Mark add-on tabs so the content-tab address bar is hidden for them.",
+        "parameters": []
+      },
+      {
+        "name": "setAppearance",
+        "type": "function",
+        "async": true,
+        "description": "Light, dark or system appearance for Thunderbird's window (built-in themes) and the Mail Workspace theme.",
+        "parameters": [
+          {
+            "name": "mode",
+            "type": "string",
+            "enum": [
+              "system",
+              "light",
+              "dark"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "setTerminal",
+        "type": "function",
+        "async": true,
+        "description": "Show, hide, maximize or size the bottom terminal panel.",
+        "parameters": [
+          {
+            "name": "change",
+            "type": "object",
+            "properties": {
+              "visible": {
+                "type": "boolean",
+                "optional": true
+              },
+              "toggle": {
+                "type": "boolean",
+                "optional": true
+              },
+              "maximized": {
+                "type": "boolean",
+                "optional": true
+              },
+              "height": {
+                "type": "integer",
+                "optional": true
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "getTerminal",
+        "type": "function",
+        "async": true,
         "parameters": []
       }
     ],

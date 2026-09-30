@@ -17,23 +17,23 @@ const PORT = Number(process.env.MARIONETTE_PORT ?? 2828);
 const THUNDERBIRD = process.env.THUNDERBIRD ?? `${process.env.HOME}/.local/opt/thunderbird/thunderbird`;
 
 class Marionette {
-  constructor() { this.id = 0; this.pending = new Map(); this.buffer = ""; }
+  constructor() { this.id = 0; this.pending = new Map(); this.buffer = Buffer.alloc(0); }
 
   open() {
     return new Promise((resolveOpen, reject) => {
       this.socket = connect(PORT, "127.0.0.1");
-      this.socket.setEncoding("utf8");
       let greeted = false;
       this.socket.on("error", reject);
       this.socket.on("data", (chunk) => {
-        this.buffer += chunk;
+        // The length prefix counts bytes, so frame on bytes and decode after.
+        this.buffer = Buffer.concat([this.buffer, chunk]);
         for (;;) {
-          const colon = this.buffer.indexOf(":");
+          const colon = this.buffer.indexOf(58); // ":"
           if (colon < 0) return;
-          const length = Number(this.buffer.slice(0, colon));
+          const length = Number(this.buffer.subarray(0, colon).toString());
           if (this.buffer.length < colon + 1 + length) return;
-          const message = JSON.parse(this.buffer.slice(colon + 1, colon + 1 + length));
-          this.buffer = this.buffer.slice(colon + 1 + length);
+          const message = JSON.parse(this.buffer.subarray(colon + 1, colon + 1 + length).toString("utf8"));
+          this.buffer = this.buffer.subarray(colon + 1 + length);
           if (!greeted) { greeted = true; resolveOpen(); continue; }
           const [, id, error, result] = message;
           const waiter = this.pending.get(id);
@@ -72,6 +72,26 @@ async function withSession(fn) {
   await m.open();
   await m.session();
   try { return await fn(m); } finally { await m.send("WebDriver:DeleteSession").catch(() => {}); m.close(); }
+}
+
+/** Check the new main window's class; quit Thunderbird at once if it would land elsewhere. */
+async function verifyClass(expected) {
+  if (!expected) return;
+  for (let i = 0; i < 60; i++) {
+    let classes = [];
+    try {
+      const pid = execFileSync("pgrep", ["-x", "thunderbird-bin"], { encoding: "utf8" }).trim().split("\n")[0];
+      const windows = execFileSync("xdotool", ["search", "--pid", pid, "--name", "Thunderbird"], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+      classes = windows.map((w) => execFileSync("xprop", ["-id", w, "WM_CLASS"], { encoding: "utf8" }));
+    } catch { /* not up yet */ }
+    const main = classes.find((c) => /"Mail"/.test(c));
+    if (main) {
+      if (main.includes(`"${expected}"`)) return;
+      try { execFileSync("pkill", ["-KILL", "-x", "thunderbird-bin"]); } catch { /* gone */ }
+      throw new Error(`wrong window class (${main.trim()}); Thunderbird was stopped`);
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
 }
 
 const [command, ...args] = process.argv.slice(2);
@@ -113,24 +133,30 @@ if (command === "eval") {
     } catch { return false; }
   })();
   if (!graceful) { try { execFileSync("pkill", ["-TERM", "-x", "thunderbird-bin"]); } catch { /* not running */ } }
-  for (let i = 0; i < 40; i++) {
-    try { execFileSync("pgrep", ["-x", "thunderbird-bin"]); await new Promise((r) => setTimeout(r, 500)); } catch { break; }
-  }
+  const running = () => { try { execFileSync("pgrep", ["-x", "thunderbird-bin"]); return true; } catch { return false; } };
+  for (let i = 0; i < 60 && running(); i++) await new Promise((r) => setTimeout(r, 500));
+  // Never launch while an old instance lives: Thunderbird would hand the launch
+  // to it and drop our arguments (the window class among them).
+  if (running()) { console.error("Thunderbird is still running; not starting a second one"); process.exit(1); }
   // TB_WM_CLASS sets the X window class, so a window-manager rule can place the
   // window: e.g. dwm's `RULE(.class = "Firefox", .tags = 1 << 7)` puts it on tag 8.
-  const wmClass = process.env.TB_WM_CLASS ? ["--class", process.env.TB_WM_CLASS] : [];
+  // Default "Firefox": the user's dwm rule puts that class on tag 8, the desktop
+  // reserved for this work. Set TB_WM_CLASS="" to launch with Thunderbird's own class.
+  const wmClassName = process.env.TB_WM_CLASS ?? "Firefox";
+  const wmClass = wmClassName ? ["--class", wmClassName] : [];
   if (command === "quit") process.exit(0);
   // PLAIN=1 starts Thunderbird normally, without the Marionette remote port.
   const plain = process.env.PLAIN === "1";
   if (plain) {
-    spawn(THUNDERBIRD, [...(process.env.TB_WM_CLASS ? ["--class", process.env.TB_WM_CLASS] : [])], { detached: true, stdio: "ignore", env: { ...process.env, DISPLAY: process.env.DISPLAY ?? ":0" } }).unref();
+    spawn(THUNDERBIRD, [...wmClass], { detached: true, stdio: "ignore", env: { ...process.env, DISPLAY: process.env.DISPLAY ?? ":0" } }).unref();
+    await verifyClass(wmClassName);
     console.log("started");
     process.exit(0);
   }
   spawn(THUNDERBIRD, [...wmClass, "--marionette", "-remote-allow-system-access"], { detached: true, stdio: "ignore", env: { ...process.env, DISPLAY: process.env.DISPLAY ?? ":0" } }).unref();
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 500));
-    try { const m = new Marionette(); await m.open(); m.close(); console.log("ready"); process.exit(0); } catch { /* not yet */ }
+    try { const m = new Marionette(); await m.open(); m.close(); await verifyClass(wmClassName); console.log("ready"); process.exit(0); } catch (error) { if (error.message?.startsWith("wrong window class")) throw error; }
   }
   console.error("Marionette did not come up");
   process.exit(1);

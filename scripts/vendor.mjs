@@ -22,4 +22,10 @@ await mkdir(to("pdfjs/wasm"), { recursive: true });
 for (const file of ["openjpeg.wasm", "jbig2.wasm", "qcms_bg.wasm", "openjpeg_nowasm_fallback.js", "jbig2_nowasm_fallback.js", "LICENSE_OPENJPEG", "LICENSE_JBIG2", "LICENSE_QCMS"]) {
   await cp(from(`pdfjs-dist/wasm/${file}`), to(`pdfjs/wasm/${file}`));
 }
-console.log("vendored pdf.js");
+// xterm.js for the terminal panel.
+await rm(to("xterm"), { recursive: true, force: true });
+await mkdir(to("xterm"), { recursive: true });
+for (const [file, name] of [["@xterm/xterm/lib/xterm.mjs", "xterm.mjs"], ["@xterm/xterm/css/xterm.css", "xterm.css"], ["@xterm/addon-fit/lib/addon-fit.mjs", "addon-fit.mjs"], ["@xterm/addon-web-links/lib/addon-web-links.mjs", "addon-web-links.mjs"], ["@xterm/xterm/LICENSE", "LICENSE"]]) {
+  await cp(from(file), to(`xterm/${name}`));
+}
+console.log("vendored pdf.js and xterm.js");

@@ -1,6 +1,9 @@
 // PDF renderer (pdf.js). Documents and presentations arrive here as PDFs the
 // host converted with LibreOffice; presentations open one slide at a time.
+import { dropdown } from "../shared/page.js";
+
 const base = new URL("../vendor/pdfjs/", import.meta.url).href;
+const ZOOMS = [["auto", "Auto"], ["page-fit", "Fit page"], ["page-width", "Fit width"], ["0.5", "50%"], ["0.75", "75%"], ["1", "100%"], ["1.25", "125%"], ["1.5", "150%"], ["2", "200%"], ["3", "300%"]];
 let libs = null;
 
 async function loadLibs() {
@@ -52,8 +55,7 @@ export async function render(stage, file, { linkFor, setToolbar, h, icon, iconBu
   // ---- toolbar
   const pageInput = h("input.input.page-input", { value: "1", "aria-label": "Page", inputmode: "numeric" });
   const pageCount = h("span.label", {}, `/ ${doc.numPages}`);
-  const zoomSelect = h("select.input", { "aria-label": "Zoom" },
-    ...[["auto", "Auto"], ["page-fit", "Fit page"], ["page-width", "Fit width"], ["0.5", "50%"], ["0.75", "75%"], ["1", "100%"], ["1.25", "125%"], ["1.5", "150%"], ["2", "200%"], ["3", "300%"]].map(([value, label]) => h("option", { value }, label)));
+  const zoomSelect = dropdown(ZOOMS, "auto", (value) => { viewer.currentScaleValue = value; }, { label: "Zoom", width: 104 });
   const findInput = h("input.input.find-input", { placeholder: "Find in document", "aria-label": "Find in document" });
   const findCount = h("span.label", {});
   const modeButtons = h("div.segmented", {},
@@ -72,11 +74,13 @@ export async function render(stage, file, { linkFor, setToolbar, h, icon, iconBu
     for (const button of modeButtons.children) button.setAttribute("aria-pressed", String(button.textContent === "Scroll" ? next === "scroll" : next === "pages"));
   }
   pageInput.addEventListener("change", () => goto(Number(pageInput.value)));
-  zoomSelect.addEventListener("change", () => { viewer.currentScaleValue = zoomSelect.value; });
   findInput.addEventListener("keydown", (event) => { if (event.key === "Enter") find(true, event.shiftKey); });
   findInput.addEventListener("input", () => find());
   eventBus.on("pagechanging", ({ pageNumber }) => { pageInput.value = String(pageNumber); });
-  eventBus.on("scalechanging", ({ presetValue, scale }) => { zoomSelect.value = presetValue ?? String(Math.round(scale * 100) / 100); if (!zoomSelect.value) zoomSelect.value = "auto"; });
+  eventBus.on("scalechanging", ({ presetValue, scale }) => {
+    const value = presetValue ?? String(Math.round(scale * 100) / 100);
+    zoomSelect.value = ZOOMS.some(([v]) => v === value) ? value : `${Math.round(scale * 100)}%`;
+  });
   eventBus.on("updatefindmatchescount", ({ matchesCount }) => { findCount.textContent = matchesCount.total ? `${matchesCount.current} of ${matchesCount.total}` : findInput.value ? "No matches" : ""; });
   eventBus.on("pagesinit", () => { if (slides) setMode("pages"); else viewer.currentScaleValue = "auto"; });
 

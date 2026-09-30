@@ -70,7 +70,7 @@ table.grid td.active { outline: 2px solid var(--mw-primary); outline-offset: -2p
 .sheet-note { margin-left: auto; color: var(--mw-warning); font-size: 12px; white-space: nowrap; }
 
 /* Code */
-.code { position: absolute; inset: 0; overflow: auto; background: var(--mw-surface); }
+.code { position: absolute; inset: 0; overflow: auto; background: var(--code-bg, var(--mw-surface)); color: var(--code-fg, var(--mw-text)); }
 .code pre.shiki { margin: 0; padding: 14px 0; font: 13px/1.6 var(--mw-font-mono); background: transparent !important; counter-reset: line; min-width: max-content; }
 .code.wrap pre.shiki { white-space: pre-wrap; min-width: 0; }
 .code pre.shiki code { display: block; }
@@ -78,14 +78,10 @@ table.grid td.active { outline: 2px solid var(--mw-primary); outline-offset: -2p
 .code.wrap pre.shiki .line { display: block; padding-left: 64px; text-indent: -64px; }
 .code pre.shiki .line::before {
   counter-increment: line; content: counter(line);
-  display: inline-block; width: 48px; margin-right: 16px; text-align: right; color: var(--mw-text-3); user-select: none;
+  display: inline-block; width: 48px; margin-right: 16px; text-align: right; color: color-mix(in srgb, var(--code-fg, var(--mw-text)) 38%, transparent); user-select: none;
   text-indent: 0;
 }
-.code pre.shiki .line:hover { background: var(--mw-hover); }
-.shiki span { color: var(--shiki-light); background-color: var(--shiki-light-bg); font-style: var(--shiki-light-font-style); font-weight: var(--shiki-light-font-weight); }
-@media (prefers-color-scheme: dark) {
-  .shiki span { color: var(--shiki-dark); background-color: var(--shiki-dark-bg); font-style: var(--shiki-dark-font-style); font-weight: var(--shiki-dark-font-weight); }
-}
+.code pre.shiki .line:hover { background: color-mix(in srgb, var(--code-fg, var(--mw-text)) 7%, transparent); }
 .truncated { position: sticky; bottom: 0; padding: 8px 16px; background: var(--mw-warning-soft); color: var(--mw-warning); font-size: 12.5px; display: flex; gap: 12px; align-items: center; }
 
 /* Markdown */

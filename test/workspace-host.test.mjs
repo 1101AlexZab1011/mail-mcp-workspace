@@ -51,6 +51,9 @@ test("files: auth, scopes, listing, kinds, text, highlight, sheets and ranged li
   const code = await call(addon, "GET", `/v1/fs/highlight?path=${join(dir, "src/main.ts")}`);
   assert.equal(code.value.language, "typescript");
   assert.match(code.value.html, /shiki/);
+  assert.equal(code.value.theme, "one-dark-pro");
+  const dracula = await call(addon, "GET", `/v1/fs/highlight?path=${join(dir, "src/main.ts")}&theme=dracula`);
+  assert.equal(dracula.value.bg.toLowerCase(), "#282a36");
 
   const sheet = await call(addon, "GET", `/v1/fs/sheet?path=${join(dir, "data.csv")}`);
   assert.equal(sheet.value.sheets[0].rows[2][0].t, "beta");
@@ -141,4 +144,21 @@ test("capabilities: nothing runs before the user approves, and an agent cannot a
   // Changing what the artifact asks for voids the approval.
   await call(agent, "PATCH", "/v1/artifacts", { path: "shell", capabilities: { exec: { cwd: "/" } } });
   assert.equal((await call(addon, "POST", "/v1/artifacts/call", { path: "shell", method: "exec", args: { command: "echo hi" } })).value.error.code, "needs_approval");
+});
+
+test("terminals: a real shell the add-on and the agent share", async (t) => {
+  const { home, call, addon, agent } = await setup(t);
+  assert.equal((await call(agent, "POST", "/v1/term", {})).status, 403, "needs the terminal scope");
+  const created = await call(addon, "POST", "/v1/term", { cwd: home, cols: 90, rows: 20 });
+  assert.equal(created.status, 200, JSON.stringify(created.value));
+  const id = created.value.id;
+  const ran = await call(addon, "POST", `/v1/term/${id}/run`, { command: "echo hello-42; tput cols", idleMs: 600, timeoutMs: 10000 });
+  assert.match(ran.value.output, /hello-42/);
+  assert.match(ran.value.output, /\b90\b/, "the pty has the requested size");
+  const read = await call(addon, "GET", `/v1/term/${id}/read?lines=50`);
+  assert.match(read.value.text, /hello-42/);
+  const listed = await call(addon, "GET", "/v1/term");
+  assert.equal(listed.value.terminals.length, 1);
+  await call(addon, "DELETE", `/v1/term/${id}`);
+  assert.equal((await call(addon, "GET", "/v1/term")).value.terminals.length, 0);
 });

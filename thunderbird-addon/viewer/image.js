@@ -1,5 +1,6 @@
 // Images and SVG: fit, 100%, wheel zoom around the pointer, drag to pan.
 // SVG is shown as an image (its scripts never run), with a source view.
+import { codeTheme, paintCode } from "./code-theme.js";
 export async function render(stage, file, { linkFor, host, setToolbar, h, iconButton }) {
   const link = await linkFor(file.path);
   const img = h("img", { src: link.url, alt: file.name, draggable: "false" });
@@ -60,9 +61,9 @@ export async function render(stage, file, { linkFor, host, setToolbar, h, iconBu
     showingSource = !showingSource;
     sourceToggle.setAttribute("aria-pressed", String(showingSource));
     if (showingSource) {
-      const result = await host(`/v1/fs/highlight?path=${encodeURIComponent(file.path)}&lang=xml`);
+      const result = await host(`/v1/fs/highlight?path=${encodeURIComponent(file.path)}&lang=xml&theme=${await codeTheme()}`);
       const code = h("div.code.wrap");
-      code.innerHTML = result.html;
+      paintCode(code, result);
       stage.replaceChildren(code);
     } else stage.replaceChildren(view);
   }, { small: true, pressed: false }) : null;
