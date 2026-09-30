@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Files</title>
+<link rel="stylesheet" href="shared/ui.css">
+<link rel="stylesheet" href="vendor/katex.css">
+<link rel="stylesheet" href="viewer.css">
+<body>
+  <header class="appbar viewer-bar">
+    <img id="file-icon" class="file-icon" alt="" hidden>
+    <div class="identity">
+      <h1 id="title">Files</h1>
+      <span id="subtitle" class="subtitle"></span>
+    </div>
+    <span id="kind" class="chip" hidden></span>
+    <span class="spacer"></span>
+    <span id="actions" class="actions"></span>
+  </header>
+  <div id="toolbar" class="toolbar" hidden></div>
+  <main id="stage" class="stage"></main>
+  <script src="vendor/marked.js"></script>
+  <script src="vendor/purify.js"></script>
+  <script src="vendor/katex.js"></script>
+  <script type="module" src="viewer.js"></script>
+</body>
+</html>

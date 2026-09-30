@@ -1,0 +1,82 @@
+/* Mail Workspace design tokens. Every page and the chrome theme build on these,
+   so light/dark and density change in one place. Colours follow Material 3 roles. */
+:root {
+  color-scheme: light dark;
+
+  --mw-font: "Inter", "Noto Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mw-font-mono: "JetBrains Mono", "Fira Code", "Source Code Pro", ui-monospace, monospace;
+
+  --mw-bg: #f4f5f8;
+  --mw-surface: #ffffff;
+  --mw-surface-2: #f0f2f6;
+  --mw-surface-3: #e7eaf0;
+  --mw-border: #e1e4ea;
+  --mw-border-strong: #c9ceda;
+  --mw-text: #191c23;
+  --mw-text-2: #5b6272;
+  --mw-text-3: #8a91a1;
+  --mw-primary: #4557d6;
+  --mw-primary-hover: #3847bd;
+  --mw-on-primary: #ffffff;
+  --mw-primary-soft: #e6e9fc;
+  --mw-primary-soft-text: #2a37a3;
+  --mw-danger: #cc3b3b;
+  --mw-danger-soft: #fbe7e7;
+  --mw-warning: #b8740c;
+  --mw-warning-soft: #fdf1dc;
+  --mw-success: #1b8a5e;
+  --mw-success-soft: #e0f4ea;
+  --mw-selection: #dde2fb;
+  --mw-hover: rgba(25, 28, 35, 0.05);
+  --mw-pressed: rgba(25, 28, 35, 0.09);
+  --mw-focus: 0 0 0 3px rgba(69, 87, 214, 0.28);
+  --mw-shadow-1: 0 1px 2px rgba(16, 20, 30, 0.06), 0 1px 3px rgba(16, 20, 30, 0.06);
+  --mw-shadow-2: 0 4px 12px rgba(16, 20, 30, 0.08), 0 1px 3px rgba(16, 20, 30, 0.06);
+  --mw-shadow-3: 0 12px 32px rgba(16, 20, 30, 0.16), 0 2px 6px rgba(16, 20, 30, 0.08);
+
+  --mw-radius-s: 6px;
+  --mw-radius: 10px;
+  --mw-radius-l: 14px;
+  --mw-radius-pill: 999px;
+  --mw-space-1: 4px;
+  --mw-space-2: 8px;
+  --mw-space-3: 12px;
+  --mw-space-4: 16px;
+  --mw-space-5: 24px;
+  --mw-header-h: 48px;
+  --mw-ease: cubic-bezier(0.2, 0, 0, 1);
+  --mw-fast: 120ms;
+  --mw-medium: 220ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --mw-bg: #0f1115;
+    --mw-surface: #16191f;
+    --mw-surface-2: #1c2027;
+    --mw-surface-3: #252a33;
+    --mw-border: #2a2f38;
+    --mw-border-strong: #3a404b;
+    --mw-text: #e6e8ee;
+    --mw-text-2: #a3aaba;
+    --mw-text-3: #767e8e;
+    --mw-primary: #8e9cff;
+    --mw-primary-hover: #a5b0ff;
+    --mw-on-primary: #10132b;
+    --mw-primary-soft: #252b4f;
+    --mw-primary-soft-text: #c6ceff;
+    --mw-danger: #ff7b7b;
+    --mw-danger-soft: #3a1e22;
+    --mw-warning: #f2b45a;
+    --mw-warning-soft: #36291a;
+    --mw-success: #5fd3a0;
+    --mw-success-soft: #173026;
+    --mw-selection: #2b3360;
+    --mw-hover: rgba(255, 255, 255, 0.05);
+    --mw-pressed: rgba(255, 255, 255, 0.09);
+    --mw-focus: 0 0 0 3px rgba(142, 156, 255, 0.35);
+    --mw-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --mw-shadow-2: 0 4px 14px rgba(0, 0, 0, 0.45);
+    --mw-shadow-3: 0 14px 36px rgba(0, 0, 0, 0.55);
+  }
+}

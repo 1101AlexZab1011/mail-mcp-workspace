@@ -1,0 +1,158 @@
+/* Shared components for the add-on's pages: app bar, buttons, inputs, lists,
+   menus, dialogs, scrollbars. Pages add only what is specific to them. */
+@import url("tokens.css");
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font: 14px/1.45 var(--mw-font);
+  color: var(--mw-text);
+  background: var(--mw-bg);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+[hidden] { display: none !important; }
+button, input, select, textarea { font: inherit; color: inherit; }
+code, pre, kbd { font-family: var(--mw-font-mono); }
+
+.icon { fill: currentColor; flex: none; display: block; }
+
+/* App bar: the header every page starts with. */
+.appbar {
+  height: var(--mw-header-h);
+  display: flex; align-items: center; gap: var(--mw-space-2);
+  padding: 0 var(--mw-space-2) 0 var(--mw-space-4);
+  border-bottom: 1px solid var(--mw-border);
+  background: var(--mw-surface);
+  flex: none;
+}
+.appbar h1 { font-size: 15px; font-weight: 650; margin: 0; letter-spacing: 0.01em; white-space: nowrap; }
+.appbar .spacer { flex: 1; min-width: 0; }
+.appbar .subtitle { color: var(--mw-text-2); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 34px; padding: 0 14px;
+  border: 1px solid var(--mw-border-strong); border-radius: var(--mw-radius-pill);
+  background: var(--mw-surface); color: var(--mw-text);
+  font-weight: 560; font-size: 13.5px; cursor: pointer; white-space: nowrap;
+  transition: background var(--mw-fast) var(--mw-ease), border-color var(--mw-fast), box-shadow var(--mw-fast);
+}
+.btn:hover { background: var(--mw-surface-2); }
+.btn:active { background: var(--mw-surface-3); }
+.btn:focus-visible, .icon-btn:focus-visible, .input:focus-visible { outline: none; box-shadow: var(--mw-focus); }
+.btn.primary { background: var(--mw-primary); border-color: transparent; color: var(--mw-on-primary); }
+.btn.primary:hover { background: var(--mw-primary-hover); }
+.btn.danger { background: var(--mw-danger); border-color: transparent; color: #fff; }
+.btn.tonal { background: var(--mw-primary-soft); border-color: transparent; color: var(--mw-primary-soft-text); }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.ghost:hover { background: var(--mw-hover); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn .icon { width: 18px; height: 18px; }
+
+.icon-btn {
+  width: 34px; height: 34px; flex: none;
+  display: inline-grid; place-items: center;
+  border: 0; border-radius: var(--mw-radius-pill);
+  background: transparent; color: var(--mw-text-2); cursor: pointer;
+  transition: background var(--mw-fast) var(--mw-ease), color var(--mw-fast);
+}
+.icon-btn:hover { background: var(--mw-hover); color: var(--mw-text); }
+.icon-btn:active { background: var(--mw-pressed); }
+.icon-btn[aria-pressed="true"], .icon-btn.active { background: var(--mw-primary-soft); color: var(--mw-primary-soft-text); }
+.icon-btn:disabled { opacity: 0.35; cursor: default; }
+.icon-btn.small { width: 28px; height: 28px; }
+.icon-btn .icon { width: 20px; height: 20px; }
+.icon-btn.small .icon { width: 18px; height: 18px; }
+
+/* Inputs */
+.input {
+  height: 34px; padding: 0 12px;
+  border: 1px solid var(--mw-border); border-radius: var(--mw-radius);
+  background: var(--mw-surface-2); outline: none; min-width: 0;
+  transition: border-color var(--mw-fast), background var(--mw-fast);
+}
+.input:hover { border-color: var(--mw-border-strong); }
+.input:focus { background: var(--mw-surface); border-color: var(--mw-primary); }
+.search-field { position: relative; display: flex; align-items: center; }
+.search-field .icon { position: absolute; left: 10px; width: 18px; height: 18px; color: var(--mw-text-3); pointer-events: none; }
+.search-field .input { padding-left: 34px; width: 100%; }
+
+/* Chips and badges */
+.chip {
+  display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 10px;
+  border-radius: var(--mw-radius-pill); background: var(--mw-surface-2); color: var(--mw-text-2);
+  font-size: 12px; font-weight: 560; white-space: nowrap;
+}
+.chip.primary { background: var(--mw-primary-soft); color: var(--mw-primary-soft-text); }
+.chip.success { background: var(--mw-success-soft); color: var(--mw-success); }
+.chip.warning { background: var(--mw-warning-soft); color: var(--mw-warning); }
+.chip.danger { background: var(--mw-danger-soft); color: var(--mw-danger); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--mw-text-3); flex: none; }
+.dot.on { background: var(--mw-success); box-shadow: 0 0 0 3px var(--mw-success-soft); }
+.dot.busy { background: var(--mw-warning); box-shadow: 0 0 0 3px var(--mw-warning-soft); }
+
+/* Menus and popovers */
+.menu {
+  position: fixed; z-index: 1000; min-width: 200px; padding: 6px;
+  background: var(--mw-surface); border: 1px solid var(--mw-border); border-radius: var(--mw-radius);
+  box-shadow: var(--mw-shadow-3);
+  animation: mw-pop var(--mw-fast) var(--mw-ease);
+}
+.menu button {
+  display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 10px;
+  border: 0; border-radius: var(--mw-radius-s); background: none; text-align: left; cursor: pointer; font-size: 13.5px;
+}
+.menu button:hover, .menu button:focus-visible { background: var(--mw-hover); outline: none; }
+.menu button .icon { width: 18px; height: 18px; color: var(--mw-text-2); }
+.menu hr { border: 0; border-top: 1px solid var(--mw-border); margin: 6px 0; }
+.menu .danger { color: var(--mw-danger); }
+.menu .danger .icon { color: var(--mw-danger); }
+@keyframes mw-pop { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }
+
+/* Dialogs */
+.dialog-backdrop {
+  position: fixed; inset: 0; z-index: 900; display: grid; place-items: center;
+  background: rgba(10, 12, 18, 0.35); animation: mw-fade var(--mw-fast);
+}
+.dialog {
+  width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto;
+  background: var(--mw-surface); border-radius: var(--mw-radius-l); box-shadow: var(--mw-shadow-3);
+  padding: var(--mw-space-5); animation: mw-pop var(--mw-medium) var(--mw-ease);
+}
+.dialog h2 { margin: 0 0 8px; font-size: 18px; font-weight: 650; }
+.dialog p { margin: 0 0 12px; color: var(--mw-text-2); }
+.dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: var(--mw-space-4); }
+@keyframes mw-fade { from { opacity: 0; } }
+
+/* Empty and loading states */
+.empty {
+  height: 100%; display: grid; place-content: center; justify-items: center; gap: 10px;
+  color: var(--mw-text-2); text-align: center; padding: 24px;
+}
+.empty .icon { width: 44px; height: 44px; color: var(--mw-text-3); }
+.empty h2 { margin: 0; font-size: 16px; font-weight: 620; color: var(--mw-text); }
+.empty p { margin: 0; max-width: 360px; }
+.spinner {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 2.5px solid var(--mw-surface-3); border-top-color: var(--mw-primary);
+  animation: mw-spin 0.8s linear infinite;
+}
+@keyframes mw-spin { to { transform: rotate(360deg); } }
+
+.toast {
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 1100;
+  display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 32px);
+  padding: 10px 16px; border-radius: var(--mw-radius); background: var(--mw-text); color: var(--mw-bg);
+  box-shadow: var(--mw-shadow-3); font-size: 13.5px; animation: mw-pop var(--mw-medium) var(--mw-ease);
+}
+
+/* Scrollbars */
+* { scrollbar-width: thin; scrollbar-color: var(--mw-border-strong) transparent; }
+
+/* Tooltips come from title attributes; keyboard hints use kbd. */
+kbd {
+  display: inline-block; min-width: 18px; padding: 1px 5px; border-radius: 5px;
+  border: 1px solid var(--mw-border); background: var(--mw-surface-2); font-size: 11px; text-align: center;
+}

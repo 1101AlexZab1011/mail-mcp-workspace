@@ -1,0 +1,54 @@
+/* Mail Workspace chrome theme. Loaded as an author sheet into the messenger
+   window by the Experiment, and removed when the add-on stops. Everything is
+   scoped to :root[mw-workspace] so nothing leaks if the attribute is absent. */
+@import url("resource://mailworkspace/shared/tokens.css");
+
+/* ---- Layout: no tab bar, no native chat --------------------------------- */
+:root[mw-workspace] #tabs-toolbar { display: none !important; }
+:root[mw-workspace] #chatButton { display: none !important; }
+/* Add-on pages open as content tabs; their address toolbar has no purpose. */
+:root[mw-workspace] [mw-own] .contentTabToolbox,
+:root[mw-workspace] [mw-own] > .contentTabToolbox { display: none !important; }
+
+/* ---- Docks --------------------------------------------------------------- */
+:root[mw-workspace] #tabmail-container { min-width: 0; }
+:root[mw-workspace] #tabmail { min-width: 360px; }
+.mw-dock {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--mw-surface);
+  transition: width var(--mw-medium) var(--mw-ease);
+}
+.mw-dock.resizing { transition: none; }
+.mw-dock[data-side="left"] { border-inline-end: 1px solid var(--mw-border); }
+.mw-dock[data-side="right"] { border-inline-start: 1px solid var(--mw-border); }
+.mw-dock-browser { flex: 1; min-height: 0; background: var(--mw-surface); }
+
+.mw-resizer {
+  flex: none;
+  width: 6px;
+  margin-inline: -3px;
+  position: relative;
+  z-index: 3;
+  cursor: col-resize;
+  background: transparent;
+}
+.mw-resizer::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 2px;
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background var(--mw-fast);
+}
+.mw-resizer:hover::after, .mw-resizer.dragging::after { background: var(--mw-primary); }
+
+/* A maximized dock fills the content area and hides everything beside it. */
+#tabmail-container[mw-maximized="left"] > :not(#mw-dock-left),
+#tabmail-container[mw-maximized="right"] > :not(#mw-dock-right) { display: none !important; }
+#tabmail-container[mw-maximized] > .mw-dock { flex: 1; width: auto !important; border: 0; }

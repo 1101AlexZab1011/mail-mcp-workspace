@@ -35,14 +35,28 @@
   "dependencies": {
     "@codefuturist/email-mcp": "^0.2.3",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@tailwindcss/browser": "^4.3.3",
     "dompurify": "^3.4.14",
+    "esbuild": "^0.28.2",
     "highlight.js": "^11.12.0",
     "imapflow": "^1.7.7",
     "katex": "^0.18.5",
+    "listener-mcp": "github:1101AlexZab1011/listener-mcp",
+    "lucide-react": "^1.49.0",
     "marked": "^18.0.11",
+    "material-icon-theme": "^5.38.1",
     "nodemailer": "^7.0.13",
+    "pdfjs-dist": "^6.3.289",
     "prismjs": "^1.30.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "recharts": "^3.10.1",
+    "shiki": "^4.4.3",
     "smol-toml": "^1.8.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@material-symbols/svg-400": "^0.47.5"
   }
 }

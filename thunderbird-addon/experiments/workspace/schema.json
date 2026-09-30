@@ -1,0 +1,135 @@
+[
+  {
+    "namespace": "workspace",
+    "description": "Chrome-level layout and automation for Mail Workspace: docks, theme, spaces, GUI state and actions.",
+    "types": [
+      {
+        "id": "Dock",
+        "type": "object",
+        "properties": {
+          "side": { "type": "string", "enum": ["left", "right"] },
+          "state": { "type": "string", "enum": ["open", "minimized", "maximized"] },
+          "width": { "type": "integer" }
+        }
+      }
+    ],
+    "functions": [
+      {
+        "name": "install",
+        "type": "function",
+        "async": true,
+        "description": "Apply the workspace layout to every messenger window, now and for windows opened later.",
+        "parameters": [
+          {
+            "name": "options",
+            "type": "object",
+            "properties": {
+              "leftUrl": { "type": "string" },
+              "rightUrl": { "type": "string" },
+              "defaults": { "type": "object", "additionalProperties": { "type": "any" }, "optional": true }
+            }
+          }
+        ]
+      },
+      {
+        "name": "getDocks",
+        "type": "function",
+        "async": true,
+        "parameters": []
+      },
+      {
+        "name": "setDock",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          { "name": "side", "type": "string", "enum": ["left", "right"] },
+          { "name": "change", "type": "object", "properties": { "state": { "type": "string", "optional": true, "enum": ["open", "minimized", "maximized", "toggle"] }, "width": { "type": "integer", "optional": true } } }
+        ]
+      },
+      {
+        "name": "openSpace",
+        "type": "function",
+        "async": true,
+        "description": "Open a built-in space: mail, addressbook, calendar, tasks, settings.",
+        "parameters": [{ "name": "name", "type": "string" }]
+      },
+      {
+        "name": "getState",
+        "type": "function",
+        "async": true,
+        "description": "What is active and selected in the chrome: space, folder, messages, calendar, tasks, contacts, docks.",
+        "parameters": []
+      },
+      {
+        "name": "snapshot",
+        "type": "function",
+        "async": true,
+        "description": "A compact list of visible, actionable chrome elements with refs.",
+        "parameters": [{ "name": "options", "type": "object", "optional": true, "properties": { "scope": { "type": "string", "optional": true }, "limit": { "type": "integer", "optional": true } } }]
+      },
+      {
+        "name": "act",
+        "type": "function",
+        "async": true,
+        "description": "Act on a snapshot ref: click, dblclick, rightclick, type, select, focus, scroll, hover. With check=true only classifies the action.",
+        "parameters": [
+          { "name": "ref", "type": "string" },
+          { "name": "action", "type": "string" },
+          { "name": "value", "type": "string", "optional": true },
+          { "name": "options", "type": "object", "optional": true, "properties": { "check": { "type": "boolean", "optional": true } } }
+        ]
+      },
+      {
+        "name": "pressKey",
+        "type": "function",
+        "async": true,
+        "description": "Send a trusted key combination (e.g. \"Control+Shift+K\") to the focused element. With check=true only classifies it.",
+        "parameters": [
+          { "name": "combo", "type": "string" },
+          { "name": "options", "type": "object", "optional": true, "properties": { "check": { "type": "boolean", "optional": true } } }
+        ]
+      },
+      {
+        "name": "screenshot",
+        "type": "function",
+        "async": true,
+        "description": "PNG data URL of the main window, or of a snapshot ref's element.",
+        "parameters": [{ "name": "options", "type": "object", "optional": true, "properties": { "ref": { "type": "string", "optional": true }, "scale": { "type": "number", "optional": true } } }]
+      },
+      {
+        "name": "selectMail",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          { "name": "folderUri", "type": "string", "optional": true },
+          { "name": "messageKeys", "type": "array", "items": { "type": "integer" }, "optional": true }
+        ]
+      },
+      {
+        "name": "calendarGoto",
+        "type": "function",
+        "async": true,
+        "parameters": [{ "name": "date", "type": "string" }, { "name": "view", "type": "string", "optional": true }]
+      },
+      {
+        "name": "focusOwnTab",
+        "type": "function",
+        "async": true,
+        "description": "Mark add-on tabs so the content-tab address bar is hidden for them.",
+        "parameters": []
+      }
+    ],
+    "events": [
+      {
+        "name": "onDockChanged",
+        "type": "function",
+        "parameters": [{ "name": "dock", "$ref": "Dock" }]
+      },
+      {
+        "name": "onShortcut",
+        "type": "function",
+        "parameters": [{ "name": "name", "type": "string" }]
+      }
+    ]
+  }
+]

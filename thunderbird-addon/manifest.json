@@ -1,28 +1,33 @@
 {
   "manifest_version": 2,
-  "name": "Mail MCP Agent Chat",
-  "description": "A local-only chat tab for a connected AI agent.",
-  "version": "1.1.2",
+  "name": "Mail Workspace",
+  "description": "Agent-first workspace for Thunderbird: chat and file docks, file viewer, artifacts, paint, and GUI control for your agent.",
+  "version": "2.0.0",
   "browser_specific_settings": {
     "gecko": {
       "id": "agent-chat@mail-mcp-workspace.local",
-      "strict_min_version": "128.0"
+      "strict_min_version": "140.0"
     }
   },
-  "browser_action": {
-    "default_title": "Open Agent Chat"
-  },
   "background": {
-    "scripts": ["background.js"]
+    "page": "background.html"
   },
   "experiment_apis": {
-    "ChatOverride": {
-      "schema": "experiments/chat-override/schema.json",
+    "workspace": {
+      "schema": "experiments/workspace/schema.json",
       "parent": {
-        "scopes": ["addon_parent"],
-        "paths": [["ChatOverride"]],
-        "script": "experiments/chat-override/implementation.js",
-        "events": ["startup"]
+        "scopes": [
+          "addon_parent"
+        ],
+        "paths": [
+          [
+            "workspace"
+          ]
+        ],
+        "script": "experiments/workspace/implementation.js",
+        "events": [
+          "startup"
+        ]
       }
     }
   },
@@ -30,5 +35,19 @@
     "page": "options.html",
     "open_in_tab": true
   },
-  "permissions": ["storage", "tabs", "http://127.0.0.1/*"]
+  "permissions": [
+    "storage",
+    "tabs",
+    "accountsRead",
+    "messagesRead",
+    "http://127.0.0.1/*",
+    "clipboardRead",
+    "clipboardWrite"
+  ],
+  "web_accessible_resources": [
+    "icons/*",
+    "shared/*",
+    "theme/*"
+  ],
+  "content_security_policy": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
 }

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Files</title>
+<link rel="stylesheet" href="shared/ui.css">
+<link rel="stylesheet" href="files.css">
+<body>
+  <div id="rail" class="rail">
+    <button id="rail-open" class="icon-btn" title="Show files (Ctrl+6)" aria-label="Show files"></button>
+  </div>
+  <div id="panel" class="panel">
+    <header class="appbar">
+      <h1>Files</h1>
+      <span class="spacer"></span>
+      <span id="actions"></span>
+    </header>
+    <div class="pathbar">
+      <nav id="crumbs" class="crumbs" aria-label="Current folder" title="Click a folder to go up; click empty space to type a path"></nav>
+      <div id="path-edit" class="path-edit" hidden>
+        <input id="path-input" class="input mono" spellcheck="false" aria-label="Folder path">
+        <div id="completions" class="completions" role="listbox" hidden></div>
+      </div>
+    </div>
+    <div class="filterbar search-field">
+      <input id="filter" class="input" placeholder="Filter" aria-label="Filter files" spellcheck="false">
+    </div>
+    <div id="tree" class="tree" role="tree" tabindex="0" aria-label="Files"></div>
+    <footer id="status" class="status"></footer>
+  </div>
+  <script type="module" src="files.js"></script>
+</body>
+</html>
