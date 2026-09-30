@@ -2,6 +2,7 @@
 // the local listener-mcp broker, and runs the agent's GUI command loop.
 import { ensurePaired } from "./shared/broker.js";
 import { startGuiBridge } from "./background/gui-bridge.js";
+import { CHAT_SIDE, FILES_SIDE } from "./shared/docks.js";
 
 const SPACES = [
   { name: "viewer", title: "Files", url: "viewer.html", icon: "preview" },
@@ -60,12 +61,12 @@ const pageRequests = {
   "open-space": ({ name, query }) => openSpace(name, query),
   "set-dock": ({ side, change }) => browser.workspace.setDock(side, change),
   "chat-draft": async ({ text }) => {
-    await browser.workspace.setDock("left", { state: "open" });
+    await browser.workspace.setDock(CHAT_SIDE, { state: "open" });
     return deliver("chat", { type: "draft", text });
   },
   "files-reveal": async ({ path }) => {
     const docks = await browser.workspace.getDocks();
-    if (docks.find((d) => d.side === "right")?.state === "minimized") await browser.workspace.setDock("right", { state: "open" });
+    if (docks.find((d) => d.side === FILES_SIDE)?.state === "minimized") await browser.workspace.setDock(FILES_SIDE, { state: "open" });
     const parent = path.replace(/\/[^/]+$/, "") || "/";
     await deliver("files", { type: "navigate", path: parent });
     return deliver("files", { type: "select", paths: [path] });
@@ -79,7 +80,8 @@ browser.runtime.onMessage.addListener((message) => {
 });
 
 async function start() {
-  await browser.workspace.install({ leftUrl: browser.runtime.getURL("chat.html?dock=1"), rightUrl: browser.runtime.getURL("files.html") });
+  const pages = { [CHAT_SIDE]: browser.runtime.getURL("chat.html?dock=1"), [FILES_SIDE]: browser.runtime.getURL("files.html") };
+  await browser.workspace.install({ leftUrl: pages.left, rightUrl: pages.right });
   await installSpaces();
   await closeLegacyChatTabs();
   await ensurePaired().catch(() => {});

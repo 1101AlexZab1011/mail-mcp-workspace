@@ -6,6 +6,7 @@
 // Irreversible actions (send, delete, move mail, settings) are shown to the
 // user as a confirmation card in the chat dock and run only if approved.
 import { broker, json } from "../shared/broker.js";
+import { CHAT_SIDE, FILES_SIDE } from "../shared/docks.js";
 
 const AGENT = "thunderbird:gui";
 const GROUP = "mail-gui";
@@ -24,8 +25,8 @@ async function pageFor(ref) {
 async function visiblePages() {
   const docks = await browser.workspace.getDocks();
   const pages = [];
-  if (docks.find((d) => d.side === "left")?.state !== "minimized") pages.push("chat");
-  if (docks.find((d) => d.side === "right")?.state !== "minimized") pages.push("files");
+  if (docks.find((d) => d.side === CHAT_SIDE)?.state !== "minimized") pages.push("chat");
+  if (docks.find((d) => d.side === FILES_SIDE)?.state !== "minimized") pages.push("files");
   const state = await browser.workspace.getState();
   const url = state.tab?.url ?? "";
   for (const page of OWN_PAGES) if (url.includes(`/${page}.html`)) pages.push(page);
@@ -91,7 +92,10 @@ const commands = {
 
   async open({ space, query }) { return ctx.openSpace(space, query); },
 
-  async dock({ side, state, width }) { return browser.workspace.setDock(side, { ...(state ? { state } : {}), ...(width ? { width } : {}) }); },
+  async dock({ dock, side, state, width }) {
+    const where = dock === "chat" ? CHAT_SIDE : dock === "files" ? FILES_SIDE : side;
+    return browser.workspace.setDock(where, { ...(state ? { state } : {}), ...(width ? { width } : {}) });
+  },
 
   async page({ page, type, ...args }) {
     // Direct commands to an add-on page (viewer, files, artifacts, paint, chat).

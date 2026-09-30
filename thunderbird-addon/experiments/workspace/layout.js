@@ -12,10 +12,27 @@ var XHTML = "http://www.w3.org/1999/xhtml";
 var PREF_ROOT = "extensions.mailworkspace.";
 var RAIL_WIDTH = 52;
 var MIN_WIDTH = 260;
+// Files on the left (minimized), chat on the right (open): see shared/docks.js.
 var DEFAULTS = {
-  left: { state: "open", width: 400 },
-  right: { state: "minimized", width: 340 },
+  left: { state: "minimized", width: 340 },
+  right: { state: "open", width: 400 },
 };
+var LAYOUT_VERSION = 2;
+
+/** Layout 1 had the chat on the left; move saved dock states with their pages. */
+function migrateDockPrefs() {
+  if (Services.prefs.getIntPref(`${PREF_ROOT}layoutVersion`, 1) >= LAYOUT_VERSION) return;
+  const saved = (side) => ({
+    state: Services.prefs.getStringPref(`${PREF_ROOT}${side}.state`, ""),
+    width: Services.prefs.getIntPref(`${PREF_ROOT}${side}.width`, 0),
+  });
+  const [left, right] = [saved("left"), saved("right")];
+  for (const [side, value] of [["left", right], ["right", left]]) {
+    if (value.state) Services.prefs.setStringPref(`${PREF_ROOT}${side}.state`, value.state); else Services.prefs.clearUserPref(`${PREF_ROOT}${side}.state`);
+    if (value.width) Services.prefs.setIntPref(`${PREF_ROOT}${side}.width`, value.width); else Services.prefs.clearUserPref(`${PREF_ROOT}${side}.width`);
+  }
+  Services.prefs.setIntPref(`${PREF_ROOT}layoutVersion`, LAYOUT_VERSION);
+}
 
 function readDock(side) {
   const fallback = DEFAULTS[side];
@@ -145,10 +162,10 @@ function applyLayout(window, ctx) {
     applyDock(window, dock);
   }
 
-  // Keyboard: Ctrl+5 toggles chat, Ctrl+6 files; Ctrl+7/8/9 open the add-on spaces.
+  // Keyboard: Ctrl+5 toggles chat (right), Ctrl+6 files (left); Ctrl+7/8/9 open the add-on spaces.
   const onKey = (event) => {
     if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
-    const map = { Digit5: "dock:left", Digit6: "dock:right", Digit7: "space:viewer", Digit8: "space:artifacts", Digit9: "space:paint" };
+    const map = { Digit5: "dock:right", Digit6: "dock:left", Digit7: "space:viewer", Digit8: "space:artifacts", Digit9: "space:paint" };
     const name = map[event.code];
     if (!name) return;
     event.preventDefault();

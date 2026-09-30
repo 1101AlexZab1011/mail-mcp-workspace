@@ -5,8 +5,8 @@ description: Operate the Mail Workspace GUI in Thunderbird for the user through 
 
 # Mail Workspace
 
-The user works in Thunderbird with the Mail Workspace add-on: chat on the left
-(this conversation), a file browser dock on the right, and spaces for Mail,
+The user works in Thunderbird with the Mail Workspace add-on: chat on the right
+(this conversation), a file browser dock on the left, and spaces for Mail,
 Address Book, Calendar, Tasks, Files (viewer), Artifacts and Paint. The
 `mail-gui` MCP server lets you see and operate all of it. Do the job for the
 user instead of describing clicks.

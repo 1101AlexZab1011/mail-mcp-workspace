@@ -100,11 +100,11 @@ register("gui_open", "Open a space: mail, addressbook, calendar, tasks, settings
   space: z.enum(["mail", "addressbook", "calendar", "tasks", "settings", "viewer", "artifacts", "paint"]),
 }, async ({ space }) => text(await gui("open", { space })));
 
-register("gui_dock", "Show, minimize, maximize or resize a dock: chat (left) or files (right).", {
+register("gui_dock", "Show, minimize, maximize or resize a dock: chat (right side) or files (left side).", {
   dock: z.enum(["chat", "files"]),
   state: z.enum(["open", "minimized", "maximized", "toggle"]).optional(),
   width: z.number().int().min(260).max(1600).optional(),
-}, async ({ dock, state, width }) => text(await gui("dock", { side: dock === "chat" ? "left" : "right", state, width })));
+}, async ({ dock, state, width }) => text(await gui("dock", { dock, state, width })));
 
 // ---------------------------------------------------------- mail/calendar --
 
@@ -132,7 +132,7 @@ register("viewer_command", "Control the open file: pdf → page {page}, next, pr
 register("files_navigate", "Show a folder in the file browser dock (opens the dock).", {
   path: z.string(),
 }, async ({ path }) => {
-  await gui("dock", { side: "right", state: "open" });
+  await gui("dock", { dock: "files", state: "open" });
   return text(await gui("page", { page: "files", type: "navigate", path }));
 });
 

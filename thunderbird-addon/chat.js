@@ -3,6 +3,7 @@
 import { icon } from "./shared/icons.js";
 import { registerPage, watchDockWidth, iconButton, h, agentIsActing, toast } from "./shared/page.js";
 import { HOST_ENDPOINT } from "./shared/broker.js";
+import { CHAT_SIDE, sideIcon } from "./shared/docks.js";
 
 const messages = document.querySelector("#messages");
 const connection = document.querySelector("#connection");
@@ -334,11 +335,13 @@ async function refresh() {
   try {
     await ensureSettings();
     const [{ events }, presence] = await Promise.all([api(`/v1/events?channel=${channel}&after=${cursor}&limit=500`), api(`/v1/presence?channel=${channel}`)]);
-    const pinned = cursor === 0 || atBottom();
+    const initialLoad = cursor === 0;
+    const pinned = initialLoad || atBottom();
     for (const event of events) { show(toItem(event), false); cursor = Math.max(cursor, event.seq); }
     // An attached agent receives the message even if it is between waits right now.
     setCanSend(presence.listening || presence.busy || presence.attached);
-    if (events.some((event) => event.from.agent) && document.documentElement.hasAttribute("data-rail")) {
+    // History loaded on start is not news; only replies arriving later count as unread.
+    if (!initialLoad && events.some((event) => event.from.agent) && document.documentElement.hasAttribute("data-rail")) {
       unread += events.filter((event) => event.from.agent).length;
       railBadge.hidden = false;
       railBadge.textContent = String(unread);
@@ -465,23 +468,23 @@ document.querySelector("#settings").append(icon("settings"));
 attachButton.append(icon("attach_file"));
 sendButton.append(icon("send", { fill: true }));
 document.querySelector("#rail-open").append(icon("forum"));
-document.querySelector("#rail-open").addEventListener("click", () => browser.workspace.setDock("left", { state: "open" }));
+document.querySelector("#rail-open").addEventListener("click", () => browser.workspace.setDock(CHAT_SIDE, { state: "open" }));
 function renderDockActions() {
   const maximized = dockState === "maximized";
   document.querySelector("#dock-actions").replaceChildren(
     document.querySelector("#settings"),
-    iconButton(maximized ? "close_fullscreen" : "open_in_full", maximized ? "Restore" : "Maximize", () => browser.workspace.setDock("left", { state: maximized ? "open" : "maximized" }), { small: true }),
-    iconButton("left_panel_close", "Minimize (Ctrl+5)", () => browser.workspace.setDock("left", { state: "minimized" }), { small: true }),
+    iconButton(maximized ? "close_fullscreen" : "open_in_full", maximized ? "Restore" : "Maximize", () => browser.workspace.setDock(CHAT_SIDE, { state: maximized ? "open" : "maximized" }), { small: true }),
+    iconButton(sideIcon(CHAT_SIDE, "close"), "Minimize (Ctrl+5)", () => browser.workspace.setDock(CHAT_SIDE, { state: "minimized" }), { small: true }),
   );
 }
-browser.workspace.onDockChanged.addListener((dock) => { if (dock.side === "left") { dockState = dock.state; renderDockActions(); } });
-browser.workspace.getDocks().then((docks) => { dockState = docks.find((d) => d.side === "left")?.state ?? "open"; renderDockActions(); });
+browser.workspace.onDockChanged.addListener((dock) => { if (dock.side === CHAT_SIDE) { dockState = dock.state; renderDockActions(); } });
+browser.workspace.getDocks().then((docks) => { dockState = docks.find((d) => d.side === CHAT_SIDE)?.state ?? "open"; renderDockActions(); });
 watchDockWidth((rail) => { if (!rail) { unread = 0; railBadge.hidden = true; } });
 new ResizeObserver(() => document.documentElement.toggleAttribute("data-narrow", innerWidth < 360)).observe(document.body);
 
 // Confirmation cards: the GUI bridge asks here before irreversible agent actions.
 function confirmAction({ kind, title, detail }) {
-  if (dockState === "minimized") void browser.workspace.setDock("left", { state: "open" });
+  if (dockState === "minimized") void browser.workspace.setDock(CHAT_SIDE, { state: "open" });
   return new Promise((resolve) => {
     const card = h("div.confirm-card", { role: "alertdialog", "aria-label": title, "data-user-only": "" });
     const finish = (approved) => {
@@ -519,7 +522,7 @@ async function attachExisting(files, { focus } = {}) {
     if (!pending.some((item) => item.path === file.path)) pending.push({ ...file, thumbnail });
   }
   renderAttachments();
-  if (focus || dockState === "minimized") await browser.workspace.setDock("left", { state: "open" });
+  if (focus || dockState === "minimized") await browser.workspace.setDock(CHAT_SIDE, { state: "open" });
   text.focus();
   return { attached: files.length, pending: pending.length };
 }

@@ -135,9 +135,9 @@ that turns Thunderbird into a workspace built around your agent.
 
 - **No tab bar.** You navigate with the spaces sidebar: Mail, Address Book,
   Calendar, Tasks, Files, Artifacts and Paint.
-- **Chat dock (left, open by default).** Drag to resize, minimize to a rail,
+- **Chat dock (right, open by default).** Drag to resize, minimize to a rail,
   or maximize. It stays visible in every space. <kbd>Ctrl</kbd>+<kbd>5</kbd>.
-- **File browser dock (right, minimized by default).** Click any part of the
+- **File browser dock (left, minimized by default).** Click any part of the
   path to go up, or type a path. It shows a VS Code-style tree with Material
   Icon Theme icons. <kbd>Ctrl</kbd>+<kbd>6</kbd>.
 - **Files space: a read-only viewer.** It shows:

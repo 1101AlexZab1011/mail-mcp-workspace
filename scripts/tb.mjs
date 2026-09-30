@@ -98,14 +98,35 @@ if (command === "eval") {
   const dir = resolve(args[0] ?? new URL("../thunderbird-addon", import.meta.url).pathname);
   const result = await withSession((m) => m.send("Addon:Install", { path: dir, temporary: true }));
   console.log(JSON.stringify(result));
-} else if (command === "restart") {
-  try { execFileSync("pkill", ["-TERM", "-x", "thunderbird-bin"]); } catch { /* not running */ }
+} else if (command === "restart" || command === "quit") {
+  // Quit cleanly through Marionette when it is listening; a TERM signal can
+  // crash a Marionette-driven instance during shutdown.
+  const graceful = await (async () => {
+    try {
+      const m = new Marionette();
+      await m.open();
+      await m.session();
+      m.send("WebDriver:ExecuteScript", { script: "Services.startup.quit(Ci.nsIAppStartup.eAttemptQuit); return 1", args: [] }).catch(() => {});
+      await new Promise((r) => setTimeout(r, 300));
+      m.close();
+      return true;
+    } catch { return false; }
+  })();
+  if (!graceful) { try { execFileSync("pkill", ["-TERM", "-x", "thunderbird-bin"]); } catch { /* not running */ } }
   for (let i = 0; i < 40; i++) {
     try { execFileSync("pgrep", ["-x", "thunderbird-bin"]); await new Promise((r) => setTimeout(r, 500)); } catch { break; }
   }
   // TB_WM_CLASS sets the X window class, so a window-manager rule can place the
   // window: e.g. dwm's `RULE(.class = "Firefox", .tags = 1 << 7)` puts it on tag 8.
   const wmClass = process.env.TB_WM_CLASS ? ["--class", process.env.TB_WM_CLASS] : [];
+  if (command === "quit") process.exit(0);
+  // PLAIN=1 starts Thunderbird normally, without the Marionette remote port.
+  const plain = process.env.PLAIN === "1";
+  if (plain) {
+    spawn(THUNDERBIRD, [...(process.env.TB_WM_CLASS ? ["--class", process.env.TB_WM_CLASS] : [])], { detached: true, stdio: "ignore", env: { ...process.env, DISPLAY: process.env.DISPLAY ?? ":0" } }).unref();
+    console.log("started");
+    process.exit(0);
+  }
   spawn(THUNDERBIRD, [...wmClass, "--marionette", "-remote-allow-system-access"], { detached: true, stdio: "ignore", env: { ...process.env, DISPLAY: process.env.DISPLAY ?? ":0" } }).unref();
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 500));

@@ -3,6 +3,7 @@
 import { host, HOST_ENDPOINT } from "./shared/broker.js";
 import { icon } from "./shared/icons.js";
 import { $, h, iconButton, contextMenu, background, toast, formatSize, registerPage, watchDockWidth } from "./shared/page.js";
+import { FILES_SIDE, sideIcon } from "./shared/docks.js";
 
 const tree = $("#tree");
 const crumbs = $("#crumbs");
@@ -324,7 +325,7 @@ async function toggleHidden() {
 
 // ------------------------------------------------------------ dock chrome --
 
-const setDock = (change) => browser.workspace.setDock("right", change);
+const setDock = (change) => browser.workspace.setDock(FILES_SIDE, change);
 function renderActions() {
   $("#actions").replaceChildren(
     iconButton("home", "Home folder", () => navigate("~"), { small: true }),
@@ -332,12 +333,12 @@ function renderActions() {
     iconButton(state.hidden ? "visibility" : "visibility_off", state.hidden ? "Hide hidden files" : "Show hidden files", toggleHidden, { small: true, pressed: state.hidden }),
     iconButton("refresh", "Refresh", refresh, { small: true }),
     iconButton(state.dock === "maximized" ? "close_fullscreen" : "open_in_full", state.dock === "maximized" ? "Restore" : "Maximize", () => setDock({ state: state.dock === "maximized" ? "open" : "maximized" }), { small: true }),
-    iconButton("right_panel_close", "Minimize (Ctrl+6)", () => setDock({ state: "minimized" }), { small: true }),
+    iconButton(sideIcon(FILES_SIDE, "close"), "Minimize (Ctrl+6)", () => setDock({ state: "minimized" }), { small: true }),
   );
 }
 $("#rail-open").append(icon("folder_open"));
 $("#rail-open").addEventListener("click", () => setDock({ state: "open" }));
-browser.workspace.onDockChanged.addListener((dock) => { if (dock.side === "right") { state.dock = dock.state; renderActions(); } });
+browser.workspace.onDockChanged.addListener((dock) => { if (dock.side === FILES_SIDE) { state.dock = dock.state; renderActions(); } });
 
 // ------------------------------------------------------------- agent API --
 
@@ -366,7 +367,7 @@ $(".filterbar").prepend(icon("search", { size: 18 }));
 watchDockWidth();
 const saved = await browser.storage.local.get({ "files.root": "~", "files.hidden": false }).catch(() => ({ "files.root": "~", "files.hidden": false }));
 state.hidden = saved["files.hidden"];
-state.dock = (await browser.workspace.getDocks()).find((d) => d.side === "right")?.state ?? "open";
+state.dock = (await browser.workspace.getDocks()).find((d) => d.side === FILES_SIDE)?.state ?? "open";
 renderActions();
 await loadTheme();
 const homeInfo = await host("/v1/fs/stat?path=~").catch(() => null);

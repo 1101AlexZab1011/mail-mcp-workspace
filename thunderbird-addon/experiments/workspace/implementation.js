@@ -67,6 +67,9 @@ var workspace = class extends ExtensionAPI {
     return {
       workspace: {
         async install({ leftUrl, rightUrl }) {
+          // Before any window is laid out: registering the window listener below
+          // already applies the layout to open windows.
+          scope.migrateDockPrefs();
           const ctx = {
             extension: self.extension,
             leftUrl,
