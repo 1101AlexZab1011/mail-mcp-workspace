@@ -198,3 +198,59 @@ function removeLayout(window, sheetUrl) {
   document.documentElement.removeAttribute("mw-workspace");
   try { window.windowUtils.removeSheetUsingURIString(sheetUrl, window.windowUtils.AUTHOR_SHEET); } catch { /* not loaded */ }
 }
+
+// ------------------------------------------------------------------ theme --
+// The main window gets chrome.css (with applyLayout); the mail, message and
+// address book documents inside it get panes.css. Both build on the same
+// tokens, and both are removed again when the add-on stops.
+
+var PANE_DOCS = /^about:(3pane|message|addressbook)/;
+var themeObserver = null;
+var themedDocs = new Set();
+
+function themeDocument(doc, url) {
+  if (!doc?.defaultView || themedDocs.has(doc)) return;
+  try {
+    doc.defaultView.windowUtils.loadSheetUsingURIString(url, doc.defaultView.windowUtils.AUTHOR_SHEET);
+    themedDocs.add(doc);
+    doc.defaultView.addEventListener("unload", () => themedDocs.delete(doc), { once: true });
+  } catch (error) { console.error("Mail Workspace theme", error); }
+}
+
+function paneDocuments(root) {
+  const out = [];
+  const visit = (doc, depth) => {
+    if (depth > 3) return;
+    for (const frame of doc.querySelectorAll("browser, iframe")) {
+      let inner = null;
+      try { inner = frame.contentDocument; } catch { continue; }
+      if (!inner) continue;
+      if (PANE_DOCS.test(inner.documentURI ?? "")) out.push(inner);
+      visit(inner, depth + 1);
+    }
+  };
+  visit(root, 0);
+  return out;
+}
+
+function installTheme(url, windows) {
+  if (!themeObserver) {
+    themeObserver = {
+      observe(doc) {
+        if (!PANE_DOCS.test(doc?.documentURI ?? "")) return;
+        // The window exists once the root element is inserted; styles can load now.
+        themeDocument(doc, url);
+      },
+    };
+    Services.obs.addObserver(themeObserver, "document-element-inserted");
+  }
+  for (const window of windows) for (const doc of paneDocuments(window.document)) themeDocument(doc, url);
+}
+
+function removeTheme(url) {
+  if (themeObserver) { Services.obs.removeObserver(themeObserver, "document-element-inserted"); themeObserver = null; }
+  for (const doc of themedDocs) {
+    try { doc.defaultView.windowUtils.removeSheetUsingURIString(url, doc.defaultView.windowUtils.AUTHOR_SHEET); } catch { /* gone */ }
+  }
+  themedDocs.clear();
+}

@@ -20,11 +20,13 @@ var workspace = class extends ExtensionAPI {
     }
     this.listeners = { dock: new Set(), shortcut: new Set() };
     this.sheetUrl = `resource://${RESOURCE_HOST}/theme/chrome.css`;
+    this.paneSheetUrl = `resource://${RESOURCE_HOST}/theme/panes.css`;
   }
 
   onShutdown(isAppShutdown) {
     if (isAppShutdown) return;
     ExtensionSupport.unregisterWindowListener(`${this.extension.id}-workspace`);
+    this.scope?.removeTheme?.(this.paneSheetUrl);
     for (const window of ExtensionSupport.openWindows) {
       if (window.location.href === MESSENGER) this.scope?.removeLayout?.(window, this.sheetUrl);
     }
@@ -80,6 +82,7 @@ var workspace = class extends ExtensionAPI {
           };
           ExtensionSupport.registerWindowListener(`${self.extension.id}-workspace`, { chromeURLs: [MESSENGER], onLoadWindow: apply });
           for (const window of self.messengerWindows()) apply(window);
+          scope.installTheme(self.paneSheetUrl, self.messengerWindows());
           scope.preparePrefs();
           return true;
         },

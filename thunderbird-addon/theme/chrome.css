@@ -2,6 +2,7 @@
    window by the Experiment, and removed when the add-on stops. Everything is
    scoped to :root[mw-workspace] so nothing leaks if the attribute is absent. */
 @import url("resource://mailworkspace/shared/tokens.css");
+@import url("resource://mailworkspace/theme/tb-tokens.css");
 
 /* ---- Layout: no tab bar, no native chat --------------------------------- */
 :root[mw-workspace] #tabs-toolbar { display: none !important; }
@@ -52,3 +53,102 @@
 #tabmail-container[mw-maximized="left"] > :not(#mw-dock-left),
 #tabmail-container[mw-maximized="right"] > :not(#mw-dock-right) { display: none !important; }
 #tabmail-container[mw-maximized] > .mw-dock { flex: 1; width: auto !important; border: 0; }
+
+/* ======================================================================
+   Redesign: spaces toolbar, toolbars, status bar, calendar, tasks.
+   ====================================================================== */
+:root[mw-workspace] {
+  --spaces-icon-mail: url("resource://mailworkspace/icons/mail.svg");
+  --spaces-icon-address-book: url("resource://mailworkspace/icons/contacts.svg");
+  --spaces-icon-calendar: url("resource://mailworkspace/icons/calendar_month.svg");
+  --spaces-icon-tasks: url("resource://mailworkspace/icons/task_alt.svg");
+  --spaces-icon-settings: url("resource://mailworkspace/icons/settings.svg");
+  --spaces-icon-collapse: url("resource://mailworkspace/icons/keyboard_double_arrow_left.svg");
+  --spaces-icon-chat: url("resource://mailworkspace/icons/forum.svg");
+  background-color: var(--mw-bg) !important;
+}
+
+/* Spaces toolbar: a quiet rail of rounded icons; the current space is a pill. */
+:root[mw-workspace] #spacesToolbar {
+  background: var(--mw-bg) !important;
+  border-inline-end: 1px solid var(--mw-border) !important;
+  padding-block: 6px;
+}
+:root[mw-workspace] #spacesToolbar .spaces-toolbar-button {
+  width: 38px; height: 38px;
+  margin-inline: -4px;
+  border-radius: 12px !important;
+  display: grid; place-items: center;
+  color: var(--mw-text-2) !important;
+  background: transparent !important;
+  transition: background var(--mw-fast) var(--mw-ease), color var(--mw-fast);
+}
+:root[mw-workspace] #spacesToolbar .spaces-toolbar-button:hover { background: var(--mw-hover) !important; color: var(--mw-text) !important; }
+:root[mw-workspace] #spacesToolbar .spaces-toolbar-button.current {
+  background: var(--mw-primary-soft) !important;
+  color: var(--mw-primary-soft-text) !important;
+}
+:root[mw-workspace] #spacesToolbar .spaces-toolbar-button img {
+  width: 22px !important; height: 22px !important; margin: 0 !important;
+  -moz-context-properties: fill, fill-opacity, stroke;
+  fill: currentColor !important; fill-opacity: 1 !important; stroke: currentColor !important;
+}
+:root[mw-workspace] #spacesToolbar .spaces-toolbar-container { gap: 8px; }
+:root[mw-workspace] .spaces-badge-container { background: var(--mw-danger) !important; }
+
+/* Top bar: the title bar with search and window buttons. */
+:root[mw-workspace] #navigation-toolbox,
+:root[mw-workspace] unified-toolbar,
+:root[mw-workspace] #unifiedToolbarContainer {
+  background: var(--mw-bg) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+:root[mw-workspace] #navigation-toolbox { border-bottom: 1px solid var(--mw-border) !important; }
+:root[mw-workspace] #unifiedToolbarContainer toolbarbutton,
+:root[mw-workspace] #unifiedToolbarContainer .unified-toolbar-button {
+  border-radius: 10px !important;
+}
+:root[mw-workspace] global-search-bar,
+:root[mw-workspace] #unifiedToolbarContent search-bar {
+  --search-field-background: var(--mw-surface);
+  --search-field-border: var(--mw-border);
+}
+
+/* Status bar */
+:root[mw-workspace] #status-bar {
+  background: var(--mw-bg) !important;
+  border-top: 1px solid var(--mw-border) !important;
+  color: var(--mw-text-3) !important;
+  min-height: 24px;
+}
+
+/* Main content frame: the area between the docks sits on the app background. */
+:root[mw-workspace] #tabmail-container,
+:root[mw-workspace] #messengerBody { background: var(--mw-bg) !important; }
+
+/* Menus and popups */
+:root[mw-workspace] menupopup,
+:root[mw-workspace] panel {
+  --panel-border-radius: 12px;
+  --panel-background: var(--mw-surface);
+  --panel-border-color: var(--mw-border);
+  --panel-shadow: var(--mw-shadow-3);
+}
+:root[mw-workspace] menupopup menuitem,
+:root[mw-workspace] menupopup menu { border-radius: 8px; margin-inline: 4px; }
+
+/* Calendar and tasks: calmer surfaces, rounder events. */
+:root[mw-workspace] #calendarContent,
+:root[mw-workspace] #calendar-view-box,
+:root[mw-workspace] #calendar-task-box { background: var(--mw-surface) !important; }
+:root[mw-workspace] #calendar-view-box { border-radius: var(--mw-radius-l) 0 0 0; }
+:root[mw-workspace] .calendar-item-container,
+:root[mw-workspace] calendar-event-box,
+:root[mw-workspace] calendar-month-day-box-item { border-radius: 8px !important; }
+:root[mw-workspace] #today-pane-panel { background: var(--mw-bg) !important; border-inline-start: 1px solid var(--mw-border) !important; }
+:root[mw-workspace] #calendar-task-tree { border-radius: var(--mw-radius); }
+:root[mw-workspace] .today-pane-cycler,
+:root[mw-workspace] #calMinimonth { border-radius: var(--mw-radius) !important; }
+:root[mw-workspace] #calendar-deactivated-notification-location-events,
+:root[mw-workspace] notification-message { border-radius: var(--mw-radius) !important; }

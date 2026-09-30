@@ -1,0 +1,125 @@
+/* Mail Workspace theme for the documents inside the main window:
+   about:3pane (folders, message list), about:message (message header and
+   body frame) and about:addressbook. */
+@import url("resource://mailworkspace/shared/tokens.css");
+@import url("resource://mailworkspace/theme/tb-tokens.css");
+
+:root {
+  --folder-color-inbox: var(--mw-primary);
+  --folder-color-folder: #d99a2b;
+  --folderpane-unread-count-background: var(--mw-primary);
+  --tree-view-bg: var(--mw-surface);
+  --tree-pane-background: var(--mw-surface);
+  --treeitem-background-hover: var(--mw-hover);
+  --treeitem-background-selected: var(--mw-surface-3);
+  --treeitem-background-active: var(--mw-primary);
+  --treeitem-text-active: var(--mw-on-primary);
+  --listbox-hover: var(--mw-hover);
+  --listbox-selected-bg: var(--mw-surface-3);
+  --listbox-focused-selected-bg: var(--mw-primary);
+  --listbox-focused-selected-color: var(--mw-on-primary);
+  --tree-card-background: var(--mw-surface);
+  --tree-card-border: transparent;
+  --tree-card-border-hover: var(--mw-border-strong);
+  --tree-card-background-selected: var(--mw-primary-soft);
+  --tree-card-background-selected-unfocused: var(--mw-surface-3);
+  --tree-card-background-current: var(--mw-surface);
+  --tree-card-border-selected: var(--mw-primary);
+  --tree-card-border-focus: var(--mw-primary);
+}
+
+/* ---- about:3pane ---- */
+#folderPane { background: var(--mw-bg) !important; }
+#folderPaneHeaderBar { background: transparent !important; padding: 8px 10px !important; }
+#folderPaneWriteMessage {
+  border-radius: 14px !important;
+  min-height: 38px;
+  padding-inline: 16px !important;
+  background: var(--mw-primary) !important;
+  color: var(--mw-on-primary) !important;
+  border: 0 !important;
+  box-shadow: var(--mw-shadow-1);
+  font-weight: 600;
+}
+#folderPaneWriteMessage:hover { background: var(--mw-primary-hover) !important; }
+#folderTree li > .container {
+  border-radius: 10px !important;
+  margin-inline: 6px;
+  min-height: 32px;
+}
+#folderTree li.selected > .container { background: var(--mw-primary-soft) !important; color: var(--mw-primary-soft-text) !important; font-weight: 600; }
+#folderTree:focus-within li.selected > .container { background: var(--mw-primary) !important; color: var(--mw-on-primary) !important; }
+#folderTree .unread-count, #folderTree .total-count {
+  border-radius: 999px !important;
+  padding-inline: 7px !important;
+  font-weight: 650;
+}
+#folderTree .unread-count { background: var(--mw-primary-soft) !important; color: var(--mw-primary-soft-text) !important; }
+#folderTree li.selected > .container .unread-count { background: rgba(255, 255, 255, 0.24) !important; color: inherit !important; }
+#folderPaneSplitter, #messagePaneSplitter { border-color: var(--mw-border) !important; }
+
+#threadPane { background: var(--mw-bg) !important; }
+#threadPaneHeaderBar {
+  background: var(--mw-bg) !important;
+  border-bottom: 1px solid var(--mw-border) !important;
+  padding-block: 6px !important;
+}
+#threadPaneFolderName { font-size: 1.15em; font-weight: 680; }
+#threadPaneFolderCount { color: var(--mw-text-3) !important; }
+#threadPaneQuickFilterButton, #threadPaneDisplayButton, #folderPaneGetMessages, #folderPaneMoreButton { border-radius: 10px !important; }
+
+/* Message list cards */
+#threadTree { background: var(--mw-bg) !important; }
+/* Card rows have a fixed height (the list is virtualised), so only colour,
+   border and radius change here, never padding. */
+#threadTree tr[is="thread-card"] .card-container {
+  border-radius: 12px !important;
+  background: var(--mw-surface) !important;
+  border-color: var(--mw-border) !important;
+  box-shadow: none !important;
+  transition: border-color var(--mw-fast), box-shadow var(--mw-fast), background var(--mw-fast);
+}
+#threadTree tr[is="thread-card"]:hover .card-container { border-color: var(--mw-border-strong) !important; box-shadow: var(--mw-shadow-1) !important; }
+#threadTree tr[is="thread-card"].selected .card-container {
+  background: var(--mw-primary-soft) !important;
+  border-color: color-mix(in srgb, var(--mw-primary) 55%, transparent) !important;
+}
+#threadTree tr[is="thread-card"] .sender { font-weight: 600; }
+#threadTree tr[is="thread-card"][data-properties~="unread"] .card-container { box-shadow: inset 3px 0 0 var(--mw-primary) !important; }
+#threadTree tr[is="thread-card"][data-properties~="unread"] .sender,
+#threadTree tr[is="thread-card"][data-properties~="unread"] .subject { font-weight: 700; }
+#threadTree tr[is="thread-card"] .date { color: var(--mw-text-3) !important; font-size: 0.9em; }
+#threadTree tr[is="thread-card"] .subject { color: var(--mw-text-2); }
+#threadTree tr[is="thread-card"].selected .subject { color: var(--mw-text); }
+
+/* Table (non-card) view */
+#threadTree tr:not([is="thread-card"]).selected { background: var(--mw-primary-soft) !important; color: var(--mw-text) !important; }
+#threadTree:focus-within tr:not([is="thread-card"]).selected { background: var(--mw-primary) !important; color: var(--mw-on-primary) !important; }
+
+/* Start page ("Welcome to Thunderbird") and empty states sit on the same surface. */
+#accountCentralBrowser, #messageBrowser, #multiMessageBrowser { background: var(--mw-surface) !important; }
+
+/* ---- about:message: the header above a message body ---- */
+#messageHeader {
+  background: var(--mw-surface) !important;
+  border-bottom: 1px solid var(--mw-border) !important;
+  padding: 14px 18px !important;
+}
+#headerSubjectSecurityContainer, #expandedsubjectBox { font-size: 1.35em !important; font-weight: 680 !important; }
+#messageHeader .message-header-buttons-only-icons toolbarbutton,
+#messageHeader toolbarbutton.message-header-view-button,
+#header-view-toolbar toolbarbutton {
+  border-radius: 10px !important;
+}
+.header-recipient, .recipients-list li { border-radius: 8px !important; }
+#attachmentView, #attachmentBar { background: var(--mw-surface-2) !important; border-radius: 0 !important; }
+
+/* ---- about:addressbook ---- */
+#booksPane, #cardsPane { background: var(--mw-bg) !important; }
+#booksPaneCreateBook, #booksPaneCreateContact, #booksPaneCreateList, #booksPaneImport { border-radius: 10px !important; }
+#books li > .bookRow-container, #books li > .listRow-container { border-radius: 10px !important; margin-inline: 6px; }
+#books li.selected > div { background: var(--mw-primary-soft) !important; color: var(--mw-primary-soft-text) !important; }
+#cards tr.selected, #cards tr[aria-selected="true"] { background: var(--mw-primary-soft) !important; color: var(--mw-text) !important; }
+#cards tr { border-radius: 10px; }
+#detailsPane { background: var(--mw-surface) !important; }
+#detailsPane .contact-header, #viewContact header { border-radius: var(--mw-radius-l); }

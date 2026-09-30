@@ -1,0 +1,55 @@
+/* Mail Workspace palette mapped onto Thunderbird's own design tokens. Loaded
+   into the main window and into about:3pane, about:message and
+   about:addressbook, so every part of Thunderbird draws from one palette.
+   Thunderbird switches between the -light and -dark variants itself. */
+:root {
+  --color-primary-default-light: #4557d6;
+  --color-primary-hover-light: #3847bd;
+  --color-primary-pressed-light: #2f3ca3;
+  --color-primary-soft-light: #e6e9fc;
+  --color-primary-default-dark: #8e9cff;
+  --color-primary-hover-dark: #a5b0ff;
+  --color-primary-pressed-dark: #bac2ff;
+  --color-primary-soft-dark: #252b4f;
+
+  --color-surface-base-light: #ffffff;
+  --color-surface-lower-light: #f4f5f8;
+  --color-surface-subtle-light: #f0f2f6;
+  --color-surface-raised-light: #ffffff;
+  --color-surface-deep-light: #e7eaf0;
+  --color-surface-border-light: #e1e4ea;
+  --color-surface-border-intense-light: #c9ceda;
+  --color-surface-base-dark: #16191f;
+  --color-surface-lower-dark: #0f1115;
+  --color-surface-subtle-dark: #1c2027;
+  --color-surface-raised-dark: #1c2027;
+  --color-surface-deep-dark: #0b0d10;
+  --color-surface-border-dark: #2a2f38;
+  --color-surface-border-intense-dark: #3a404b;
+
+  --color-text-base-light: #191c23;
+  --color-text-secondary-light: #5b6272;
+  --color-text-muted-light: #8a91a1;
+  --color-text-brand-light: #4557d6;
+  --color-text-highlight-light: #2a37a3;
+  --color-text-base-dark: #e6e8ee;
+  --color-text-secondary-dark: #a3aaba;
+  --color-text-muted-dark: #767e8e;
+  --color-text-brand-dark: #8e9cff;
+  --color-text-highlight-dark: #c6ceff;
+
+  --color-critical-default-light: #cc3b3b;
+  --color-critical-soft-light: #fbe7e7;
+  --color-critical-default-dark: #ff7b7b;
+  --color-critical-soft-dark: #3a1e22;
+  --color-success-default-light: #1b8a5e;
+  --color-success-soft-light: #e0f4ea;
+  --color-success-default-dark: #5fd3a0;
+  --color-success-soft-dark: #173026;
+  --color-warning-default-light: #b8740c;
+  --color-warning-soft-light: #fdf1dc;
+  --color-warning-default-dark: #f2b45a;
+  --color-warning-soft-dark: #36291a;
+
+  --focus-outline-color: var(--mw-primary);
+}

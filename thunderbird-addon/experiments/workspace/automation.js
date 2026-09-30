@@ -17,6 +17,12 @@ var MW_XHTML = "http://www.w3.org/1999/xhtml";
 const winOf = (el) => el.ownerDocument?.defaultView ?? el.ownerGlobal;
 
 function preparePrefs() {
+  // The start page is a web page that can't follow the theme; an empty message
+  // pane until something is selected reads better.
+  if (Services.prefs.getBoolPref("mailnews.start_page.enabled", true)) {
+    Services.prefs.setBoolPref("extensions.mailworkspace.previousStartPage", true);
+    Services.prefs.setBoolPref("mailnews.start_page.enabled", false);
+  }
   // Without a tab bar a message opened "in a new tab" would be invisible, so
   // messages open in the message pane / a reusable window instead.
   if (Services.prefs.getIntPref("mail.openMessageBehavior", 2) === 2) {

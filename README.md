@@ -10,8 +10,9 @@ A portable, local setup for [email-mcp](https://github.com/codefuturist/email-mc
 - `mail-workflow-mcp`, an optional provider-neutral IMAP workflow server.
 - Commands to configure, verify, and run the MCP server.
 - Portable skills for Pending-mail review and chronological email summaries.
-- An optional local-only Agent Chat Thunderbird add-on, connected to the agent
-  through [listener-mcp](https://github.com/1101AlexZab1011/listener-mcp).
+- Mail Workspace, an optional Thunderbird add-on: chat and file docks, a file
+  viewer, artifacts, paint, and agent control of the GUI, connected through
+  [listener-mcp](https://github.com/1101AlexZab1011/listener-mcp).
 - Documentation for setting up the same mailbox on another machine.
 
 No account details, server addresses, passwords, OAuth tokens, or Thunderbird profiles are stored here.
@@ -53,10 +54,14 @@ args = ["/absolute/path/to/mail-mcp-workspace/src/main.mjs", "stdio"]
 [mcp_servers.mail_attachments]
 command = "node"
 args = ["/absolute/path/to/mail-mcp-workspace/src/attachments-main.mjs"]
+
+[mcp_servers.mail_gui]
+command = "node"
+args = ["/absolute/path/to/mail-mcp-workspace/src/gui-main.mjs"]
 ```
 
 Agent Chat's MCP server (`listener`) is added per project by `listener-mcp init`;
-see [Agent Chat for Thunderbird](#agent-chat-for-thunderbird).
+see [Mail Workspace for Thunderbird](#mail-workspace-for-thunderbird).
 
 For Codex, add both blocks to `~/.codex/config.toml`. Restart the client after editing its configuration. Other MCP clients use the same command and argument in their equivalent user configuration.
 
@@ -123,58 +128,93 @@ Copy a skill directory into the skill location used by Codex, Claude Code, or
 another SKILL.md-compatible agent. The agent must also have access to the email
 and workflow MCP servers above.
 
-## Agent Chat for Thunderbird
+## Mail Workspace for Thunderbird
 
-Agent Chat is an optional local chat panel in Thunderbird for talking to your
-agent. It is not email: it has no access to your messages, folders or sending
-identity.
+Mail Workspace is an optional Thunderbird add-on (in `thunderbird-addon/`)
+that turns Thunderbird into a workspace built around your agent.
 
-The panel and the agent are connected by
-[listener-mcp](https://github.com/1101AlexZab1011/listener-mcp), a local broker
-that lets apps reach agents:
+- **No tab bar.** You navigate with the spaces sidebar: Mail, Address Book,
+  Calendar, Tasks, Files, Artifacts and Paint.
+- **Chat dock (left, open by default).** Drag to resize, minimize to a rail,
+  or maximize. It stays visible in every space. <kbd>Ctrl</kbd>+<kbd>5</kbd>.
+- **File browser dock (right, minimized by default).** Click any part of the
+  path to go up, or type a path. It shows a VS Code-style tree with Material
+  Icon Theme icons. <kbd>Ctrl</kbd>+<kbd>6</kbd>.
+- **Files space: a read-only viewer.** It shows:
+  - PDF;
+  - Word, ODT, PowerPoint and ODP (converted to PDF with LibreOffice);
+  - Excel, ODS and CSV;
+  - markdown, and code (Shiki, about 300 languages) or text;
+  - images, GIF and SVG;
+  - audio (with a waveform) and video.
+- **Artifacts space.** React apps the agent builds for you, stored in
+  `~/Artifacts`:
+  - they're organised in a folder tree you can collapse, and reload live when
+    their files change;
+  - they're sandboxed: running commands, calling local HTTP services and
+    touching files each need a permission that you approve per artifact.
+- **Paint space.** Paste a screenshot, mark it up, and use **Send to agent**.
+- **Agent control.** Through the `mail-gui` MCP server, the agent sees what's
+  selected, opens spaces and files, and clicks or types anywhere in the GUI.
+  Sending, deleting, moving mail and changing settings ask you first, in the
+  chat.
+- **Redesign.** Material Symbols icons and a light/dark palette applied to
+  Thunderbird's own UI.
 
-- Each chat message is an event on channel `mail/chat/default`.
-- Messages queue in the durable group `mail-chat` until an agent handles them.
-- The agent answers with `listener_reply`.
-- In Claude Code, a listening session stays free for you to use: each chat
-  message wakes it up.
+Parts:
+
+| Part | What it is |
+|------|------------|
+| `thunderbird-addon/` | The add-on: an Experiment API for the layout, theme and automation, plus the pages for chat, files, viewer, artifacts and paint |
+| `src/workspace/`, `src/workspace-main.mjs` | Workspace host on `127.0.0.1:47810`: files, conversions, highlighting, artifacts and grants |
+| `src/gui-main.mjs` | `mail-gui` MCP server: GUI, viewer, files, paint and artifact tools |
+| [listener-mcp](https://github.com/1101AlexZab1011/listener-mcp) | Local broker the add-on and agents talk through (chat on `mail/chat/*`, GUI commands on `mail/gui/commands`) |
 
 Set it up on each machine:
 
 ```bash
 npm install -g --allow-git=root github:1101AlexZab1011/listener-mcp
-listener-mcp service install    # keep the broker running (systemd user service)
+listener-mcp service install             # broker, systemd user service
+npm ci                                   # add-on and host dependencies
+node src/workspace-main.mjs install-service   # workspace host, systemd user service
 listener-mcp init --agent claude,codex --channels 'mail/chat/**' --group mail-chat --from now --credential email-agent
-npm run chat:addon
+npm run chat:addon                       # builds dist/agent-chat.xpi
 ```
 
-`init` does the following, and is safe to run again:
+Install `dist/agent-chat.xpi` from **Add-ons and Themes → gear menu → Install
+Add-on From File**. Then pair the add-on:
 
-- mints the agent token (kept in `~/.config/listener-mcp/credentials/`);
-- creates the `mail-chat` group;
-- writes the machine-local agent configuration: the `listener` entry in
-  `.mcp.json`, hooks in `.claude/settings.json` and `.codex/`.
-
-Install `dist/agent-chat.xpi` in Thunderbird from **Add-ons and Themes → gear
-menu → Install Add-on From File**, then pair it:
-
-1. Open the add-on's Settings page. It shows the exact `listener-mcp pair …`
-   command for your installation.
+1. Open its settings page, which shows the exact `listener-mcp pair …`
+   command.
 2. Run that command.
-3. Press **Pair now** within ten minutes.
+3. Press **Pair now**, or restart Thunderbird within ten minutes.
 
-Once a grant is open, the add-on also pairs by itself when Thunderbird starts
-or when the chat tab polls. The token is bound to the add-on's origin and
-stored in the add-on only.
+For GUI control, the agent's credential also needs the GUI and workspace
+scopes:
 
-Thunderbird's native Chat feature is not patched: supported MailExtension APIs
-can't safely replace that built-in view. Agent Chat is a separate tab, and
-disabling or removing the add-on restores ordinary Thunderbird behaviour.
+```bash
+listener-mcp token create --name email-agent --replace --save --scopes \
+  'subscribe:mail/chat/**,publish:mail/chat/**,read:mail/chat/**,publish:mail/gui/commands,read:mail/gui/**,read:mail/workspace/files,publish:mail/workspace/artifacts,read:mail/workspace/artifacts,blobs'
+```
 
-To start chatting, run `/email-start-chat` in Claude Code or Codex (restart
-the agent after `init`). To stop, ask the agent to stop listening.
-`listener-mcp status 'mail/chat/**'` shows who is listening, and
-`listener-mcp doctor` checks the setup.
+The agent's token deliberately lacks `publish:mail/workspace/grants` and
+`…/capabilities`. It can write an artifact, but only you can allow what the
+artifact may do.
+
+To start chatting, run `/email-start-chat` in Claude Code or Codex (restart the
+agent after `init`). The `mail-workspace` skill teaches the agent the GUI
+tools. Disabling the add-on restores Thunderbird's own layout, tab bar and
+look.
+
+**Development.** Start Thunderbird with `node scripts/tb.mjs restart` (it
+enables Marionette), then:
+
+- `node scripts/tb.mjs install` loads the add-on from its folder;
+- `node scripts/tb.mjs shot out.png` takes a screenshot;
+- `node scripts/gui.mjs state` sends GUI commands the way the agent does.
+
+`node scripts/build-icons.mjs` and `node scripts/vendor.mjs` regenerate the
+icon set and the vendored PDF.js.
 
 ## Everyday commands
 

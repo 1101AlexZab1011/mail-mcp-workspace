@@ -1,15 +1,38 @@
 <!doctype html>
+<html lang="en">
 <meta charset="utf-8">
-<title>Agent Chat settings</title>
-<link rel="stylesheet" href="style.css">
-<main class="settings">
-  <h1>Agent Chat settings</h1>
-  <p>Agent Chat talks to the local <a href="https://github.com/1101AlexZab1011/listener-mcp">listener-mcp</a> broker only. To pair, run this once on this computer, then press <b>Pair now</b> within ten minutes:</p>
-  <pre id="pair-command"></pre>
-  <button id="pair" type="button">Pair now</button>
-  <p>Or enter a token created with <code>listener-mcp token create --origin …</code> by hand:</p>
-  <label>Broker URL <input id="endpoint" type="url" value="http://127.0.0.1:47800" required></label>
-  <label>Access token <input id="token" type="password" autocomplete="off"></label>
-  <button id="save" type="button">Save</button><span id="status" role="status"></span>
+<title>Mail Workspace settings</title>
+<link rel="stylesheet" href="shared/ui.css">
+<style>
+  body { overflow: auto; }
+  main { max-width: 680px; margin: 0 auto; padding: 40px 24px; display: grid; gap: 20px; }
+  h1 { margin: 0; font-size: 24px; font-weight: 680; }
+  section { background: var(--mw-surface); border: 1px solid var(--mw-border); border-radius: var(--mw-radius-l); padding: 20px 22px; display: grid; gap: 12px; }
+  section h2 { margin: 0; font-size: 15px; font-weight: 650; }
+  section p { margin: 0; color: var(--mw-text-2); }
+  pre { margin: 0; padding: 10px 12px; border-radius: var(--mw-radius); background: var(--mw-surface-2); white-space: pre-wrap; word-break: break-all; font-size: 12.5px; }
+  label { display: grid; gap: 6px; font-size: 13px; color: var(--mw-text-2); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #status { color: var(--mw-text-2); font-size: 13px; }
+</style>
+<main>
+  <h1>Mail Workspace</h1>
+  <section>
+    <h2>Pair with listener-mcp</h2>
+    <p>The chat, the file browser, the viewer and artifacts talk to the local <a href="https://github.com/1101AlexZab1011/listener-mcp">listener-mcp</a> broker. Run this once, then press Pair now within ten minutes:</p>
+    <pre id="pair-command"></pre>
+    <div class="row"><button id="pair" class="btn primary" type="button">Pair now</button><span id="status" role="status"></span></div>
+  </section>
+  <section>
+    <h2>Manual token</h2>
+    <p>Or paste a token created with <code>listener-mcp token create --origin …</code>.</p>
+    <label>Broker URL <input id="endpoint" class="input" type="url" value="http://127.0.0.1:47800" required></label>
+    <label>Access token <input id="token" class="input" type="password" autocomplete="off"></label>
+    <div class="row"><button id="save" class="btn" type="button">Save</button></div>
+  </section>
+  <section>
+    <h2>Keyboard</h2>
+    <p><kbd>Ctrl</kbd>+<kbd>5</kbd> chat dock · <kbd>Ctrl</kbd>+<kbd>6</kbd> file dock · <kbd>Ctrl</kbd>+<kbd>7</kbd> Files · <kbd>Ctrl</kbd>+<kbd>8</kbd> Artifacts · <kbd>Ctrl</kbd>+<kbd>9</kbd> Paint</p>
+  </section>
 </main>
-<script src="options.js"></script>
+<script type="module" src="options.js"></script>
