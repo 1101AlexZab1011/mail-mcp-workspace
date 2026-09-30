@@ -10,7 +10,8 @@ A portable, local setup for [email-mcp](https://github.com/codefuturist/email-mc
 - `mail-workflow-mcp`, an optional provider-neutral IMAP workflow server.
 - Commands to configure, verify, and run the MCP server.
 - Portable skills for Pending-mail review and chronological email summaries.
-- An optional local-only Agent Chat Thunderbird add-on and MCP bridge.
+- An optional local-only Agent Chat Thunderbird add-on, connected to the agent
+  through [listener-mcp](https://github.com/1101AlexZab1011/listener-mcp).
 - Documentation for setting up the same mailbox on another machine.
 
 No account details, server addresses, passwords, OAuth tokens, or Thunderbird profiles are stored here.
@@ -52,11 +53,10 @@ args = ["/absolute/path/to/mail-mcp-workspace/src/main.mjs", "stdio"]
 [mcp_servers.mail_attachments]
 command = "node"
 args = ["/absolute/path/to/mail-mcp-workspace/src/attachments-main.mjs"]
-
-[mcp_servers.mail_agent_chat]
-command = "node"
-args = ["/absolute/path/to/mail-mcp-workspace/src/chat-main.mjs", "stdio"]
 ```
+
+Agent Chat's MCP server (`listener`) is added per project by `listener-mcp init`;
+see [Agent Chat for Thunderbird](#agent-chat-for-thunderbird).
 
 For Codex, add both blocks to `~/.codex/config.toml`. Restart the client after editing its configuration. Other MCP clients use the same command and argument in their equivalent user configuration.
 
@@ -114,8 +114,10 @@ email-mcp OAuth extension before this workflow process can connect directly.
   mail, reports urgent items, and files only non-urgent mail when policy allows.
 - [email-summary](skills/email-summary/SKILL.md) summarizes received mail from
   the requested number of days in chronological order.
-- [email-start-chat](skills/email-start-chat/SKILL.md) starts and handles a
-  separate local Agent Chat conversation.
+- [email-start-chat](skills/email-start-chat/SKILL.md) starts, handles and
+  stops the Agent Chat conversation.
+- [listener](skills/listener/SKILL.md) is listener-mcp's general skill for
+  receiving app events.
 
 Copy a skill directory into the skill location used by Codex, Claude Code, or
 another SKILL.md-compatible agent. The agent must also have access to the email
@@ -123,46 +125,56 @@ and workflow MCP servers above.
 
 ## Agent Chat for Thunderbird
 
-Agent Chat is an optional local conversation window for an LLM agent. It is not
-email and it has no access to your messages, folders, or sending identity. The
-Thunderbird add-on sends chat text only to a token-protected listener on
-`127.0.0.1`; the compatible agent reads and replies through `mail_agent_chat`.
+Agent Chat is an optional local chat panel in Thunderbird for talking to your
+agent. It is not email: it has no access to your messages, folders or sending
+identity.
+
+The panel and the agent are connected by
+[listener-mcp](https://github.com/1101AlexZab1011/listener-mcp), a local broker
+that lets apps reach agents:
+
+- Each chat message is an event on channel `mail/chat/default`.
+- Messages queue in the durable group `mail-chat` until an agent handles them.
+- The agent answers with `listener_reply`.
+- In Claude Code, a listening session stays free for you to use: each chat
+  message wakes it up.
 
 Set it up on each machine:
 
 ```bash
-npm run chat:init
-npm run chat:install-service
+npm install -g --allow-git=root github:1101AlexZab1011/listener-mcp
+listener-mcp service install    # keep the broker running (systemd user service)
+listener-mcp init --agent claude,codex --channels 'mail/chat/**' --group mail-chat --from now --credential email-agent
 npm run chat:addon
 ```
 
-The first command creates `~/.config/mail-mcp-workspace/agent-chat.json` with a
-private random token. Open that file locally and copy its `host`, `port`, and
-`token` into the Agent Chat add-on's Settings page. Do not put this file or its
-token in Git, screenshots, prompts, or chat messages.
+`init` does the following, and is safe to run again:
+
+- mints the agent token (kept in `~/.config/listener-mcp/credentials/`);
+- creates the `mail-chat` group;
+- writes the machine-local agent configuration: the `listener` entry in
+  `.mcp.json`, hooks in `.claude/settings.json` and `.codex/`.
 
 Install `dist/agent-chat.xpi` in Thunderbird from **Add-ons and Themes → gear
-menu → Install Add-on From File**, then use the **Open Agent Chat** toolbar
-button. Thunderbird's native Chat feature is not patched: supported
-MailExtension APIs cannot safely replace that built-in view. Agent Chat is a
-separate tab and disabling or removing the add-on restores ordinary Thunderbird
-behaviour.
+menu → Install Add-on From File**, then pair it:
 
-Copy `skills/email-start-chat` to the skills location of Codex, Claude Code, or
-another SKILL.md-compatible agent, then restart that agent. Run
-`/email-start-chat` to start/check the listener, retrieve queued messages, and
-reply with `send_to_chat`. The listener keeps unacknowledged messages if no
-agent session is active; it does not run an LLM by itself.
+1. Open the add-on's Settings page. It shows the exact `listener-mcp pair …`
+   command for your installation.
+2. Run that command.
+3. Press **Pair now** within ten minutes.
 
-The service is managed as `mail-mcp-agent-chat.service`. To stop it:
+Once a grant is open, the add-on also pairs by itself when Thunderbird starts
+or when the chat tab polls. The token is bound to the add-on's origin and
+stored in the add-on only.
 
-```bash
-systemctl --user stop mail-mcp-agent-chat.service
-```
+Thunderbird's native Chat feature is not patched: supported MailExtension APIs
+can't safely replace that built-in view. Agent Chat is a separate tab, and
+disabling or removing the add-on restores ordinary Thunderbird behaviour.
 
-Stopping it does not delete queued conversations. Local configuration and
-conversation state reside under `~/.config/mail-mcp-workspace/` and
-`~/.local/state/mail-mcp-workspace/`, respectively, both outside this clone.
+To start chatting, run `/email-start-chat` in Claude Code or Codex (restart
+the agent after `init`). To stop, ask the agent to stop listening.
+`listener-mcp status 'mail/chat/**'` shows who is listening, and
+`listener-mcp doctor` checks the setup.
 
 ## Everyday commands
 
@@ -171,9 +183,8 @@ npm run configure  # add or update an account interactively
 npm run verify     # test all configured accounts
 npm run mcp        # run the MCP server over stdio
 npm run workflow:mcp # run the workflow MCP server over stdio
-npm run chat:init    # create a local Agent Chat token/configuration
-npm run chat:install-service # install/start the local listener service
 npm run chat:addon   # build the Thunderbird add-on package
+listener-mcp status 'mail/chat/**' # who is listening to Agent Chat
 npm test            # run local workflow tests
 ```
 
@@ -181,10 +192,14 @@ npm test            # run local workflow tests
 
 Credentials are deliberately kept outside the repository. Do not commit `~/.config/email-mcp/config.toml`, a Thunderbird profile, `.env` files, or MCP client configuration files. The provided `.gitignore` excludes common local credential files, but always inspect `git status` before committing.
 
-Agent Chat uses a separate token and local conversation history; those are also
-outside the repository. The listener binds exclusively to `127.0.0.1` and
-requires the token for every request. Its MCP `send_to_chat` tool only appends a
-chat reply—it cannot send email, modify mail, or execute commands.
+Agent Chat's tokens and conversation history belong to listener-mcp and live
+outside the repository (`~/.config/listener-mcp/`, `~/.local/state/listener-mcp/`).
+
+- The broker binds only to `127.0.0.1` and checks the `Host` header.
+- Every request needs a token, scoped here to `mail/chat/**`.
+- The add-on's token works only from the add-on's own origin.
+- The chat tools only exchange chat events: they can't send email, modify
+  mail, or execute commands.
 
 This workspace only pins and configures the upstream server; email operations and the credential storage format are implemented by `@codefuturist/email-mcp`.
 

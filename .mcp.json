@@ -1,14 +1,27 @@
 {
   "mcpServers": {
-    "mail-agent-chat": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["src/chat-main.mjs", "stdio"]
-    },
     "mail-workflow": {
       "type": "stdio",
       "command": "node",
-      "args": ["src/main.mjs", "stdio"]
+      "args": [
+        "src/main.mjs",
+        "stdio"
+      ]
+    },
+    "mail-attachments": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "src/attachments-main.mjs",
+        "stdio"
+      ]
+    },
+    "listener": {
+      "type": "stdio",
+      "command": "listener-mcp",
+      "args": [
+        "mcp"
+      ]
     }
   }
 }

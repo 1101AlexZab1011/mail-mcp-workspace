@@ -17,10 +17,6 @@
     "workflow:watch": "node src/main.mjs watch",
     "workflow:install-watcher": "node src/main.mjs install-watcher-service",
     "workflow:init": "node src/main.mjs init",
-    "chat": "node src/chat-main.mjs stdio",
-    "chat:init": "node src/chat-listener.mjs init",
-    "chat:listen": "node src/chat-listener.mjs serve",
-    "chat:install-service": "node src/chat-listener.mjs install-service",
     "chat:addon": "mkdir -p dist && (cd thunderbird-addon && zip -qr ../dist/agent-chat.xpi .)",
     "test": "node --test"
   },
@@ -33,8 +29,7 @@
   ],
   "bin": {
     "mail-workflow-mcp": "src/main.mjs",
-    "mail-attachments-mcp": "src/attachments-main.mjs",
-    "mail-agent-chat-mcp": "src/chat-main.mjs"
+    "mail-attachments-mcp": "src/attachments-main.mjs"
   },
   "type": "module",
   "dependencies": {

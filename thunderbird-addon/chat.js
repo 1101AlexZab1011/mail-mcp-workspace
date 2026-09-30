@@ -31,19 +31,14 @@ function renderAttachments() {
     return chip;
   }));
 }
-const readAsBase64 = (file) => new Promise((resolvePromise, reject) => {
-  const reader = new FileReader();
-  reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
-  reader.onload = () => resolvePromise(String(reader.result).split(",", 2)[1]);
-  reader.readAsDataURL(file);
-});
-// Files are uploaded to the local listener as they are picked, so sending only has to
-// append their paths — the agent then reads them from disk.
+// Files are uploaded to the local broker as blobs as they are picked, so sending only has
+// to append their paths — the agent then reads them from disk.
 async function attachFiles(files) {
   for (const file of files) {
     try {
       await ensureSettings();
-      const saved = await api("/v1/attachments", { method: "POST", body: JSON.stringify({ name: file.name || `pasted-${new Date().toISOString().replace(/[:.]/g, "-")}.png`, type: file.type, data: await readAsBase64(file) }) });
+      const name = file.name || `pasted-${new Date().toISOString().replace(/[:.]/g, "-")}.png`;
+      const saved = await api(`/v1/blobs?name=${encodeURIComponent(name)}&type=${encodeURIComponent(file.type || "application/octet-stream")}`, { method: "POST", body: file, headers: { "content-type": file.type || "application/octet-stream" } });
       pending.push({ ...saved, thumbnail: file.type.startsWith("image/") ? URL.createObjectURL(file) : null });
       renderAttachments();
       connection.textContent = `Attached ${saved.name}`;
@@ -222,12 +217,16 @@ function splitAttachments(text) {
     .map((line) => ({ path: line[1], type: line[2] ?? "", size: line[3] ?? "" }));
   return { body: text.slice(0, match.index).trimEnd(), files };
 }
+// Blob files are named "<id>.<name>", so the path a message carries leads back to its blob.
+const blobId = (path) => path.split("/").pop().match(/^(blob_[A-Za-z0-9_-]+)\./)?.[1];
 async function hydrateAttachment(tile, file) {
-  const name = file.path.split("/").pop();
+  const id = blobId(file.path);
+  const name = id ? file.path.split("/").pop().slice(id.length + 1) : file.path.split("/").pop();
   tile.title = [name, file.type, file.size].filter(Boolean).join(" · ");
   try {
+    if (!id) throw new Error("not a listener-mcp blob");
     await ensureSettings();
-    const response = await fetch(`${settings.endpoint}/v1/attachments?path=${encodeURIComponent(file.path)}`, { headers: { authorization: `Bearer ${settings.token}` } });
+    const response = await fetch(`${settings.endpoint}/v1/blobs/${encodeURIComponent(id)}`, { headers: { authorization: `Bearer ${settings.token}` } });
     if (!response.ok) throw new Error(String(response.status));
     const blob = await response.blob();
     if (!blob.type.startsWith("image/")) {
@@ -268,46 +267,71 @@ const show = (item, keepPinned = true) => {
   messages.append(typing);
   if (keepPinned) scrollToBottom();
 };
-const defaultEndpoint = "http://127.0.0.1:46931";
-// Storage is a convenience, not a dependency: the panel re-pairs with the listener when it
+// The chat is one listener-mcp channel. Messages the user sends are events on it; the
+// agent's answers are events on it too, marked with the agent that published them.
+const channel = "mail/chat/default";
+const defaultEndpoint = "http://127.0.0.1:47800";
+// Storage is a convenience, not a dependency: the panel re-pairs with the broker when it
 // is unreadable, so an extension-storage failure cannot take the whole conversation down.
 async function storedSettings() {
-  try { return await browser.storage.local.get({ endpoint: defaultEndpoint, token: "" }); }
-  catch { return { endpoint: defaultEndpoint, token: "" }; }
+  try {
+    const stored = await browser.storage.local.get({ listenerEndpoint: defaultEndpoint, listenerToken: "" });
+    return { endpoint: stored.listenerEndpoint, token: stored.listenerToken };
+  } catch { return { endpoint: defaultEndpoint, token: "" }; }
 }
+async function forgetToken() {
+  settings = { endpoint: settings?.endpoint ?? defaultEndpoint, token: "" };
+  try { await browser.storage.local.set({ listenerToken: "" }); } catch { /* nothing stored */ }
+}
+// An extension cannot read the token file, so it takes its token once from an open
+// pairing grant (`listener-mcp pair --origin <this extension's origin>`).
 async function loadSettings() {
   settings = await storedSettings();
   if (settings.token) return;
-  const response = await fetch(`${settings.endpoint ?? defaultEndpoint}/v1/extension-settings`).catch(() => null);
+  const response = await fetch(`${settings.endpoint}/v1/pair`, { method: "POST" }).catch(() => null);
   if (!response?.ok) return;
-  const paired = await response.json();
-  settings = { endpoint: paired.endpoint, token: paired.token };
-  try { await browser.storage.local.set(settings); } catch { /* pairing is repeated next tick */ }
+  settings = { endpoint: settings.endpoint, token: (await response.json()).token };
+  try { await browser.storage.local.set({ listenerEndpoint: settings.endpoint, listenerToken: settings.token }); } catch { /* pairing is repeated next tick */ }
 }
-// Pairing must be retried: if the listener is down or restarting when the panel opens,
+// Pairing must be retried: if the broker is down or restarting when the panel opens,
 // a one-shot load would leave the panel stuck on "Connecting…" with no way back.
 async function ensureSettings() {
   if (settings?.token) return;
   try { await loadSettings(); } catch { settings = { endpoint: defaultEndpoint, token: "" }; }
-  if (!settings?.token) throw new Error("Listener unavailable · retrying");
+  if (!settings?.token) throw new Error(`Not paired · run: listener-mcp pair --name thunderbird --origin ${location.origin} --scopes 'publish:mail/chat/**,read:mail/chat/**,blobs'`);
 }
 async function api(path, init = {}) {
   if (!settings?.token) throw new Error("Open Settings and add the local listener token.");
   const response = await fetch(`${settings.endpoint}${path}`, { ...init, headers: { authorization: `Bearer ${settings.token}`, "content-type": "application/json", ...(init.headers ?? {}) } });
-  const result = await response.json(); if (!response.ok) throw new Error(result.error ?? "Listener unavailable"); return result;
+  const result = await response.json().catch(() => ({}));
+  // A revoked or foreign token is dropped, so the next attempt pairs again.
+  if (response.status === 401) { await forgetToken(); throw new Error("Pairing expired · retrying"); }
+  if (!response.ok) throw new Error(result.error?.message ?? "Listener unavailable");
+  return result;
 }
+const toItem = (event) => ({ type: event.from.agent ? "agent" : "user", text: typeof event.data?.text === "string" ? event.data.text : JSON.stringify(event.data), sequence: event.seq });
 async function refresh() {
-  try { await ensureSettings(); const result = await api(`/v1/conversations/default?after=${cursor}`); const pinned = cursor === 0 || atBottom(); for (const item of result.items) { show(item, false); cursor = Math.max(cursor, item.sequence); } setCanSend(Boolean(result.agent_active)); const wasBusy = !typing.hidden; typing.hidden = !result.agent_busy; if ((result.items.length || typing.hidden !== wasBusy) && pinned) scrollToBottom(); connection.textContent = result.agent_busy ? "Agent working…" : result.agent_active ? "Agent active" : "Agent disconnected"; }
-  catch (error) {
+  try {
+    await ensureSettings();
+    const [{ events }, presence] = await Promise.all([api(`/v1/events?channel=${channel}&after=${cursor}&limit=500`), api(`/v1/presence?channel=${channel}`)]);
+    const pinned = cursor === 0 || atBottom();
+    for (const event of events) { show(toItem(event), false); cursor = Math.max(cursor, event.seq); }
+    // "Active" means an agent is parked on the broker right now or is working on a message.
+    setCanSend(presence.listening || presence.busy);
+    const wasBusy = !typing.hidden;
+    typing.hidden = !presence.busy;
+    if ((events.length || typing.hidden !== wasBusy) && pinned) scrollToBottom();
+    connection.textContent = presence.busy ? "Agent working…" : presence.listening ? "Agent active" : "Agent disconnected";
+  } catch (error) {
     setCanSend(false);
-    // A failed fetch means the listener is down; either way the user needs the state, not
+    // A failed fetch means the broker is down; either way the user needs the state, not
     // the transport error. Only genuinely unexpected failures keep their message.
-    const unreachable = error instanceof TypeError || /NetworkError|Failed to fetch|retrying/i.test(error.message);
-    connection.textContent = unreachable ? "Listener unavailable · reconnecting" : `chat: ${error.message}`;
+    const unreachable = error instanceof TypeError || /NetworkError|Failed to fetch/i.test(error.message);
+    connection.textContent = unreachable ? "Listener unavailable · reconnecting" : error.message;
   }
 }
 document.querySelector("#compose").addEventListener("submit", async (event) => { event.preventDefault(); const value = text.value.trim(); if ((!value && !pending.length) || !canSend) return;
-  const withFiles = pending.length ? `${value}${value ? "\n\n" : ""}Attachments:\n${pending.map((file) => `- ${file.path} (${file.type}, ${formatSize(file.size)})`).join("\n")}` : value; try { await ensureSettings(); const item = await api("/v1/messages", { method: "POST", body: JSON.stringify({ conversation_id: "default", text: withFiles }) }); show({ ...item, type: "user" }); cursor = Math.max(cursor, item.sequence); text.value = ""; for (const file of pending) if (file.thumbnail) URL.revokeObjectURL(file.thumbnail); pending.length = 0; renderAttachments(); autosize(); renderPreview(); connection.textContent = "Waiting for agent"; } catch (error) { connection.textContent = error.message; } });
+  const withFiles = pending.length ? `${value}${value ? "\n\n" : ""}Attachments:\n${pending.map((file) => `- ${file.path} (${file.type}, ${formatSize(file.size)})`).join("\n")}` : value; try { await ensureSettings(); const sent = await api("/v1/events", { method: "POST", body: JSON.stringify({ channel, type: "message", data: { text: withFiles } }) }); show(toItem(sent)); cursor = Math.max(cursor, sent.seq); text.value = ""; for (const file of pending) if (file.thumbnail) URL.revokeObjectURL(file.thumbnail); pending.length = 0; renderAttachments(); autosize(); renderPreview(); connection.textContent = "Waiting for agent"; } catch (error) { connection.textContent = error.message; } });
 // Inside an unclosed ``` fence the composer is a code editor: Enter adds a line and Tab
 // indents, instead of sending the message and moving focus.
 function insideCodeFence() {

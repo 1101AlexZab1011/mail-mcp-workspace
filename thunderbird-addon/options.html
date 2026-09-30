@@ -4,9 +4,12 @@
 <link rel="stylesheet" href="style.css">
 <main class="settings">
   <h1>Agent Chat settings</h1>
-  <p>The listener is local-only. Copy the endpoint and token from your private <code>agent-chat.json</code> file.</p>
-  <label>Listener URL <input id="endpoint" type="url" value="http://127.0.0.1:46931" required></label>
-  <label>Access token <input id="token" type="password" autocomplete="off" required></label>
-  <button id="save">Save</button><span id="status" role="status"></span>
+  <p>Agent Chat talks to the local <a href="https://github.com/1101AlexZab1011/listener-mcp">listener-mcp</a> broker only. To pair, run this once on this computer, then press <b>Pair now</b> within ten minutes:</p>
+  <pre id="pair-command"></pre>
+  <button id="pair" type="button">Pair now</button>
+  <p>Or enter a token created with <code>listener-mcp token create --origin …</code> by hand:</p>
+  <label>Broker URL <input id="endpoint" type="url" value="http://127.0.0.1:47800" required></label>
+  <label>Access token <input id="token" type="password" autocomplete="off"></label>
+  <button id="save" type="button">Save</button><span id="status" role="status"></span>
 </main>
 <script src="options.js"></script>

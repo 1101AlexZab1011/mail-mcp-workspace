@@ -15,8 +15,9 @@ server before the user has seen the preview and accepted it in this chat.
 2. Ask only for what you cannot determine. A missing recipient address, an
    unknown name, or a choice that changes the message materially is worth one
    question; wording you can reasonably decide is not.
-3. Send the draft to the chat conversation as a single fenced `email` block so
-   the panel renders it as an envelope:
+3. Send the draft to the chat conversation (in Agent Chat, `listener_reply` to
+   the user's message) as a single fenced `email` block so the panel renders it
+   as an envelope:
 
    ````text
    ```email
