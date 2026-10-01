@@ -105,10 +105,12 @@ var workspace = class extends ExtensionAPI {
         async setDock(side, change) { return update(side, change); },
         async openSpace(name) { return scope.openSpace(self.mainWindow(), name); },
         async getState() { return scope.getState(self.mainWindow(), [scope.readDock("left"), scope.readDock("right")]); },
-        async snapshot(options = {}) { return scope.snapshot(self.mainWindow(), options); },
-        async act(ref, action, value, options = {}) { return scope.act(self.mainWindow(), ref, action, value, options); },
-        async pressKey(combo, options = {}) { return scope.pressKey(self.mainWindow(), combo, options); },
-        async screenshot(options = {}) { return scope.screenshot(self.mainWindow(), options); },
+        // The schema passes an omitted optional argument as null, which a default
+        // parameter does not replace, so null options are normalised here.
+        async snapshot(options) { return scope.snapshot(self.mainWindow(), options ?? {}); },
+        async act(ref, action, value, options) { return scope.act(self.mainWindow(), ref, action, value, options ?? {}); },
+        async pressKey(combo, options) { return scope.pressKey(self.mainWindow(), combo, options ?? {}); },
+        async screenshot(options) { return scope.screenshot(self.mainWindow(), options ?? {}); },
         async selectMail(folderUri, messageKeys) { return scope.selectMail(self.mainWindow(), folderUri, messageKeys); },
         async calendarGoto(date, view) { return scope.calendarGoto(self.mainWindow(), date, view); },
         async setTerminal(change) { const window = self.mainWindow(); return scope.setTerminal(window, window.mwCtx, change); },

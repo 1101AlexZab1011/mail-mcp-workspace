@@ -177,7 +177,10 @@ function isVisible(el) {
   return top === el || el.contains(top) || top.contains(el) || (el.getRootNode?.().host && top.contains(el.getRootNode().host));
 }
 
-function snapshot(window, { limit = 400, query } = {}) {
+function snapshot(window, { limit, query } = {}) {
+  // The WebExtension schema passes an omitted optional argument as null, which a
+  // destructuring default does not replace; a null limit would end the walk at once.
+  limit ??= 400;
   window.mwRefs = new Map();
   let counter = 0;
   const items = [];
@@ -251,9 +254,11 @@ function centerOf(el) {
 }
 
 function mouse(el, type, button = 0, count = 1) {
-  const utils = winOf(el).windowUtils;
+  const view = winOf(el);
   const { x, y } = centerOf(el);
-  utils.sendMouseEvent(type, x, y, button, count, 0);
+  // Newer Gecko (Thunderbird 157) moved event synthesis from windowUtils.sendMouseEvent to the window.
+  if (typeof view.synthesizeMouseEvent === "function") view.synthesizeMouseEvent(type, x, y, { button, clickCount: count });
+  else view.windowUtils.sendMouseEvent(type, x, y, button, count, 0);
 }
 
 function click(el, { button = 0, count = 1 } = {}) {
