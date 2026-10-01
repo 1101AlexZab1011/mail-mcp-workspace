@@ -3,6 +3,11 @@
   "name": "Mail Workspace",
   "description": "Agent-first workspace for Thunderbird: chat and file docks, file viewer, artifacts, paint, and GUI control for your agent.",
   "version": "2.0.0",
+  "icons": {
+    "16": "app-icon.svg",
+    "32": "app-icon.svg",
+    "64": "app-icon.svg"
+  },
   "browser_specific_settings": {
     "gecko": {
       "id": "agent-chat@mail-mcp-workspace.local",
