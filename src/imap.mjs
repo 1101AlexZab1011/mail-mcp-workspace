@@ -50,13 +50,29 @@ export async function fetchMessages(account, mailbox, limit = 100, { includeSour
   });
 }
 
+// The headers reply subscriptions need: the thread chain and the marks of automatic mail.
+const REPLY_HEADERS = ["references", "auto-submitted", "x-autoreply", "x-autorespond"];
+
+/** Parse a raw header block into lowercase name → unfolded value (first occurrence wins). */
+export function parseHeaders(raw) {
+  const headers = {};
+  for (const line of String(raw ?? "").replace(/\r?\n[ \t]+/g, " ").split(/\r?\n/)) {
+    const colon = line.indexOf(":");
+    if (colon <= 0) continue;
+    const name = line.slice(0, colon).trim().toLowerCase();
+    if (!(name in headers)) headers[name] = line.slice(colon + 1).trim();
+  }
+  return headers;
+}
+
 export async function fetchMessagesAfterUid(account, mailbox, afterUid, { includeSource = false } = {}) {
   return withMailbox(account, mailbox, async (client) => {
     if (!client.mailbox?.exists) return [];
     const result = [];
-    const query = { uid: true, envelope: true, flags: true, internalDate: true };
+    const query = { uid: true, envelope: true, flags: true, internalDate: true, headers: REPLY_HEADERS };
     if (includeSource) query.source = true;
     for await (const message of client.fetch(`${Math.max(1, afterUid + 1)}:*`, query, { uid: true })) {
+      const headers = parseHeaders(message.headers?.toString("utf8"));
       result.push({
         uid: message.uid,
         messageId: message.envelope?.messageId ?? `${mailbox}:${message.uid}`,
@@ -64,6 +80,9 @@ export async function fetchMessagesAfterUid(account, mailbox, afterUid, { includ
         from: message.envelope?.from?.[0]?.address ?? "",
         date: message.internalDate?.toISOString() ?? null,
         answered: message.flags?.has("\\Answered") ?? false,
+        inReplyTo: message.envelope?.inReplyTo ?? "",
+        references: headers.references ?? "",
+        headers: { ...headers, subject: message.envelope?.subject ?? "" },
         body: includeSource ? (message.source?.toString("utf8").slice(0, 12000) ?? "") : "",
       });
     }

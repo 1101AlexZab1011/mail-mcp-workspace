@@ -2,6 +2,8 @@ import { accountPolicy } from "./config.mjs";
 import { classifyResponseStatus, classifyUrgency, matchGroup } from "./classification.mjs";
 import { copyMessageAsUnread, ensureMailbox, fetchMessages, fetchMessagesAfterUid, listMailboxes, mailboxCursor, moveMessage } from "./imap.mjs";
 import { readState, recordKey, writeState } from "./state.mjs";
+import { announceReplies } from "./replies.mjs";
+import { list as listSubscriptions, listWatches } from "./subscriptions.mjs";
 
 function serialize(record) { const { body, ...safe } = record; return safe; }
 
@@ -76,7 +78,7 @@ export function routingSourceMailboxes(mailboxes, configured) {
   return mailboxes.filter((mailbox) => !nonDeliveryMailbox(mailbox));
 }
 
-export async function routeInbox({ accountName, account, policy, statePath, dryRun = true }) {
+export async function routeInbox({ accountName, account, policy, statePath, subscriptionsPath, publish, dryRun = true }) {
   const configured = accountPolicy(policy, accountName);
   if (configured.routing_mode !== "watcher") return { routed: [], skipped: "routing_mode is provider; the provider is responsible for inbound routing." };
   const sources = routingSourceMailboxes(await listMailboxes(account), configured);
@@ -86,6 +88,7 @@ export async function routeInbox({ accountName, account, policy, statePath, dryR
   const checkpoints = accountRouting.mailboxes ?? {};
   const routed = [];
   const initialized = [];
+  const arrivals = [];
 
   // A per-mailbox UID cursor makes the first live run a baseline. This avoids
   // copying historic mail, including mail delivered outside INBOX, while later
@@ -103,6 +106,7 @@ export async function routeInbox({ accountName, account, policy, statePath, dryR
     if (dryRun || cursor === checkpoint.lastUid) continue;
     const messages = await fetchMessagesAfterUid(account, mailbox, checkpoint.lastUid);
     for (const message of messages) {
+      arrivals.push({ mailbox, message });
       const group = matchGroup(message.subject, configured.subject_rules);
       const destination = `Pending/${group}`;
       await ensureMailbox(account, destination);
@@ -117,7 +121,50 @@ export async function routeInbox({ accountName, account, policy, statePath, dryR
     state.routing = routing;
     await writeState(statePath, state);
   }
-  return { routed, initialized, sources, dry_run: dryRun };
+  // Reply announcements run after routing is saved, and a broker or subscription
+  // problem is reported rather than thrown, so it can never hold up routing.
+  let replies = null;
+  if (!dryRun && subscriptionsPath) {
+    replies = await announceReplies({ accountName, account, subscriptionsPath, arrivals, ...(publish ? { publish } : {}) }).catch((error) => ({ error: error.message }));
+  }
+  return { routed: routed.map(({ headers, ...item }) => item), initialized, sources, dry_run: dryRun, ...(replies ? { replies } : {}) };
+}
+
+const FIRST_LOOK_WINDOW = 200;
+
+// Accounts the workflow does not route still get reply notices. Their provider files the
+// mail, so only the mailboxes replies land in are read (INBOX unless the policy names
+// `reply_mailboxes`), and nothing is moved or marked. An account with no live
+// subscription or mail watch is not contacted at all.
+export async function watchReplies({ accountName, account, policy, statePath, subscriptionsPath, publish, now = Date.now() }) {
+  const active = [...await listSubscriptions(subscriptionsPath, { account: accountName, now }), ...await listWatches(subscriptionsPath, { account: accountName, now })];
+  if (!active.length) return { skipped: "no active subscriptions or watches" };
+  const configured = accountPolicy(policy, accountName);
+  const mailboxes = Array.isArray(configured.reply_mailboxes) && configured.reply_mailboxes.length ? configured.reply_mailboxes : ["INBOX"];
+  const state = await readState(statePath);
+  const watch = state.replyWatch ?? {};
+  const checkpoints = watch[accountName]?.mailboxes ?? {};
+  const since = Math.min(...active.map((item) => Date.parse(item.createdAt)));
+  const arrivals = [];
+  for (const mailbox of mailboxes) {
+    const cursor = await mailboxCursor(account, mailbox);
+    let lastUid = checkpoints[mailbox]?.lastUid;
+    // On the first look, or after the server renumbered the mailbox, the recent window is
+    // read back to the oldest subscription, so a reply that came before this poll is not
+    // skipped. A date SEARCH would be shorter, but Yandex drops the connection on it.
+    const baseline = lastUid === undefined || cursor < lastUid;
+    if (baseline) lastUid = Math.max(0, cursor - FIRST_LOOK_WINDOW);
+    if (cursor > lastUid) {
+      for (const message of await fetchMessagesAfterUid(account, mailbox, lastUid)) {
+        if (!baseline || Date.parse(message.date) >= since - 86_400_000) arrivals.push({ mailbox, message });
+      }
+    }
+    checkpoints[mailbox] = { lastUid: cursor, lastRunAt: new Date(now).toISOString() };
+  }
+  state.replyWatch = { ...watch, [accountName]: { mailboxes: checkpoints } };
+  await writeState(statePath, state);
+  const replies = await announceReplies({ accountName, account, subscriptionsPath, arrivals, now, ...(publish ? { publish } : {}) });
+  return { mailboxes, replies };
 }
 
 export async function undoLastRun({ accountName, account, statePath }) {

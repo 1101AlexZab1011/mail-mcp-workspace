@@ -9,13 +9,14 @@ import { homedir } from "node:os";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { accountPolicy, defaultStatePath, initPolicy, loadEmailConfig, loadPolicy } from "./config.mjs";
-import { classifyMailbox, fileReviewedMessage, overrideStatus, reviewPending, routeInbox, searchStatuses, undoLastRun } from "./workflow.mjs";
+import { defaultSubscriptionsPath, list as listSubscriptions, listWatches, subscribe, unsubscribe, unwatch, watch } from "./subscriptions.mjs";
+import { classifyMailbox, fileReviewedMessage, overrideStatus, reviewPending, routeInbox, searchStatuses, undoLastRun, watchReplies } from "./workflow.mjs";
 
 const execFileAsync = promisify(execFile);
 const watcherService = "mail-mcp-workflow-watcher.service";
 
 async function context() {
-  return { accounts: await loadEmailConfig(), policy: await loadPolicy(), statePath: process.env.MAIL_WORKFLOW_STATE ?? defaultStatePath };
+  return { accounts: await loadEmailConfig(), policy: await loadPolicy(), statePath: process.env.MAIL_WORKFLOW_STATE ?? defaultStatePath, subscriptionsPath: process.env.MAIL_WORKFLOW_SUBSCRIPTIONS ?? defaultSubscriptionsPath };
 }
 async function select(accountName) {
   const current = await context();
@@ -70,6 +71,25 @@ async function runMcp() {
   server.tool("sync_workflow", "Apply or preview Inbox routing then classify statuses. Set dry_run=false only after account policy is configured.", { account: z.string(), dry_run: z.boolean().default(true) }, { destructiveHint: true }, async (params) => {
     try { return text(await sync(params.account, params.dry_run)); } catch (e) { return error(e); }
   });
+  server.tool("subscribe_thread", "Watch a sent message's thread: when a reply arrives, the workflow watcher publishes a mail.reply event on mail/replies/<account> that wakes the attached agent. Works for any Message-ID, including mail already sent.", { account: z.string(), message_id: z.string().min(1), subject: z.string().optional(), note: z.string().max(500).optional(), days: z.number().int().min(1).max(365).default(30) }, { destructiveHint: false }, async (params) => {
+    try { const selected = await select(params.account); return text(await subscribe(selected.subscriptionsPath, { account: params.account, messageId: params.message_id, subject: params.subject, note: params.note, days: params.days })); } catch (e) { return error(e); }
+  });
+  server.tool("unsubscribe_thread", "Stop watching a thread for replies. Any Message-ID in the thread identifies it.", { account: z.string(), message_id: z.string().min(1) }, { destructiveHint: false }, async (params) => {
+    try { const selected = await select(params.account); return text(await unsubscribe(selected.subscriptionsPath, { account: params.account, messageId: params.message_id })); } catch (e) { return error(e); }
+  });
+  server.tool("watch_mail", "Watch incoming mail by sender and/or subject, for notifications that are not replies to anything (Booking.com, Steam, PayPal). A matching message publishes a mail.watch event on mail/replies/<account> that wakes the attached agent. from is one address or a whole domain written as \"@example.org\"; subject lists words that must all appear in the subject; give one or both. account \"*\" watches every connected account.", { account: z.string(), from: z.string().optional(), subject: z.string().optional(), note: z.string().max(500).optional(), days: z.number().int().min(1).max(365).default(30) }, { destructiveHint: false }, async (params) => {
+    try {
+      const current = await context();
+      if (params.account !== "*" && !current.accounts.has(params.account)) throw new Error(`Unknown account: ${params.account}`);
+      return text(await watch(current.subscriptionsPath, { account: params.account, from: params.from, subject: params.subject, note: params.note, days: params.days }));
+    } catch (e) { return error(e); }
+  });
+  server.tool("unwatch_mail", "Stop a mail watch, by the id that watch_mail or list_subscriptions shows.", { id: z.string().min(1) }, { destructiveHint: false }, async (params) => {
+    try { const current = await context(); return text(await unwatch(current.subscriptionsPath, { id: params.id })); } catch (e) { return error(e); }
+  });
+  server.tool("list_subscriptions", "List what is being watched: threads awaiting replies and mail watches (sender/subject), with notes, expiry and what was already announced.", { account: z.string().optional() }, { readOnlyHint: true }, async (params) => {
+    try { const current = await context(); return text({ threads: await listSubscriptions(current.subscriptionsPath, { account: params.account }), watches: await listWatches(current.subscriptionsPath, { account: params.account }) }); } catch (e) { return error(e); }
+  });
   server.tool("undo_last_workflow_action", "Undo the last move or route action for an account using the local action journal.", { account: z.string() }, { destructiveHint: true }, async (params) => {
     try { return text(await undoLastRun(await select(params.account))); } catch (e) { return error(e); }
   });
@@ -90,7 +110,25 @@ else if (command === "sync") {
   if (!account || !Number.isFinite(seconds) || seconds < 30) throw new Error("Usage: mail-workflow-mcp watch <account> [seconds, minimum 30]");
   const run = async () => {
     const selected = await select(account);
-    return routeInbox({ ...selected, dryRun: !apply });
+    const result = await routeInbox({ ...selected, dryRun: !apply });
+    for (const reply of result.replies?.delivered ?? []) console.error(`Announced reply ${reply.message_id} from ${reply.from} (${reply.mailbox}).`);
+    for (const reply of result.replies?.failed ?? []) console.error(`Could not announce reply ${reply.message_id}: ${reply.error}`);
+    if (result.replies?.error) console.error(`Reply check failed: ${result.replies.error}`);
+    // Every other connected account is checked for replies to its subscribed threads; one
+    // unreachable account must not stop the others or the routing above.
+    if (apply) for (const [name, other] of selected.accounts) {
+      if (name === account || accountPolicy(selected.policy, name).routing_mode === "watcher") continue;
+      try {
+        // A server that stalls mid-command would otherwise hold the whole loop forever.
+        const watched = await Promise.race([
+          watchReplies({ ...selected, accountName: name, account: other }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("timed out after 90 s")), 90_000).unref()),
+        ]);
+        for (const reply of watched.replies?.delivered ?? []) console.error(`Announced reply ${reply.message_id} from ${reply.from} (${name}/${reply.mailbox}).`);
+        for (const reply of watched.replies?.failed ?? []) console.error(`Could not announce reply ${reply.message_id}: ${reply.error}`);
+      } catch (e) { console.error(`Reply check failed for ${name}: ${e.message}`); }
+    }
+    return result;
   };
   await run();
   setInterval(() => { void run().catch((e) => console.error(e.message)); }, seconds * 1000);

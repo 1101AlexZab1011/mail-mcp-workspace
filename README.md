@@ -191,7 +191,8 @@ npm install -g --allow-git=root github:1101AlexZab1011/listener-mcp
 listener-mcp service install             # broker, systemd user service
 npm ci                                   # add-on and host dependencies
 node src/workspace-main.mjs install-service   # workspace host, systemd user service
-listener-mcp init --agent claude,codex --channels 'mail/chat/**' --group mail-chat --from now --credential email-agent
+listener-mcp init --agent claude,codex --channels 'mail/chat/**,mail/replies/**' --group mail-agent --from now --credential email-agent
+listener-mcp token create --name mail-watcher --scopes 'publish:mail/replies/**' --save   # reply announcements
 npm run chat:addon                       # builds dist/agent-chat.xpi
 ```
 

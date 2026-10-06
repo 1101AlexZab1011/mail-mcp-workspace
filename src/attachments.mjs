@@ -59,5 +59,7 @@ export async function sendWithAttachments({ account, to, cc, bcc, subject, body,
   const recipients = [to, cc, bcc].flatMap((value) => value ? (Array.isArray(value) ? value : [value]) : []);
   const result = await smtpTransport(account).sendMail({ raw: built.message, envelope: { from: account.email, to: recipients } });
   const sent_mailbox = await appendSentCopy(account, built.message);
-  return { message_id: result.messageId, accepted: result.accepted, rejected: result.rejected, sent_mailbox, attachments: files.map(({ filename, size }) => ({ filename, size })) };
+  // The id is the one written into the built message. Sending raw over SMTP makes
+  // nodemailer report a fresh id that appears in no header, so replies never cite it.
+  return { message_id: built.messageId, accepted: result.accepted, rejected: result.rejected, sent_mailbox, attachments: files.map(({ filename, size }) => ({ filename, size })) };
 }

@@ -2,9 +2,10 @@
   "version": 1,
   "credential": "email-agent",
   "attach": {
-    "group": "mail-chat",
+    "group": "mail-agent",
     "channels": [
-      "mail/chat/**"
+      "mail/chat/**",
+      "mail/replies/**"
     ],
     "from": "now"
   },

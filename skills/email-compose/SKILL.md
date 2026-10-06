@@ -40,5 +40,14 @@ server before the user has seen the preview and accepted it in this chat.
    was sent, to whom, and the resulting message id. If sending fails, say so
    with the error and do not retry silently.
 
+When the user asks to follow up on the answer ("send it and subscribe", "tell me
+when they reply"), send with `send_email_with_attachments` and `subscribe: true`,
+with a short `subscribe_note` saying what the reply is awaited for. For mail that
+was already sent, call `subscribe_thread` with its Message-ID. When the answer will
+come as a notification rather than a reply (Booking.com, Steam, PayPal relay their
+messages as new mail), add a `watch_mail` on its sender and subject. A reply then
+arrives as a `mail.reply` event (see the email-start-chat skill). Report the
+subscription and its expiry along with the message id.
+
 Send exactly what was approved. If anything changes after approval — a
 recipient, the subject, a sentence — show the corrected preview and ask again.
