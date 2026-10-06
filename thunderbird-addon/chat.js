@@ -287,7 +287,11 @@ function renderMessageAttachments(article, files) {
   }
   article.append(gallery);
 }
+// A poll already in flight when the user sends returns the new message too, so the same
+// event can arrive from both paths; each broker sequence is drawn once.
+const shown = new Set();
 const show = (item, keepPinned = true) => {
+  if (item.sequence != null) { if (shown.has(item.sequence)) return; shown.add(item.sequence); }
   const article = document.createElement("article");
   article.className = `${item.type} markdown`;
   const { body, files } = splitAttachments(item.text);
