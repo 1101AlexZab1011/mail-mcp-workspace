@@ -1,0 +1,816 @@
+0	Loading the presentation…
+1	Chart type:
+2	Click to change
+3	Cancel
+4	Clear data
+5	OK
+6	Category $
+7	Series $
+8	Recently used:
+9	Press Esc to close the eyedropper
+10	The eyedropper could not start
+11	Enter a LaTeX formula
+12	Formula preview
+13	OK
+14	Common symbols
+15	Preset formulas
+16	The formula cannot be empty
+17	Search
+18	Bounce
+19	Bounce in
+20	Bounce in from left
+21	Bounce in from right
+22	Bounce in from bottom
+23	Bounce in from top
+24	Fade
+25	Fade in
+26	Fade in downward
+27	Fade in downward, long
+28	Fade in from left
+29	Fade in from left, long
+30	Fade in from right
+31	Fade in from right, long
+32	Fade in upward
+33	Fade in upward, long
+34	Fade in from top left
+35	Fade in from top right
+36	Fade in from bottom left
+37	Fade in from bottom right
+38	Rotate
+39	Rotate in
+40	Rotate in around bottom left
+41	Rotate in around bottom right
+42	Rotate in around top left
+43	Rotate in around top right
+44	Zoom
+45	Zoom in
+46	Zoom in downward
+47	Zoom in from left
+48	Zoom in from right
+49	Zoom in upward
+50	Slide in
+51	Slide in downward
+52	Slide in from right
+53	Slide in from left
+54	Slide in upward
+55	Flip
+56	Flip in on X axis
+57	Flip in on Y axis
+58	Zoom and slide in
+59	Zoom and slide in downward
+60	Zoom and slide in from left
+61	Zoom and slide in from right
+62	Zoom and slide in upward
+63	Fly in
+64	Fly in from right
+65	Fly in from left
+66	Bounce out
+67	Bounce out to left
+68	Bounce out to right
+69	Bounce out upward
+70	Bounce out downward
+71	Fade out
+72	Fade out downward
+73	Fade out downward, long
+74	Fade out to left
+75	Fade out to left, long
+76	Fade out to right
+77	Fade out to right, long
+78	Fade out upward
+79	Fade out upward, long
+80	Fade out to top left
+81	Fade out to top right
+82	Fade out to bottom left
+83	Fade out to bottom right
+84	Rotate out
+85	Rotate out around bottom left
+86	Rotate out around bottom right
+87	Rotate out around top left
+88	Rotate out around top right
+89	Zoom out
+90	Zoom out downward
+91	Zoom out to left
+92	Zoom out to right
+93	Zoom out upward
+94	Slide out
+95	Slide out downward
+96	Slide out to left
+97	Slide out to right
+98	Slide out upward
+99	Flip out on X axis
+100	Flip out on Y axis
+101	Zoom and slide out
+102	Zoom and slide out downward
+103	Zoom and slide out to left
+104	Zoom and slide out to right
+105	Zoom and slide out upward
+106	Fly out
+107	Fly out to right
+108	Fly out to left
+109	Shake
+110	Shake sideways
+111	Shake up and down
+112	Head shake
+113	Swing
+114	Wobble
+115	Jelly
+116	Other
+117	Flash
+118	Pulse
+119	Rubber band
+120	Heartbeat (fast)
+121	None
+122	Random
+123	Push sideways
+124	Push vertically
+125	Push sideways (3D)
+126	Push vertically (3D)
+127	Fade
+128	Split vertically
+129	Split sideways
+130	Zoom in
+131	Zoom out
+132	Column
+133	Bar
+134	Line
+135	Area
+136	Scatter
+137	Pie
+138	Doughnut
+139	Radar
+140	Category 1
+141	Category 2
+142	Category 3
+143	Category 4
+144	Category 5
+145	Series 1
+146	Series 2
+147	Value
+148	Point 1
+149	Point 2
+150	Point 3
+151	Point 4
+152	Point 5
+153	Text
+154	Image
+155	Shape
+156	Line
+157	Chart
+158	Table
+159	Video
+160	Audio
+161	Formula
+162	General
+163	Cut
+164	Copy
+165	Paste
+166	Paste as plain text
+167	Duplicate
+168	Select all
+169	Undo
+170	Redo
+171	Delete
+172	Select several
+173	Hold Ctrl or Shift
+174	Find and replace
+175	Print
+176	Close dialog
+177	Slideshow
+178	Present from the beginning
+179	Present from the current slide
+180	Previous slide
+181	Next slide
+182	End the slideshow
+183	Slide editing
+184	New slide
+185	Move the canvas
+186	Space + drag
+187	Zoom the canvas
+188	Ctrl + mouse wheel
+189	Zoom in
+190	Zoom out
+191	Fit to screen
+192	Previous slide (nothing selected)
+193	Next slide (nothing selected)
+194	Previous slide
+195	Scroll up / PgUp
+196	Next slide
+197	Scroll down / PgDown
+198	New text box
+199	Double-click empty space / T
+200	New rectangle
+201	New circle
+202	New line
+203	Stop drawing
+204	Right-click
+205	Elements
+206	Move
+207	Lock
+208	Group
+209	Ungroup
+210	Bring to front
+211	Send to back
+212	Lock aspect ratio
+213	Duplicate
+214	Hold Ctrl + drag
+215	Draw horizontal / vertical lines
+216	Switch focus between elements
+217	Confirm image crop
+218	Finish drawing a custom shape
+219	Tables
+220	Next cell
+221	Move between cells
+222	Insert row above
+223	Insert row below
+224	Insert column left
+225	Insert column right
+226	Chart data
+227	Next row
+228	Text
+229	Bold
+230	Italic
+231	Underline
+232	Inline code
+233	Superscript
+234	Subscript
+235	Select paragraph
+236	More
+237	Add image: paste an image from the clipboard
+238	Add image: drag an image file onto the canvas
+239	Add image: paste SVG code onto the canvas
+240	Add image: paste an image link from Pexels
+241	Add text: paste text from the clipboard
+242	Add text: drag selected text onto the canvas
+243	Text: Markdown syntax makes lists and quotes
+244	Rectangle
+245	Rectangle 2
+246	Rectangle 3
+247	Rounded rectangle
+248	Circle
+249	Triangle
+250	Right triangle
+251	Inverted triangle
+252	Diamond
+253	Pentagon
+254	Hexagon
+255	Heptagon
+256	Octagon
+257	Chevron
+258	Dot
+259	Arrow
+260	Parallelogram
+261	Reversed parallelogram
+262	Trapezoid
+263	Inverted trapezoid
+264	Gauss's law
+265	Fourier series
+266	Taylor expansion
+267	Definite integral
+268	Trigonometric identity 1
+269	Trigonometric identity 2
+270	Expansion of a sum
+271	Euler's formula
+272	Bernoulli equation
+273	Exact differential equation
+274	Inhomogeneous equation
+275	Cauchy mean value theorem
+276	Lagrange mean value theorem
+277	Derivative
+278	Integral of a trigonometric function
+279	Quadric surface
+280	Second-order derivative
+281	Directional derivative
+282	Math
+283	Functions
+284	Greek letters
+285	Straight
+286	Elbow and curved
+287	Common shapes
+288	Other shapes
+289	Outline
+290	Letters
+291	Numbers
+292	Shapes
+293	Could not export the image
+294	Export failed
+295	Arial
+296	Could not read or parse this file
+297	Point $
+298	That is not a valid web address
+299	Choose a link target first
+300	No matches
+301	Enter something to find first
+302	Unknown request error
+303	The server had an unknown error
+304	Could not reach the server, or it timed out
+305	Untitled presentation
+306	Red Landscape
+307	Official
+308	City Blues
+309	Smart Geometry
+310	Soft Morandi
+311	Simple Green
+312	Community, refined officially
+313	Warm Retro
+314	Deep Calm
+315	Light Blue
+316	The clipboard is empty or holds no text
+317	The browser cannot read the clipboard; press Ctrl + V instead
+318	Unlock
+319	Center horizontally
+320	Center
+321	Align left
+322	Align right
+323	Center vertically
+324	Align top
+325	Align bottom
+326	Bring to front
+327	Bring forward
+328	Send to back
+329	Send backward
+330	Link
+331	Border style:
+332	Border color:
+333	Border width:
+334	Border
+335	Edit data
+336	Type
+337	Crop
+338	Replace
+339	Edit LaTeX
+340	Color
+341	Style
+342	Fill
+343	Insert row above
+344	Insert row below
+345	Insert column left
+346	Insert column right
+347	Add
+348	Delete row
+349	Delete column
+350	Search fonts
+351	Search sizes
+352	Slide
+353	Change
+354	Remove
+355	Enter a web address
+356	Preview:
+357	Slide $
+358	Web link
+359	Click to draw any shape. Close it to finish; Esc or right-click cancels; Enter finishes early
+360	Floating toolbar $
+361	enabled
+362	disabled
+363	Rulers
+364	Gridlines
+365	Small
+366	Medium
+367	Large
+368	Reset this slide
+369	Floating toolbar
+370	Enter a video address, e.g. https://example.com/video.mp4
+371	Upload a video
+372	Enter an audio address, e.g. https://example.com/audio.mp3
+373	Upload audio
+374	Enter a valid video address first
+375	Enter a valid audio address first
+376	Quadratic curve
+377	Cubic curve
+378	Arc
+379	Point:
+380	X:
+381	Y:
+382	Control point:
+383	1 X:
+384	1 Y:
+385	2 X:
+386	2 Y:
+387	Arc:
+388	X radius:
+389	Y radius:
+390	Rotation:
+391	Large arc
+392	Clockwise
+393	Close path
+394	Tip: double-click to add a line, right-click to add a segment or delete a point; drag points and handles to adjust the path.
+395	Close
+396	Add line
+397	Add quadratic curve
+398	Add cubic curve
+399	Add arc
+400	Delete this point
+401	Back
+402	Custom
+403	Rows:
+404	Columns:
+405	Rows and columns must be between 0 and 20
+406	Undo (Ctrl + Z)
+407	Redo (Ctrl + Y)
+408	Comments
+409	Selection pane
+410	Find and replace
+411	Find and replace (Ctrl + F)
+412	Insert text
+413	Text box
+414	Horizontal text box
+415	Vertical text box
+416	Insert shape
+417	Preset shapes
+418	Draw a path
+419	Freehand
+420	Insert image
+421	Upload image
+422	Insert line
+423	Insert chart
+424	Insert table
+425	Insert formula
+426	Insert audio or video
+427	Media
+428	Insert symbol
+429	Symbol
+430	Zoom out (Ctrl + -)
+431	Fit to screen
+432	Zoom in (Ctrl + =)
+433	Fit to screen (Ctrl + 0)
+434	Import
+435	Export
+436	Reset slides
+437	Mark slide types
+438	Keyboard shortcuts
+439	Present (F5)
+440	From the beginning
+441	From this slide
+442	Export
+443	Importing…
+444	Format:
+445	Range:
+446	All
+447	This slide
+448	 ($
+449	)
+450	Custom range:
+451	Quality:
+452	Skip web fonts:
+453	Web fonts are skipped by default. If your slides use web fonts and you want to keep them, turn off “Skip web fonts”; the export will take longer.
+454	Export images
+455	Exporting…
+456	Export JSON
+457	Slides per page:
+458	Margin:
+459	Tip: in the print dialog, turn on “Background graphics” and choose “Default” margins.
+460	Print / export PDF
+461	Mode:
+462	Editable
+463	Images only
+464	Skip audio and video:
+465	Audio and video are skipped by default. To include them in the PPTX, turn off “Skip audio and video”; the export will take much longer.
+466	Override the default master:
+467	Note: 1. Supported media: avi, mp4, mov, wmv, mp3, wav. 2. Media from other sites cannot be exported.
+468	Export PPTX
+469	Note: .pptist is this app's own file type and can be imported back.
+470	Export PPTIST file
+471	Slide type:
+472	Text type:
+473	Image type:
+474	Select an image, text, or a shape with text to mark its type
+475	Not marked
+476	Cover
+477	Contents
+478	Section break
+479	Content
+480	Ending
+481	Title
+482	Subtitle
+483	Body
+484	List item
+485	List item title
+486	Note
+487	Header
+488	Footer
+489	Section number
+490	Item number
+491	Slide picture
+492	Item picture
+493	Background
+494	Slide $
+495	 comments
+496	Reply
+497	Write a reply
+498	No comments on this slide
+499	Add a comment (on the $
+500	selected element
+501	slide
+502	Clear this slide's comments
+503	Add comment
+504	Me
+505	Click to add speaker notes
+506	Find
+507	Ignore case
+508	Previous
+509	Next
+510	Replace with
+511	Replace all
+512	Find
+513	Selection ($
+514	Show all
+515	Hide all
+516	This slide is empty
+517	Faces
+518	Gestures
+519	Nature
+520	Food
+521	Travel
+522	Activities
+523	Objects
+524	Loading…
+525	Insert all
+526	Insert template
+527	Cover
+528	Contents
+529	Section break
+530	Content
+531	Ending
+532	New slide
+533	Section name
+534	Untitled section
+535	Default section
+536	Slide
+537	Delete section
+538	Delete section and slides
+539	Delete all sections
+540	Rename section
+541	New slide
+542	Duplicate slide
+543	Delete slide
+544	Add section
+545	Present from here
+546	:
+547	Add animation
+548	Select an element on the canvas to animate it
+549	“
+550	”
+551	Preview
+552	Duration:
+553	Start:
+554	On click
+555	With previous
+556	After previous
+557	Change animation
+558	Stop preview
+559	Preview all
+560	Entrance
+561	Exit
+562	Emphasis
+563	Order:
+564	To front
+565	To back
+566	Forward
+567	Backward
+568	Align:
+569	Align top
+570	Align bottom
+571	Width:
+572	Unlock aspect ratio
+573	Lock aspect ratio
+574	Height:
+575	Icon color:
+576	Autoplay:
+577	Loop:
+578	Chart colors
+579	Theme colors
+580	Add theme color
+581	Edit chart
+582	Stacked
+583	Smooth lines
+584	Background:
+585	Axes and labels:
+586	Grid color:
+587	Theme colors:
+588	Preset chart themes:
+589	Slide theme:
+590	Custom colors
+591	Crop image
+592	By shape:
+593	Ratio
+594	Corner radius:
+595	Replace image
+596	Reset style
+597	Set as background
+598	Aspect ratio (square)
+599	Aspect ratio (portrait)
+600	Aspect ratio (landscape)
+601	Color:
+602	Weight:
+603	Click to change the line type
+604	Line style:
+605	Line color:
+606	Line width:
+607	Start:
+608	End:
+609	Direction:
+610	Swap direction
+611	Auto
+612	Horizontal
+613	Vertical
+614	Click to change the shape
+615	Solid fill
+616	Gradient fill
+617	Image fill
+618	Linear gradient
+619	Radial gradient
+620	Color stop:
+621	Gradient angle:
+622	Line spacing:
+623	×
+624	Paragraph spacing:
+625	Letter spacing:
+626	Top padding:
+627	Bottom padding:
+628	Left padding:
+629	Right padding:
+630	Align top
+631	Align bottom
+632	Double-click to keep it on
+633	Format painter
+634	Text color
+635	Cell fill
+636	Strikethrough
+637	Center
+638	Justify
+639	Rows:
+640	Add row
+641	Add above
+642	Add below
+643	Columns:
+644	Add column
+645	Add left
+646	Add right
+647	Table theme:
+648	Header row
+649	Total row
+650	First column
+651	Last column
+652	Theme color:
+653	Box fill:
+654	Fixed height:
+655	Title
+656	Heading
+657	Body (small)
+658	Caption 1
+659	Caption 2
+660	Video poster
+661	Use the first frame as poster
+662	Reset poster
+663	Distribute horizontally
+664	Distribute vertically
+665	Fill color:
+666	Highlight
+667	Increase font size
+668	Decrease font size
+669	Apply to all
+670	Applied to all slides
+671	Edit theme colors
+672	Slide theme colors
+673	Font:
+674	Select
+675	Apply to theme
+676	Text color:
+677	Background color:
+678	Theme colors:
+679	(click a swatch to leave a color out)
+680	Save the selected settings as a theme
+681	Extract from this slide
+682	Extract from all slides
+683	Too many theme colors; the first 6 were kept
+684	Custom canvas size
+685	Size range: 500 to 2000
+686	The canvas width and height must be between $
+687
+688	Background
+689	Tile
+690	Stretch
+691	Apply background to all
+692	Widescreen 16 : 9
+693	Widescreen 16 : 10
+694	Standard 4 : 3
+695	Paper A3 / A4
+696	Portrait A3 / A4
+697	Canvas size:
+698	Theme
+699	More
+700	Font color:
+701	Shadow X:
+702	Shadow Y:
+703	Blur:
+704	Shadow color:
+705	Apply theme to all
+706	Use one font everywhere
+707	Extract a theme from the slides
+708	Preset themes
+709	Text Aa
+710	Set
+711	Set and apply
+712	Tint (mask):
+713	Mask color:
+714	Filters:
+715	Blur
+716	Brightness
+717	Contrast
+718	Grayscale
+719	Saturation
+720	Hue
+721	Sepia
+722	Invert
+723	Opacity
+724	Black and white
+725	Vintage
+726	Sharpen
+727	Soft
+728	Warm
+729	Bright
+730	Vivid
+731	Flip vertically
+732	Flip horizontally
+733	Opacity:
+734	Border:
+735	Shadow:
+736	Superscript
+737	Subscript
+738	Quote
+739	Clear formatting
+740	Format painter (double-click to keep it on)
+741	Enter a link
+742	Link
+743	Bullets
+744	Numbering
+745	Decrease indent
+746	Decrease first-line indent
+747	Increase indent
+748	Increase first-line indent
+749	There is no text to rewrite
+750	Arrange
+751	Animate
+752	Design
+753	Transition
+754	Style (several)
+755	Arrange (several)
+756	Pen
+757	Laser pointer
+758	Timer
+759	Presenter view
+760	Audience view
+761	Exit full screen
+762	Full screen
+763	End slideshow
+764	First slide
+765	Last slide
+766	Stop autoplay
+767	Autoplay
+768	2.5 s
+769	5 s
+770	7.5 s
+771	10 s
+772	Loop
+773	Show toolbar
+774	All slides
+775	Show thumbnails at the bottom edge
+776	Pause
+777	Start
+778	Reset
+779	Countdown
+780	Normal view
+781	Pen
+782	Full screen
+783	Speaker notes
+784	No notes
+785	Ink width:
+786	Highlighter
+787	Eraser size:
+788	Eraser
+789	Clear ink
+790	Blackboard
+791	Close pen
+792	This is the first slide
+793	This is the last slide
+794	Autoplay started
+795	Loading…
+796	The video could not load
+797	The font takes effect once it has downloaded
+798	A table needs at least one row
+799	A table needs at least one column
+800	Insert column
+801	to the left
+802	to the right
+803	Insert row
+804	above
+805	below
+806	Merge cells
+807	Unmerge cells
+808	Select column
+809	Select row
+810	Select all cells
+811	Double-click to edit
+812	Speed
+813	Loop
+814	On
+815	Off

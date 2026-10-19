@@ -2,7 +2,6 @@
 // Copies third-party browser assets from node_modules into the add-on, so the
 // add-on works offline and ships exactly what it uses. Run after npm install.
 import { cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -40,8 +39,8 @@ await build({
   logLevel: "warning",
 });
 for (const css of ["prosemirror.css", "tables.css", "gapcursor.css"]) await cp(from(`@milkdown/prose/lib/style/${css}`), to(`writer/${css}`));
-// Slides: the deck model and agent ops (ours), and the editor app, built from the PPTist fork
-// (SLIDES_DIR, default ~/Projects/Slides: `npm run build-only` there first).
+// Slides: the deck model and agent ops (ours), and the editor app, built from the PPTist fork in
+// slides/ (SLIDES_DIR overrides it; run `npm ci && npm run build-only` there first).
 await mkdir(to("slides-core"), { recursive: true });
 await build({
   entryPoints: [join(root, "src/slides/core.mjs")],
@@ -67,7 +66,7 @@ ${rules}
 }
 ${rootRules.join("\n")}
 `);
-const slidesDist = join(process.env.SLIDES_DIR ?? join(homedir(), "Projects/Slides"), "dist");
+const slidesDist = join(process.env.SLIDES_DIR ?? join(root, "slides"), "dist");
 if (await stat(join(slidesDist, "app.js")).catch(() => null)) {
   await rm(to("slides"), { recursive: true, force: true });
   await cp(slidesDist, to("slides"), { recursive: true, filter: (path) => !/\/(index\.html|favicon\.ico|logo\.png)$/.test(path) });

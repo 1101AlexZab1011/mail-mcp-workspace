@@ -1,0 +1,60 @@
+/* Editor chrome colours. Light by default, dark when the system or <html data-theme="dark"> asks.
+   A hosting page can override any of these (e.g. with its own design tokens). Slides keep their own colours. */
+:root {
+  color-scheme: light;
+  --pp-accent: #4557d6;
+  --pp-accent-hover: #3847bd;
+  --pp-on-accent: #ffffff;
+  --pp-text: #191c23;
+  --pp-text-2: #5b6272;
+  --pp-text-3: #8a91a1;
+  --pp-text-4: #b4bac6;
+  --pp-surface: #ffffff;
+  --pp-surface-2: #f6f7f9;
+  --pp-surface-3: #eef0f4;
+  --pp-surface-4: #e3e6ec;
+  --pp-canvas: #eceef2;
+  --pp-border: #e1e4ea;
+  --pp-border-strong: #c9ceda;
+  --pp-shadow: 0 4px 12px rgba(16, 20, 30, 0.08), 0 1px 3px rgba(16, 20, 30, 0.06);
+  --pp-font: "Inter", "Noto Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --pp-radius: 6px;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --pp-accent: #8e9cff;
+  --pp-accent-hover: #a5b0ff;
+  --pp-on-accent: #10132b;
+  --pp-text: #e6e8ee;
+  --pp-text-2: #a3aaba;
+  --pp-text-3: #767e8e;
+  --pp-text-4: #565d6b;
+  --pp-surface: #16191f;
+  --pp-surface-2: #1c2027;
+  --pp-surface-3: #252a33;
+  --pp-surface-4: #2f3540;
+  --pp-canvas: #0f1115;
+  --pp-border: #2a2f38;
+  --pp-border-strong: #3a404b;
+  --pp-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --pp-accent: #8e9cff;
+    --pp-accent-hover: #a5b0ff;
+    --pp-on-accent: #10132b;
+    --pp-text: #e6e8ee;
+    --pp-text-2: #a3aaba;
+    --pp-text-3: #767e8e;
+    --pp-text-4: #565d6b;
+    --pp-surface: #16191f;
+    --pp-surface-2: #1c2027;
+    --pp-surface-3: #252a33;
+    --pp-surface-4: #2f3540;
+    --pp-canvas: #0f1115;
+    --pp-border: #2a2f38;
+    --pp-border-strong: #3a404b;
+    --pp-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  }
+}

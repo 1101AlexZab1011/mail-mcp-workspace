@@ -276,3 +276,5 @@ updated.
 ## License
 
 The workspace documentation and configuration files are MIT licensed. The upstream `@codefuturist/email-mcp` dependency is separately licensed under LGPL-3.0-or-later.
+
+The Slides editor in `slides/` is a fork of [PPTist](https://github.com/pipipi-pikachu/PPTist) and stays under its AGPL-3.0 licence (`slides/LICENSE`); so does its build, vendored into `thunderbird-addon/vendor/slides/`.
