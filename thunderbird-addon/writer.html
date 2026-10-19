@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Writer</title>
+<link rel="stylesheet" href="shared/ui.css">
+<link rel="stylesheet" href="vendor/katex.css">
+<link rel="stylesheet" href="vendor/writer/prosemirror.css">
+<link rel="stylesheet" href="vendor/writer/tables.css">
+<link rel="stylesheet" href="vendor/writer/gapcursor.css">
+<link rel="stylesheet" href="writer.css">
+<body>
+  <header class="appbar writer-bar">
+    <span id="doc-icon" class="doc-icon"></span>
+    <div class="identity">
+      <h1 id="title">Writer</h1>
+      <span id="subtitle" class="subtitle"></span>
+    </div>
+    <span id="state" class="chip" hidden></span>
+    <span class="spacer"></span>
+    <span id="actions" class="actions"></span>
+    <button id="render" class="btn primary" type="button" hidden></button>
+  </header>
+  <div id="toolbar" class="toolbar" hidden></div>
+  <div id="conflict" class="conflict" hidden></div>
+  <div class="body">
+    <nav id="outline" class="outline" aria-label="Outline" hidden></nav>
+    <main id="scroll" class="scroll">
+      <div id="start" class="start"></div>
+      <article id="page" class="page" hidden>
+        <div id="editor"></div>
+      </article>
+    </main>
+  </div>
+  <footer class="statusbar" id="statusbar" hidden>
+    <span id="where"></span>
+    <span class="spacer"></span>
+    <span id="grammar-count"></span>
+    <span id="words"></span>
+  </footer>
+  <input id="image-input" type="file" accept="image/*" hidden>
+  <script type="module" src="writer.js"></script>
+</body>
+</html>

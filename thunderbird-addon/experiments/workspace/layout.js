@@ -187,8 +187,12 @@ function applyLayout(window, ctx) {
   const observer = new window.ResizeObserver(refit);
   observer.observe(container);
 
-  // Keyboard: Ctrl+5 toggles chat (right), Ctrl+6 files (left); Ctrl+7/8/9 open the add-on spaces.
+  // Keyboard: Ctrl+5 toggles chat (right), Ctrl+6 files (left); Ctrl+7/8/9 open the add-on spaces,
+  // Ctrl+Shift+6 the Writer, Ctrl+Shift+7 Slides.
   const onKey = (event) => {
+    if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && (event.code === "Digit6" || event.code === "Digit7")) {
+      event.preventDefault(); event.stopPropagation(); ctx.shortcut(event.code === "Digit6" ? "writer" : "slides"); return;
+    }
     if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
     // Ctrl+` toggles the terminal (handled before the dock/space shortcuts).
     if (event.code === "Backquote") { event.preventDefault(); event.stopPropagation(); setTerminal(window, ctx, { toggle: true }); return; }

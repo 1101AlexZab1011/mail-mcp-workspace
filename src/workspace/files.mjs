@@ -1,5 +1,6 @@
 // Filesystem access for the file browser and viewer: listing, stat with a
 // "viewer kind", and bounded text reads. Paths are absolute; "~" expands.
+import { createHash } from "node:crypto";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, extname, join, resolve } from "node:path";
@@ -103,7 +104,10 @@ export async function readText(path, { limit = 5 * 1024 * 1024 } = {}) {
   try {
     const size = Math.min(info.size, limit);
     const { buffer } = await handle.read(Buffer.alloc(size), 0, size, 0);
-    return { path: full, text: buffer.toString("utf8"), size: info.size, truncated: info.size > limit };
+    const truncated = info.size > limit;
+    // The hash of the bytes on disk, passed back as `expect` when saving (see writes.mjs).
+    const hash = truncated ? null : createHash("sha256").update(buffer).digest("hex");
+    return { path: full, text: buffer.toString("utf8"), size: info.size, truncated, hash, mtime: info.mtime.toISOString() };
   } finally { await handle.close(); }
 }
 

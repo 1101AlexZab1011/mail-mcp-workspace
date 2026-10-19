@@ -8,6 +8,8 @@ const SPACES = [
   { name: "viewer", title: "File viewer (Ctrl+7)", url: "viewer.html", icon: "preview" },
   { name: "artifacts", title: "Artifacts (Ctrl+8)", url: "artifacts.html", icon: "artifact" },
   { name: "paint", title: "Paint (Ctrl+9)", url: "paint.html", icon: "brush" },
+  { name: "writer", title: "Writer (Ctrl+Shift+6)", url: "writer.html", icon: "writer" },
+  { name: "slides", title: "Slides (Ctrl+Shift+7)", url: "slides.html", icon: "slides" },
 ];
 
 async function installSpaces() {
@@ -16,8 +18,19 @@ async function installSpaces() {
       title: space.title,
       defaultIcons: `icons/${space.icon}.svg`,
     };
-    try { await browser.spaces.create(space.name, space.url, props); }
-    catch { await browser.spaces.update(space.name, props).catch(() => {}); }
+    try {
+      // spaces.update takes the space's id, not its name; look it up first.
+      const [existing] = await browser.spaces.query({ name: space.name });
+      if (!existing) { await browser.spaces.create(space.name, space.url, props); continue; }
+      // A space can survive while its button is gone (e.g. the add-on was reloaded with the space
+      // open); updating it then fails. Recreate it.
+      try { await browser.spaces.update(existing.id, props); }
+      catch (error) {
+        console.warn(`Mail Workspace: recreating the ${space.name} space`, error);
+        await browser.spaces.remove(existing.id).catch(() => {});
+        await browser.spaces.create(space.name, space.url, props);
+      }
+    } catch (error) { console.error(`Mail Workspace: could not install the ${space.name} space`, error); }
   }
 }
 
@@ -57,6 +70,7 @@ browser.workspace.onShortcut.addListener((name) => { void openSpace(name); });
 // Requests from the add-on's pages.
 const pageRequests = {
   "open-file": ({ path }) => openSpace("viewer", path),
+  "open-document": ({ path }) => openSpace(/\.(slides\.json|pptx)$/i.test(path) ? "slides" : "writer", path),
   "attach-to-chat": ({ files }) => deliver("chat", { type: "attach", files }),
   "open-space": ({ name, query }) => openSpace(name, query),
   "set-dock": ({ side, change }) => browser.workspace.setDock(side, change),
@@ -81,9 +95,11 @@ browser.runtime.onMessage.addListener((message) => {
 
 async function start() {
   const pages = { [CHAT_SIDE]: browser.runtime.getURL("chat.html?dock=1"), [FILES_SIDE]: browser.runtime.getURL("files.html") };
-  await browser.workspace.install({ filesSide: FILES_SIDE, terminalUrl: browser.runtime.getURL("terminal.html"), leftUrl: pages.left, rightUrl: pages.right });
-  await installSpaces();
-  await closeLegacyChatTabs();
+  // Each step on its own: a failure in one must never keep the agent's GUI bridge from starting.
+  const step = (name, run) => Promise.resolve().then(run).catch((error) => console.error(`Mail Workspace: ${name} failed`, error));
+  await step("layout", () => browser.workspace.install({ filesSide: FILES_SIDE, terminalUrl: browser.runtime.getURL("terminal.html"), leftUrl: pages.left, rightUrl: pages.right }));
+  await step("spaces", installSpaces);
+  await step("legacy tabs", closeLegacyChatTabs);
   await ensurePaired().catch(() => {});
   startGuiBridge({ openSpace, deliver });
 }

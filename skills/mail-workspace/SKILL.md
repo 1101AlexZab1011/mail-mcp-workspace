@@ -1,6 +1,6 @@
 ---
 name: mail-workspace
-description: Operate the Mail Workspace GUI in Thunderbird for the user through the mail-gui MCP server - see what is selected, open spaces, files, artifacts and paint, click and type in any part of the interface, build artifacts, run commands in the shared terminal. Use when the user asks you to do something in their mail client, file viewer, artifacts, paint, calendar, contacts or tasks, or refers to what they are looking at.
+description: Operate the Mail Workspace GUI in Thunderbird for the user through the mail-gui MCP server - see what is selected, open spaces, files, artifacts, paint and the Writer document editor, write and edit files, click and type in any part of the interface, build artifacts, run commands in the shared terminal. Use when the user asks you to do something in their mail client, file viewer, artifacts, paint, calendar, contacts or tasks, or refers to what they are looking at.
 ---
 
 # Mail Workspace
@@ -83,3 +83,101 @@ Artifacts are React apps kept in `~/Artifacts`, organised in folders.
 
 When the user says "look at what I drew", call `paint_snapshot`. To mark up a
 picture for them, use `paint_insert_image` and `paint_add_shapes`.
+
+## Files: writing
+
+You can write files anywhere in the user's home folder (credential folders such
+as `~/.ssh` are refused):
+
+- `files_read` gives the text and a `hash`. Pass it as `expect` to
+  `files_write`, so you never overwrite edits made since you read.
+- **Prefer `files_edit`** (exact `old_string` → `new_string`) for changes to
+  existing files. It fails if the text is not found exactly once; read again
+  and copy the text exactly.
+- `files_mkdir`, `files_move` and `files_trash` cover the rest. Trashing asks
+  the user in the chat; respect a "declined".
+
+## Writer (papers in Quarto)
+
+The Writer space edits `.qmd` and `.md` files. The user writes there; you add
+content when asked.
+
+- **Start with `writer_state`.** It tells you the open document, its unsaved
+  state, the heading the cursor is under and the selected text ("this
+  paragraph", "here").
+- **Add new material** with `writer_insert`: at the cursor, at the end, or
+  after a heading. Rewrite what the user selected with
+  `writer_replace_selection`.
+- **For precise edits elsewhere** use `files_edit` on the document. An open
+  Writer reloads by itself. Never rewrite the whole file with `files_write`:
+  that discards the user's formatting and races with their typing.
+- **Write Quarto Markdown:**
+  - citations `[@key]`, from the document's `bibliography:` file;
+  - cross-references `@fig-x`, `@eq-x`, `@sec-x`;
+  - display math `$$ … $$ {#eq-x}`;
+  - figures `![Caption](figures/file.png){#fig-x}`;
+  - callouts `::: {.callout-note}` … `:::`.
+  Put each sentence on its own line inside a paragraph, so diffs stay readable.
+- `writer_render` builds the PDF and shows it in the viewer. On failure it
+  returns the errors: fix them and render again.
+- **Supervisor review.** The user can select a passage and ask for a review.
+  Its comments appear in the Writer. "Discuss in chat" sends you the passage
+  and the comment. Answer as the supervisor would. Change the text only when
+  the user asks, and then use `files_edit` or `writer_replace_selection`.
+
+
+## Slides (presentations)
+
+The Slides space is a Google-Slides-like editor. Decks are `name.slides.json`
+files, with their images in a `media/` folder next to them. The user edits by
+hand; you work through the `slides_*` tools.
+
+- **Start with `slides_state`.** It gives the open deck, the current slide and
+  the elements the user selected (id, type, box, text). Use it for "this
+  slide" or "this box".
+- **Read before you change.** `slides_read` lists every element with its id
+  and box (canvas px; 1280×720 for 16:9). `slides_inspect` shows one element
+  in full.
+- **Change with `slides_apply` ops,** never by rewriting the file:
+  - add or delete slides and elements, update fields, reorder;
+  - write speaker notes;
+  - replace text across the deck.
+  On the open deck each call is one undo step for the user, saved at once.
+  Its description lists every op and element field.
+- **Run editor commands with `slides_action`,** as from the toolbar: align,
+  distribute, group, order, theme presets, open a panel for the user.
+  `slides_actions` lists them.
+- **Look at your result** with `slides_shot`. Use `overlay: true` to see
+  element ids. Fix overlaps and text that runs out of its box.
+- **Show the user what you mean** with `slides_select` before a change they
+  should confirm.
+- **Match the deck:** its fonts, colours and grid.
+  - Put images in the deck's `media/` folder and reference them as
+    `media/name.png`.
+  - Formulas are `latex` elements (TeX); their height sets their size.
+- `slides_export` writes `name.pptx` next to the deck and never overwrites a
+  file. For PDF, the user prints from Export.
+- "Discuss in chat" and "Ask the agent…" on an element send you the slide's
+  picture and the element's text and id. Answer about that element.
+- **Motion:**
+  - Transitions per slide: `set_transition` with `magic` (Magic Move), a
+    built-in one, or a custom one you `define_transition`.
+  - Element animations: `add_animation` with a built-in effect or one you
+    `define_effect`.
+  - Custom ones are Web Animations keyframes in camelCase CSS. Look at
+    them with `slides_motion_frames` before you say they are done.
+  - Keep motion purposeful: one idea per click, 300–900 ms, no gratuitous
+    spins.
+  - For figures that build up across slides, duplicate the slide, change
+    it, and use Magic Move. Give the moving elements the same `name`.
+- **Script elements:**
+  - JavaScript in `scripts/<name>.js` next to the deck, drawing in its box
+    through the `slide` API (see slides_apply).
+  - Use `libs: ["d3"]` for plots and `["three"]` for 3D.
+  - Use `steps` for click-by-click builds. Draw with `slide.theme` so it
+    matches the deck.
+  - Always check with `slides_script_run` (errors, logs, a picture), then
+    set the poster with `poster: true`. Thumbnails and PPTX show the
+    poster.
+  - Scripts you write through `slides_apply` are trusted. If someone
+    changes a script outside the editor, the user must allow it once.

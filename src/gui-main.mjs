@@ -96,8 +96,8 @@ register("gui_key", "Press a key combination in Thunderbird, e.g. \"Control+Shif
   combo: z.string(),
 }, async ({ combo }) => text(await gui("key", { combo }, { timeoutMs: 360_000 })));
 
-register("gui_open", "Open a space: mail, addressbook, calendar, tasks, settings, viewer (file viewer), artifacts, paint.", {
-  space: z.enum(["mail", "addressbook", "calendar", "tasks", "settings", "viewer", "artifacts", "paint"]),
+register("gui_open", "Open a space: mail, addressbook, calendar, tasks, settings, viewer (file viewer), artifacts, paint, writer (document editor).", {
+  space: z.enum(["mail", "addressbook", "calendar", "tasks", "settings", "viewer", "artifacts", "paint", "writer", "slides"]),
 }, async ({ space }) => text(await gui("open", { space })));
 
 register("gui_dock", "Show, minimize, maximize or resize a dock: chat (right side) or files (left side).", {
@@ -144,6 +144,40 @@ register("files_navigate", "Show a folder in the file browser dock (opens the do
 register("files_select", "Select files in the file browser dock (their folders expand).", {
   paths: z.array(z.string()).min(1),
 }, async ({ paths }) => text(await gui("page", { page: "files", type: "select", paths })));
+
+// ----------------------------------------------------- writing files --
+// Writes are atomic and confined to the home folder (credential folders are refused).
+
+register("files_read", "Read a text file. Returns its text and `hash`: pass that hash as `expect` to files_write so you never overwrite edits made since you read it.", {
+  path: z.string().describe("Absolute path, or ~/…"),
+}, async ({ path }) => text(await hostCall(`/v1/fs/read?path=${encodeURIComponent(path)}`)), { readOnlyHint: true });
+
+register("files_write", "Create or replace a whole file (atomic). To change part of an existing file prefer files_edit. With `expect` (the hash from files_read) the write is refused if the file changed meanwhile, and the error carries the current text.", {
+  path: z.string(),
+  text: z.string().optional().describe("UTF-8 content"),
+  base64: z.string().optional().describe("Binary content, base64"),
+  expect: z.string().optional().describe("Hash from files_read; refuse if the file changed since"),
+  create_dirs: z.boolean().default(false),
+}, async ({ path, text: content, base64, expect, create_dirs }) => text(await hostCall("/v1/fs/file", { method: "PUT", body: JSON.stringify({ path, text: content, base64, expect, createDirs: create_dirs }) })));
+
+register("files_edit", "Replace an exact piece of text in a file. `old_string` must occur exactly once (add surrounding context to make it unique) unless `all`. The Writer reloads an open document by itself.", {
+  path: z.string(),
+  old_string: z.string(),
+  new_string: z.string(),
+  all: z.boolean().default(false),
+}, async ({ path, old_string, new_string, all }) => text(await hostCall("/v1/fs/edit", { method: "POST", body: JSON.stringify({ path, oldString: old_string, newString: new_string, all }) })));
+
+register("files_mkdir", "Create a folder (and any missing parents).", { path: z.string() }, async ({ path }) => text(await hostCall("/v1/fs/mkdir", { method: "POST", body: JSON.stringify({ path }) })));
+
+register("files_move", "Move or rename a file or folder. Moving onto an existing folder moves into it. Refuses to replace an existing file unless `overwrite`.", {
+  from: z.string(),
+  to: z.string(),
+  overwrite: z.boolean().default(false),
+}, async ({ from, to, overwrite }) => text(await hostCall("/v1/fs/move", { method: "POST", body: JSON.stringify({ from, to, overwrite }) })));
+
+register("files_trash", "Move a file or folder to the Trash (restorable). The user confirms in the chat first; the result says if they declined.", {
+  path: z.string(),
+}, async ({ path }) => text(await gui("files.trash", { path }, { timeoutMs: 360_000 })), { destructiveHint: true });
 
 // --------------------------------------------------------- terminal --
 // Terminals are shared with the user: what the agent runs shows in the panel.
@@ -197,6 +231,165 @@ register("paint_add_shapes", "Draw on the Paint canvas. Shapes: {type:'rect'|'el
 }, async ({ shapes }) => text(await gui("page", { page: "paint", type: "add-shapes", shapes })));
 
 register("paint_clear", "Clear the Paint canvas (undoable by the user).", {}, async () => text(await gui("page", { page: "paint", type: "clear" })));
+
+// ------------------------------------------------------------- writer --
+// The Writer edits Quarto (.qmd) and Markdown documents. The file on disk is the
+// truth: files_edit changes it directly and an open Writer reloads by itself.
+
+register("writer_state", "The Writer: which document is open, whether it has unsaved edits, where the cursor is (the heading it is under, the selected text), the outline, the word count. Use it before writing into the user's document, and to resolve \"this section\" or \"the selected text\".", {}, async () => text(await gui("page", { page: "writer", type: "state" })), { readOnlyHint: true });
+
+register("writer_open", "Open a .qmd or .md document in the Writer (other files open in the viewer).", {
+  path: z.string(),
+}, async ({ path }) => text(await gui("page", { page: "writer", type: "open", path })));
+
+register("writer_insert", "Insert Quarto Markdown into the open document: at the cursor, at the end, or after the heading named by `at`. Citations [@key], cross-references @fig-x, math $…$ and $$…$$ {#eq-x}, ::: callouts and figures ![cap](path){#fig-x} all work. Saves immediately.", {
+  markdown: z.string(),
+  at: z.string().default("cursor").describe("\"cursor\", \"end\", or a heading's text"),
+}, async ({ markdown, at }) => text(await gui("page", { page: "writer", type: "insert", markdown, at })));
+
+register("writer_replace_selection", "Replace the text the user selected in the Writer with new Markdown (e.g. a rewrite they asked for). Saves immediately.", {
+  markdown: z.string(),
+}, async ({ markdown }) => text(await gui("page", { page: "writer", type: "replace-selection", markdown })));
+
+register("writer_reveal", "Scroll the Writer to a heading or to the first block containing some text, and put the cursor there.", {
+  heading: z.string().optional(),
+  text: z.string().optional(),
+}, async ({ heading, text: needle }) => text(await gui("page", { page: "writer", type: "reveal", heading, text: needle })));
+
+register("writer_render", "Render the open document to PDF with Quarto and show it in the viewer. Returns errors and the end of the log if it fails.", {}, async () => text(await gui("page", { page: "writer", type: "render" }, { timeoutMs: 660_000 })));
+
+// ------------------------------------------------------------- slides --
+// Slides edits presentations (.slides.json, PPTist's model; media in media/ next to the deck).
+// The open deck is edited through the page, so each change is one undo step for the user; other
+// decks are edited in their file through the host.
+
+const OPS_HELP = `Ops (a list, applied in order, all or nothing). Slides are addressed by index (0-based) or id; elements by id (see slides_read).
+- {op:"add_slide", after?: index|id|"start"|"end", background?: "#hex", notes?: text, elements?: [element, …]}
+- {op:"update_slide", slide, background?, notes?, transition?: fade|slideX|slideY|scale|…}
+- {op:"delete_slide", slide} · {op:"move_slide", slide, to: index} · {op:"duplicate_slide", slide}
+- {op:"add_element", slide, element} · {op:"update_element", id, …element fields to change, props?: {raw PPTist fields}}
+- {op:"delete_element", id | ids} · {op:"move_element", id, to: front|back|forward|backward|index} or {op:"move_element", id, slide} (to another slide)
+- {op:"set_notes", slide, text} (speaker notes) · {op:"set_title", title} · {op:"set_theme", font?, color?, background?, colors?: [6 hex]}
+- {op:"replace_text", find, replace} (all text in the deck)
+Motion (play in the slideshow; check them with slides_motion_frames):
+- {op:"set_transition", slide | "all", transition: magic | a built-in (fade, slideX, slideY, slideX3D, slideY3D, rotate, scale, scaleReverse, scaleX, scaleY, no, random) | a custom name}
+- {op:"define_transition", name, out?: [keyframes], in?: [keyframes], duration?, easing?, order?: in-over|out-over, perspective?, label?} — Web Animations keyframes, camelCase CSS (opacity, transform, filter, clipPath…); out = the slide leaving, in = the slide arriving
+- {op:"define_effect", name, type: in|out|attention, keyframes?, path?: SVG path in slide px from the element's place, origin?, duration?, easing?, label?}
+- {op:"add_animation", id: element, effect: a custom name or built-in (fadeIn, fadeInUp, zoomIn, bounceIn, slideInLeft, fadeOut, zoomOut, pulse, headShake…), trigger?: click|with|after, duration?, position?}
+- {op:"update_animation", id: animation, effect?, trigger?, duration?, position?} · {op:"remove_animation", id} · {op:"delete_motion", name, kind?}
+Magic Move matches elements on consecutive slides by name (set name on elements), then by the same image or text.
+Elements (canvas px, origin top left; box: [left, top, width, height]):
+- text: {type:"text", box, text: light Markdown (one paragraph per line, "- " bullets, "1. " numbers, **bold**, *italic*, \`code\`, ^sup^, ~sub~, [link](url)), size?: px, color?, font?, bold?, italic?, align?: left|center|right|justify, fill?: box colour, html?: raw PPTist HTML instead of text}
+- image: {type:"image", src: path relative to the deck (e.g. "media/fig.png"), absolute path or URL, box (give width or height alone to keep the aspect ratio), radius?}
+- shape: {type:"shape", shape: rect|roundRect|ellipse|triangle|diamond|arrow-right|arrow-left|chevron|hexagon, box, fill?, outline?: {color, width, style}, text?, size?, color?}
+- line: {type:"line", from: [x, y], to: [x, y], color?, width?, style?: solid|dashed|dotted, arrow?: none|end|start|both|dots}
+- latex: {type:"latex", latex: TeX, left, top, height (sets the size), color?}
+- table: {type:"table", rows: [["a","b"], …], box?, header?: true, size?, colWidths?: [relative widths]}
+- script: {type:"script", code: JavaScript (saved as scripts/<name>.js next to the deck) or src: an existing file, name?, box, steps?: clicks it takes in the slideshow, libs?: ["d3"] and/or ["three"], data?: [files next to the deck]}. Its code uses one global, slide: slide.canvas() or slide.svg() (box px), slide.width/height, slide.theme (themeColors, fontName, fontColor), slide.onEnter(fn), slide.onStep(fn(n)), slide.onLeave(fn), slide.requestFrame(fn(t ms)), slide.data(name), slide.random(seed), slide.ease.{inOut,out,in}. No network. Check it with slides_script_run (poster: true sets its still picture).
+- chart: {type:"chart", chartType: column (vertical)|bar (horizontal)|line|area|pie|doughnut|radar|scatter, labels, series: [[numbers], …], legends?, box?}`;
+
+async function slidesState() {
+  // A deck that is still opening (loading its media) is reported once it is ready.
+  for (let i = 0; i < 120; i++) {
+    const state = await gui("page", { page: "slides", type: "state" }).catch(() => ({ path: null }));
+    if (!state.loading) return state;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error("Slides is still opening the deck");
+}
+/** Is `path` (or, with no path, any deck) the one open in Slides? */
+async function openDeck(path) {
+  const state = await slidesState();
+  if (!state.path) return false;
+  return !path || (await hostCall(`/v1/fs/stat?path=${encodeURIComponent(path)}`).catch(() => null))?.path === state.path;
+}
+
+register("slides_state", "Slides: the open deck (path, title, unsaved edits), the current slide, and what the user has selected (each element's id, type, box and text). Use it to resolve \"this slide\" or \"the selected box\" before changing anything.", {}, async () => text(await slidesState()), { readOnlyHint: true });
+
+register("slides_open", "Open a deck (.slides.json) in Slides, or import a PowerPoint (.pptx) into a new deck next to it and open that.", {
+  path: z.string(),
+}, async ({ path }) => text(await gui("page", { page: "slides", type: "open", path })));
+
+register("slides_new", "Create an empty deck (path ends in .slides.json) and open it in Slides.", {
+  path: z.string(),
+}, async ({ path }) => text(await gui("page", { page: "slides", type: "new", path })));
+
+register("slides_read", "Read a deck: each slide's elements (id, type, box [left, top, width, height] in canvas px, text, image path, font size), speaker notes and comments. Without path: the deck open in Slides, including unsaved edits.", {
+  path: z.string().optional().describe("A .slides.json file; omit for the open deck"),
+  from: z.number().int().min(0).optional().describe("First slide index (0-based)"),
+  to: z.number().int().min(0).optional().describe("Last slide index"),
+  html: z.boolean().optional().describe("Include the text elements' HTML (styles, spans)"),
+}, async ({ path, from, to, html }) => {
+  if (await openDeck(path)) return text(await gui("page", { page: "slides", type: "read", first: from, last: to, html })); // `to` addresses pages
+  if (!path) throw new Error("No deck is open in Slides; pass path");
+  const query = new URLSearchParams({ path, ...(from !== undefined ? { from } : {}), ...(to !== undefined ? { to } : {}), ...(html ? { html: "1" } : {}) });
+  return text(await hostCall(`/v1/slides/read?${query}`));
+}, { readOnlyHint: true });
+
+register("slides_inspect", "Every property of one element of the open deck (PPTist's model: content HTML, fills, outlines, shadows, animations…), for edits slides_apply's friendly fields do not cover (pass them as props).", {
+  id: z.string(),
+}, async ({ id }) => text(await gui("page", { page: "slides", type: "inspect", id })), { readOnlyHint: true });
+
+register("slides_shot", "A picture of a slide of the open deck (or one element, or a region), rendered from the deck itself. Use it to check your edits; overlay labels every element with its id.", {
+  slide: z.union([z.number().int().min(0), z.string()]).optional().describe("Index or id; default: the current slide"),
+  element: z.string().optional().describe("Crop to this element"),
+  region: z.object({ left: z.number(), top: z.number(), width: z.number(), height: z.number() }).optional(),
+  scale: z.number().min(0.2).max(2).optional().describe("Pixels per canvas px (default 0.75)"),
+  overlay: z.boolean().optional(),
+}, async ({ slide, element, region, scale, overlay }) => {
+  const shot = await gui("page", { page: "slides", type: "shot", slide, element, region, scale, overlay });
+  return imageResult(shot.path, `slide ${slide ?? "(current)"}${element ? `, element ${element}` : ""}`);
+}, { readOnlyHint: true });
+
+register("slides_motion_frames", "Frames of a slide's transition (from the slide before) or of an element's custom effect, side by side at moments `at` (0 = start, 1 = end), so you can see motion you defined. Custom transitions and Magic Move only.", {
+  slide: z.union([z.number().int().min(0), z.string()]).optional().describe("The arriving slide (index or id); default: current"),
+  transition: z.union([z.string(), z.record(z.string(), z.any())]).optional().describe("magic, custom:<name>, or a definition to try before saving it; default: the slide's own"),
+  element: z.string().optional().describe("Show this element's custom effect instead"),
+  effect: z.union([z.string(), z.record(z.string(), z.any())]).optional().describe("custom:<name> or a definition; default: the element's first custom animation"),
+  at: z.array(z.number().min(0).max(1)).max(8).optional(),
+  width: z.number().int().min(160).max(640).optional().describe("Width of each frame in px (default 360)"),
+}, async (args) => {
+  const shot = await gui("page", { page: "slides", type: "frames", ...args });
+  return imageResult(shot.path, `motion frames${args.element ? ` of ${args.element}` : ""} on slide ${args.slide ?? "(current)"}`);
+}, { readOnlyHint: true });
+
+register("slides_script_run", "Run a script element of the open deck off screen, as a check: it steps through `steps` clicks, runs `wait` ms, and returns its console output, errors and a picture of where it ended. With poster: true, that picture becomes the element's poster (thumbnails, export).", {
+  id: z.string(),
+  steps: z.number().int().min(0).max(50).optional(),
+  wait: z.number().int().min(0).max(15000).optional().describe("ms to let it run after the last step (default 1500)"),
+  poster: z.boolean().optional(),
+}, async ({ id, steps, wait, poster }) => {
+  const result = await gui("page", { page: "slides", type: "script-run", id, steps, wait, poster }, { timeoutMs: 120_000 });
+  const summary = { errors: result.errors, logs: result.logs.slice(-40), steps: result.steps, posterSet: result.posterSet };
+  if (!result.picture) return text({ ...summary, picture: "nothing drawn" });
+  const image = await imageResult(result.picture, "");
+  return { content: [image.content[0], { type: "text", text: JSON.stringify(summary, null, 2) }] };
+});
+
+register("slides_select", "Select elements on a slide of the open deck (and go to that slide), to show the user what you mean before changing it, or before slides_action.", {
+  ids: z.array(z.string()).optional(),
+  slide: z.union([z.number().int().min(0), z.string()]).optional(),
+}, async ({ ids, slide }) => text(await gui("page", { page: "slides", type: "select", ids, slide })));
+
+register("slides_apply", `Change a deck with a list of ops. The open deck changes in place (one undo step for the user; saved at once); with path, another deck's file is edited. Returns the ids of what was created. Check the result with slides_shot.\n${OPS_HELP}`, {
+  ops: z.array(z.record(z.string(), z.any())).min(1),
+  path: z.string().optional().describe("A .slides.json file that is not open; omit for the open deck"),
+}, async ({ ops, path }) => {
+  if (await openDeck(path)) return text(await gui("page", { page: "slides", type: "apply", ops }));
+  if (!path) throw new Error("No deck is open in Slides; pass path");
+  return text(await hostCall("/v1/slides/apply", { method: "POST", body: JSON.stringify({ path, ops }) }));
+});
+
+register("slides_action", "Run an editor command on the open deck, as the user would from the toolbar: align, distribute, order, group, lock, hide, duplicate, theme presets, undo/redo, present, open a panel or tab… Pass ids to act on those elements (selected first). slides_actions lists them all with their arguments.", {
+  name: z.string(),
+  args: z.record(z.string(), z.any()).optional(),
+}, async ({ name, args }) => text(await gui("page", { page: "slides", type: "action", name, args })));
+
+register("slides_actions", "List the editor commands slides_action can run, with their arguments.", {}, async () => text(await gui("page", { page: "slides", type: "actions" })), { readOnlyHint: true });
+
+register("slides_export", "Export the open deck as PowerPoint (saved next to the deck as name.pptx). For a PDF, ask the user to use Export → Print / export PDF.", {
+  media: z.boolean().optional().describe("Include audio and video (slower)"),
+}, async ({ media }) => text(await gui("page", { page: "slides", type: "export", format: "pptx", media }, { timeoutMs: 180_000 })));
 
 // ---------------------------------------------------------- artifacts --
 

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Slides</title>
+<!-- The shared styles are scoped to our parts of the page, not the editor (see scripts/vendor.mjs). -->
+<link rel="stylesheet" href="vendor/slides-core/ui-scoped.css">
+<link rel="stylesheet" href="vendor/slides/app.css">
+<link rel="stylesheet" href="slides.css">
+<body>
+  <!-- The editor (vendor/slides: our PPTist fork) mounts here; slides.js connects it to files and the agent. -->
+  <div id="app"></div>
+  <div id="start" class="start-screen" hidden></div>
+  <div id="bar" class="slides-bar" hidden></div>
+  <script src="slides-boot.js"></script>
+  <script type="module" src="vendor/slides/app.js"></script>
+  <script type="module" src="slides.js"></script>
+</body>
+</html>

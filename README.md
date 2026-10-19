@@ -209,12 +209,19 @@ scopes:
 
 ```bash
 listener-mcp token create --name email-agent --replace --save --scopes \
-  'subscribe:mail/chat/**,publish:mail/chat/**,read:mail/chat/**,publish:mail/gui/commands,read:mail/gui/**,read:mail/workspace/files,publish:mail/workspace/artifacts,read:mail/workspace/artifacts,publish:mail/workspace/terminal,blobs'
+  'subscribe:mail/chat/**,publish:mail/chat/**,read:mail/chat/**,publish:mail/gui/commands,read:mail/gui/**,read:mail/workspace/files,publish:mail/workspace/fs,publish:mail/workspace/render,publish:mail/workspace/artifacts,read:mail/workspace/artifacts,publish:mail/workspace/terminal,blobs'
 ```
 
 The agent's token deliberately lacks `publish:mail/workspace/grants` and
 `…/capabilities`. It can write an artifact, but only you can allow what the
 artifact may do.
+
+With `publish:mail/workspace/fs` the agent writes, edits, moves and creates
+files and folders anywhere in your home folder, except credential folders
+such as `~/.ssh` and `~/.gnupg`. Writes are atomic and refuse to overwrite a
+file that changed since it was read. Trashing needs
+`publish:mail/workspace/fs-trash`, which only the add-on has, so the agent's
+`files_trash` always asks you in the chat first.
 
 To start chatting, run `/email-start-chat` in Claude Code or Codex (restart the
 agent after `init`). The `mail-workspace` skill teaches the agent the GUI

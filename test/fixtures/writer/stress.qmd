@@ -1,0 +1,84 @@
+---
+title: "Stress test: every construct"
+author:
+  - Aleksei Zabolotnii
+bibliography: refs.bib
+format:
+  pdf:
+    pdf-engine: lualatex
+---
+
+## Introduction {#sec-intro}
+
+Grid cells degrade [@ridler2020; @jun2020, p. 3]. As @ying2022 showed, and see
+@fig-sweep and @eq-acc. Inline math $x_1 + y_2 = \tau$ stays math, and an
+email like someone@example.org is not a citation. A [span]{.smallcaps} here.
+
+{{< pagebreak >}}
+
+$$
+\frac{d\tau}{dt} = \alpha_T \, \tau (1 - \tau)
+$$ {#eq-acc}
+
+$$ E = mc^2 $$
+
+::: {.callout-note}
+## A note
+
+Callout content with **bold** and a list:
+
+- one
+- two
+
+  continued paragraph in the item
+:::
+
+::: {#fig-sweep layout-ncol=2}
+![Ring](figures/ring.png){#fig-ring width=50%}
+
+![Sheet](figures/sheet.png){#fig-sheet}
+
+The sweep.
+:::
+
+```{python}
+#| label: fig-plot
+#| echo: false
+import numpy as np
+print("```not a fence end```")
+```
+
+~~~
+tilde fence
+~~~
+
+\begin{table}
+\begin{tabular}{ll}
+a & b \\
+\end{tabular}
+\end{table}
+
+<!-- a comment
+spanning lines -->
+
+| a | b |
+|---|---|
+| 1 | 2 |
+
+1. first
+2. second
+
+    indented code in a list
+
+Term
+: definition list (pandoc)
+
+A footnote.^[Inline note with *emphasis*.] And a reference.[^1]
+
+[^1]: The note.
+
+> quote
+
+* * *
+
+Final paragraph without trailing blank line.

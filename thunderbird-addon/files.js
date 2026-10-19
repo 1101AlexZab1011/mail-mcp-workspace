@@ -2,7 +2,7 @@
 // over a VS Code-style tree with Material Icon Theme icons.
 import { host, HOST_ENDPOINT } from "./shared/broker.js";
 import { icon } from "./shared/icons.js";
-import { $, h, iconButton, contextMenu, background, toast, formatSize, registerPage, watchDockWidth } from "./shared/page.js";
+import { $, h, iconButton, contextMenu, background, toast, formatSize, registerPage, watchDockWidth, ask } from "./shared/page.js";
 import { FILES_SIDE, sideIcon } from "./shared/docks.js";
 
 const tree = $("#tree");
@@ -194,8 +194,76 @@ async function toggle(path, open = !state.expanded.has(path)) {
   render();
 }
 
-function openFile(path) {
-  return background("open-file", { path }).catch((error) => toast(error.message));
+/** Documents the Writer edits; everything else opens in the viewer. */
+const isDocument = (path) => /\.(qmd|md|markdown|rmd)$/i.test(path);
+const isDeck = (path) => /\.slides\.json$/i.test(path);
+const isPowerPoint = (path) => /\.pptx$/i.test(path);
+
+function openFile(path, { viewer = false } = {}) {
+  const request = !viewer && (isDocument(path) || isDeck(path)) ? "open-document" : "open-file";
+  return background(request, { path }).then((reply) => { if (reply?.error) toast(reply.error); }, (error) => toast(error.message));
+}
+
+// ------------------------------------------------------------ file edits --
+
+const parentOf = (path) => path.replace(/\/[^/]+$/, "") || "/";
+
+async function hostWrite(path, init, done) {
+  try { const result = await host(path, init); await refresh(); if (done) done(result); return result; }
+  catch (error) { toast(error.message); return null; }
+}
+
+async function newFolder(where) {
+  const name = await ask({ title: "New folder", message: where, value: "", placeholder: "Folder name", ok: "Create" });
+  if (!name) return;
+  if (name.includes("/")) return toast("A folder name cannot contain /");
+  await hostWrite("/v1/fs/mkdir", { method: "POST", body: JSON.stringify({ path: `${where}/${name}` }) }, async (result) => { state.expanded.add(where); await load(where, { force: true }); select(result.path); });
+}
+
+async function newDocument(where) {
+  const name = await ask({ title: "New document", message: `A Quarto document in ${where}`, value: "untitled.qmd", ok: "Create", select: [0, 8] });
+  if (!name) return;
+  if (name.includes("/")) return toast("A file name cannot contain /");
+  const file = /\.[a-z0-9]+$/i.test(name) ? name : `${name}.qmd`;
+  const title = file.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
+  const text = /\.qmd$/i.test(file) ? `---\ntitle: "${title.replace(/"/g, "'")}"\n---\n\n` : `# ${title}\n\n`;
+  await hostWrite("/v1/fs/file", { method: "PUT", body: JSON.stringify({ path: `${where}/${file}`, text, create: true, expect: "absent" }) }, async (result) => {
+    state.expanded.add(where);
+    await load(where, { force: true });
+    select(result.path);
+    await openFile(result.path);
+  });
+}
+
+async function newPresentation(where) {
+  const name = await ask({ title: "New presentation", message: `A slide deck in ${where}`, value: "untitled.slides.json", ok: "Create", select: [0, 8] });
+  if (!name) return;
+  if (name.includes("/")) return toast("A file name cannot contain /");
+  const file = name.endsWith(".slides.json") ? name : `${name.replace(/\.json$/i, "")}.slides.json`;
+  await hostWrite("/v1/slides/new", { method: "POST", body: JSON.stringify({ path: `${where}/${file}` }) }, async (result) => {
+    state.expanded.add(where);
+    await load(where, { force: true });
+    select(result.path);
+    await openFile(result.path);
+  });
+}
+
+async function rename(entry) {
+  const dot = entry.directory ? -1 : entry.name.lastIndexOf(".");
+  const name = await ask({ title: `Rename ${entry.directory ? "folder" : "file"}`, value: entry.name, ok: "Rename", select: [0, dot > 0 ? dot : entry.name.length] });
+  if (!name || name === entry.name) return;
+  if (name.includes("/")) return toast("A name cannot contain /");
+  await hostWrite("/v1/fs/move", { method: "POST", body: JSON.stringify({ from: entry.path, to: `${parentOf(entry.path)}/${name}` }) }, (result) => select(result.path));
+}
+
+async function trash(paths) {
+  const what = paths.length === 1 ? `“${paths[0].split("/").pop()}”` : `${paths.length} items`;
+  if (!await ask({ title: `Move ${what} to the Trash?`, message: "You can restore it from the Trash in your file manager.", ok: "Move to Trash", danger: true })) return;
+  let moved = 0;
+  for (const path of paths) { if (await host("/v1/fs/trash", { method: "POST", body: JSON.stringify({ path }) }).then(() => true, (error) => { toast(error.message); return false; })) moved++; }
+  state.selected.clear();
+  await refresh();
+  if (moved) toast(`Moved ${moved === 1 ? what : `${moved} items`} to the Trash`);
 }
 
 async function attachToChat(paths) {
@@ -231,6 +299,10 @@ tree.addEventListener("contextmenu", (event) => {
   const row = event.target.closest(".row");
   const entry = row && entryAt(row.dataset.path);
   if (!entry) return contextMenu(event, [
+    { label: "New document", icon: "note_add", run: () => newDocument(state.root) },
+    { label: "New presentation", icon: "slides", run: () => newPresentation(state.root) },
+    { label: "New folder", icon: "create_new_folder", run: () => newFolder(state.root) },
+    "-",
     { label: "Refresh", icon: "refresh", run: refresh },
     { label: state.hidden ? "Hide hidden files" : "Show hidden files", icon: state.hidden ? "visibility_off" : "visibility", run: toggleHidden },
   ]);
@@ -238,8 +310,15 @@ tree.addEventListener("contextmenu", (event) => {
   const paths = [...state.selected];
   contextMenu(event, [
     ...(entry.directory
-      ? [{ label: "Open as root", icon: "folder_open", run: () => navigate(entry.path) }, { label: state.expanded.has(entry.path) ? "Collapse" : "Expand", icon: "chevron_right", run: () => toggle(entry.path) }]
-      : [{ label: "Open in viewer", icon: "preview", run: () => openFile(entry.path) }, { label: "Attach to chat", icon: "attach_file", run: () => attachToChat(paths) }]),
+      ? [{ label: "Open as root", icon: "folder_open", run: () => navigate(entry.path) }, { label: state.expanded.has(entry.path) ? "Collapse" : "Expand", icon: "chevron_right", run: () => toggle(entry.path) },
+        { label: "New document", icon: "note_add", run: () => newDocument(entry.path) }, { label: "New presentation", icon: "slides", run: () => newPresentation(entry.path) }, { label: "New folder", icon: "create_new_folder", run: () => newFolder(entry.path) }]
+      : [...(isDocument(entry.path) ? [{ label: "Open in Writer", icon: "writer", run: () => openFile(entry.path) }] : []),
+        ...(isDeck(entry.path) ? [{ label: "Open in Slides", icon: "slides", run: () => openFile(entry.path) }] : []),
+        ...(isPowerPoint(entry.path) ? [{ label: "Open in Slides (import)", icon: "slides", run: () => background("open-document", { path: entry.path }) }] : []),
+        { label: "Open in viewer", icon: "preview", run: () => openFile(entry.path, { viewer: true }) }, { label: "Attach to chat", icon: "attach_file", run: () => attachToChat(paths) }]),
+    "-",
+    ...(paths.length === 1 ? [{ label: "Rename…", icon: "drive_file_rename", run: () => rename(entry) }] : []),
+    { label: "Move to Trash", icon: "delete", danger: true, run: () => trash(paths) },
     "-",
     { label: "Copy path", icon: "content_copy", run: async () => { await navigator.clipboard.writeText(paths.join("\n")); toast("Path copied"); } },
     { label: "Copy name", icon: "text_snippet", run: () => navigator.clipboard.writeText(entry.name) },
@@ -265,6 +344,8 @@ tree.addEventListener("keydown", (event) => {
     }
     case "Enter": if (current) { if (current.directory) void (event.ctrlKey ? navigate(current.path) : toggle(current.path)); else void openFile(current.path); } break;
     case "Backspace": void navigate(state.root.replace(/\/[^/]+$/, "") || "/"); break;
+    case "F2": if (current) void rename(current); break;
+    case "Delete": if (state.selected.size) void trash([...state.selected]); break;
     default: return;
   }
   event.preventDefault();

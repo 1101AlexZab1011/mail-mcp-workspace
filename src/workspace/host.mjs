@@ -7,6 +7,11 @@
 //   publish:mail/workspace/artifacts   create, update, move, delete, launch
 //   publish:mail/workspace/grants      approve or revoke artifact capabilities
 //   publish:mail/workspace/capabilities run granted capabilities
+//   publish:mail/workspace/fs          write, edit, create folders, move (inside the home folder)
+//   publish:mail/workspace/fs-trash    move to the Trash and restore (the add-on only: the
+//                                      agent trashes through the GUI, which asks the user)
+//   publish:mail/workspace/render      render Quarto documents
+//   publish:mail/workspace/review      supervisor review of a passage (runs Claude Code headless)
 //
 // The add-on's token has all of them; the agent's token lacks the last two, so
 // an agent can write an artifact but never approve what it may do.
@@ -25,8 +30,12 @@ import { readSheet } from "./sheet.mjs";
 import { ArtifactStore } from "./artifacts.mjs";
 import { Capabilities } from "./capabilities.mjs";
 import { Terminals } from "./terminal.mjs";
+import { FileWriter, versionOf, waitForChange } from "./writes.mjs";
+import { Writer } from "./writer.mjs";
+import { Slides } from "./slides.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const here = dirname(fileURLToPath(import.meta.url));
 const modules = join(projectRoot, "node_modules");
 export const DEFAULT_HOST_PORT = 47810;
 
@@ -75,6 +84,8 @@ export async function startHost({
   artifactsRoot = process.env.MAIL_WORKSPACE_ARTIFACTS ?? join(homedir(), "Artifacts"),
   cacheDir = join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "mail-workspace"),
   grantsPath,
+  filesRoot = process.env.MAIL_WORKSPACE_FILES_ROOT ?? homedir(),
+  trashDir,
   log = () => {},
 } = {}) {
   await mkdir(cacheDir, { recursive: true, mode: 0o700 });
@@ -88,6 +99,9 @@ export async function startHost({
   const capabilities = new Capabilities({ grantsPath, publishToAgent });
   const terminals = new Terminals();
   const theme = iconTheme();
+  const writer = new FileWriter({ root: filesRoot, trashDir });
+  const documents = new Writer({ files: writer, cacheDir, log });
+  const decks = new Slides({ files: writer });
 
   // --- auth: tokens are listener-mcp tokens, verified by the broker, cached briefly.
   const principals = new Map();
@@ -214,6 +228,133 @@ export async function startHost({
     createReadStream(entry.path).pipe(response);
   }, { auth: false });
 
+  // Writing (publish:mail/workspace/fs). Confined to the home folder; see writes.mjs.
+  const fsWrite = (principal) => need(principal, "publish", "mail/workspace/fs");
+  route("PUT", "/v1/fs/file", async ({ request, principal }) => {
+    fsWrite(principal);
+    const { path, text: content, base64, expect, create, createDirs } = await readJson(request, 64 * 1024 * 1024);
+    return writer.write(path, { text: content, base64, expect, create, createDirs });
+  });
+  // The same as PUT /v1/fs/file for large binaries (exports, media): the body is the file's bytes.
+  route("PUT", "/v1/fs/raw", async ({ url, request, principal }) => {
+    fsWrite(principal);
+    const p = url.searchParams;
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of request) {
+      size += chunk.length;
+      if (size > 2 * 1024 ** 3) throw new HttpError(413, "too_large", "Files over 2 GB are not written here");
+      chunks.push(chunk);
+    }
+    return writer.write(p.get("path"), { bytes: Buffer.concat(chunks), expect: p.get("expect") ?? undefined, createDirs: p.get("createDirs") === "1" });
+  });
+  route("POST", "/v1/fs/edit", async ({ request, principal }) => {
+    fsWrite(principal);
+    const { path, oldString, newString, all, expect } = await readJson(request);
+    return writer.edit(path, { oldString, newString, all, expect });
+  });
+  route("POST", "/v1/fs/mkdir", async ({ request, principal }) => { fsWrite(principal); return writer.mkdir((await readJson(request)).path); });
+  route("POST", "/v1/fs/move", async ({ request, principal }) => {
+    fsWrite(principal);
+    const { from, to, overwrite } = await readJson(request);
+    return writer.move(from, to, { overwrite });
+  });
+  const fsTrash = (principal) => need(principal, "publish", "mail/workspace/fs-trash");
+  route("POST", "/v1/fs/trash", async ({ request, principal }) => { fsTrash(principal); return writer.trash((await readJson(request)).path); });
+  route("POST", "/v1/fs/restore", async ({ request, principal }) => { fsTrash(principal); return writer.restore((await readJson(request)).name); });
+  route("GET", "/v1/fs/trash", async ({ url, principal }) => { need(principal, "read", "mail/workspace/files"); return { entries: await writer.trashed({ limit: Number(url.searchParams.get("limit") ?? 50) }) }; });
+  // The version an editor passes back as `expect`, and a long-poll for changes to one file.
+  route("GET", "/v1/fs/version", async ({ url, principal }) => { need(principal, "read", "mail/workspace/files"); return versionOf(expand(url.searchParams.get("path"))); });
+  route("GET", "/v1/fs/watch", async ({ request, url, principal }) => {
+    need(principal, "read", "mail/workspace/files");
+    const controller = new AbortController();
+    request.on("close", () => controller.abort());
+    const wait = Math.min(Number(url.searchParams.get("wait") ?? 25_000), 25_000);
+    return waitForChange(expand(url.searchParams.get("path")), url.searchParams.get("since"), { waitMs: wait, signal: controller.signal });
+  });
+
+  // Writer: Quarto rendering, bibliographies, grammar (see writer.mjs).
+  route("POST", "/v1/writer/render", async ({ request, principal }) => {
+    need(principal, "publish", "mail/workspace/render");
+    const { path, to } = await readJson(request);
+    return documents.render(await writer.target(path), { to });
+  });
+  route("GET", "/v1/writer/render", async ({ url, principal }) => { need(principal, "read", "mail/workspace/files"); return documents.renderStatus(expand(url.searchParams.get("path"))); });
+  route("GET", "/v1/writer/bibliography", async ({ url, principal }) => { need(principal, "read", "mail/workspace/files"); return documents.bibliography(expand(url.searchParams.get("path"))); });
+  route("POST", "/v1/writer/grammar", async ({ request, principal }) => {
+    need(principal, "read", "mail/workspace/files");
+    const { text: content, language } = await readJson(request, 2 * 1024 * 1024);
+    return documents.grammar(content, { language });
+  });
+  route("POST", "/v1/writer/review", async ({ request, principal }) => {
+    need(principal, "publish", "mail/workspace/review");
+    return documents.review(await readJson(request, 512 * 1024));
+  });
+  // Slides: decks that are not open in the editor (an open deck is edited through the page).
+  route("GET", "/v1/slides/read", async ({ url, principal }) => {
+    need(principal, "read", "mail/workspace/files");
+    const p = url.searchParams;
+    const number = (key) => (p.has(key) ? Number(p.get(key)) : undefined);
+    return decks.read(p.get("path"), { from: number("from"), to: number("to"), html: p.get("html") === "1" });
+  });
+  route("POST", "/v1/slides/apply", async ({ request, principal }) => {
+    fsWrite(principal);
+    const { path, ops, expect } = await readJson(request, 8 * 1024 * 1024);
+    return decks.apply(path, ops, { expect });
+  });
+  route("POST", "/v1/slides/new", async ({ request, principal }) => {
+    fsWrite(principal);
+    const { path, title } = await readJson(request);
+    return decks.create(path, { title });
+  });
+  // Script elements: the Slides page asks for a frame address; the frame itself is served without auth,
+  // sandboxed (opaque origin) and with a CSP that allows no network at all.
+  const SCRIPT_LIBS = { d3: join(modules, "d3/dist/d3.min.js"), three: join(modules, "three/build/three.module.min.js") };
+  route("POST", "/v1/slides/script", async ({ request, principal }) => {
+    need(principal, "read", "mail/workspace/files");
+    const { deck, src, code, libs = [] } = await readJson(request, 4 * 1024 * 1024);
+    const text = typeof code === "string" ? code : await decks.scriptCode(deck, src);
+    const wanted = (Array.isArray(libs) ? libs : []).filter((lib) => SCRIPT_LIBS[lib]);
+    const id = mint({ script: text }, 12 * 60 * 60_000);
+    const hash = createHash("sha256").update(text).digest("hex");
+    return { url: `/s/${id}/${wanted.length ? `?libs=${wanted.join(",")}` : ""}`, hash };
+  });
+  route("GET", /^\/s\/([A-Za-z0-9_-]+)\/(runtime\.js|script\.js|lib\/(d3|three)\.js)?$/, async ({ request, response, match }) => {
+    const entry = links.get(match[1]);
+    if (!entry || entry.script === undefined || entry.until < Date.now()) throw new HttpError(404, "not_found", "This script link expired");
+    const scriptHeaders = { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*" };
+    if (match[2] === "runtime.js") {
+      response.writeHead(200, scriptHeaders);
+      return createReadStream(join(here, "script-runtime.js")).pipe(response);
+    }
+    if (match[2] === "script.js") {
+      response.writeHead(200, scriptHeaders);
+      return response.end(entry.script);
+    }
+    if (match[3]) {
+      response.writeHead(200, { ...scriptHeaders, "cache-control": "public, max-age=86400" });
+      return createReadStream(SCRIPT_LIBS[match[3]]).pipe(response);
+    }
+    const self = `http://${request.headers.host}`;
+    response.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "content-security-policy": `default-src 'none'; script-src ${self}; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src blob:; form-action 'none'; base-uri 'none'`,
+    });
+    response.end(`<!doctype html><html><head><meta charset="utf-8"><title>Script</title></head><body><script type="module" src="runtime.js"></script></body></html>`);
+  }, { auth: false });
+  route("GET", "/v1/slides/fonts", async ({ principal }) => { need(principal, "read", "mail/workspace/files"); return { fonts: await decks.fonts() }; });
+  route("POST", "/v1/slides/rewrite", async ({ request, principal }) => {
+    need(principal, "publish", "mail/workspace/review");
+    return decks.rewrite(await readJson(request, 256 * 1024));
+  });
+  route("GET", "/v1/writer/words", async ({ principal }) => { need(principal, "read", "mail/workspace/files"); return { words: await documents.words() }; });
+  route("POST", "/v1/writer/words", async ({ request, principal }) => {
+    need(principal, "publish", "mail/workspace/fs");
+    const { add, remove } = await readJson(request);
+    return { words: await documents.updateWords({ add, remove }) };
+  });
+
   // Opening a file in its default application is an action on the desktop, so it
   // needs a publish scope (the add-on has it; the agent does not).
   route("POST", "/v1/open", async ({ request, principal }) => {
@@ -313,7 +454,7 @@ export async function startHost({
     const origin = request.headers.origin;
     // Extension pages and sandboxed artifact frames only; web pages get nothing.
     const cors = typeof origin === "string" && origin.startsWith("moz-extension://")
-      ? { "access-control-allow-origin": origin, "access-control-allow-headers": "authorization, content-type", "access-control-allow-methods": "GET, POST, PATCH, DELETE", vary: "Origin" }
+      ? { "access-control-allow-origin": origin, "access-control-allow-headers": "authorization, content-type", "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE", vary: "Origin" }
       : {};
     try {
       if (!allowedHosts.has(String(request.headers.host ?? "").toLowerCase())) throw new HttpError(403, "forbidden", "Unexpected Host header");
@@ -328,7 +469,7 @@ export async function startHost({
     } catch (error) {
       const status = error.status ?? (error.code === "ENOENT" ? 404 : error.code === "EACCES" ? 403 : 500);
       if (status === 500) log(`error: ${error.stack ?? error}`);
-      send(response, status, { error: { code: error.code && typeof error.code === "string" ? error.code : "error", message: error.message, ...(error.declared ? { declared: error.declared } : {}) } }, cors);
+      send(response, status, { error: { code: error.code && typeof error.code === "string" ? error.code : "error", message: error.message, ...(error.declared ? { declared: error.declared } : {}), ...(error.current ? { current: error.current } : {}) } }, cors);
     }
   });
   server.requestTimeout = 0;
@@ -337,7 +478,7 @@ export async function startHost({
   const actualPort = server.address().port;
   if (actualPort !== port) { allowedHosts.add(`127.0.0.1:${actualPort}`); allowedHosts.add(`localhost:${actualPort}`); }
   log(`mail-workspace host listening on http://127.0.0.1:${actualPort} (artifacts: ${store.root})`);
-  return { server, port: actualPort, store, capabilities, terminals, close: () => new Promise((r) => { watcher?.close(); capabilities.closeAll(); terminals.closeAll(); for (const wake of changeWaiters) wake(); server.closeAllConnections?.(); server.close(r); }) };
+  return { server, port: actualPort, store, capabilities, terminals, close: () => new Promise((r) => { watcher?.close(); capabilities.closeAll(); terminals.closeAll(); documents.close(); for (const wake of changeWaiters) wake(); server.closeAllConnections?.(); server.close(r); }) };
 }
 
 function escapeHtml(value) {

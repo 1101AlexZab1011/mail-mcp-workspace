@@ -5,13 +5,13 @@
 //
 // Irreversible actions (send, delete, move mail, settings) are shown to the
 // user as a confirmation card in the chat dock and run only if approved.
-import { broker, json } from "../shared/broker.js";
+import { broker, host, json } from "../shared/broker.js";
 import { CHAT_SIDE, FILES_SIDE } from "../shared/docks.js";
 
 const AGENT = "thunderbird:gui";
 const GROUP = "mail-gui";
 const CHANNEL = "mail/gui/commands";
-const OWN_PAGES = ["viewer", "artifacts", "paint"];
+const OWN_PAGES = ["viewer", "artifacts", "paint", "writer", "slides"];
 const PANELS = ["terminal"]; // pages outside the spaces, answered when loaded
 
 let ctx = null;
@@ -128,6 +128,16 @@ const commands = {
     return result;
   },
 
+  /** Move a file to the Trash after the user approves. Only the add-on's token may trash. */
+  async "files.trash"({ path }) {
+    if (typeof path !== "string" || !path) throw new Error("path is required");
+    const approved = await askUser({ kind: "delete", title: "The agent wants to move a file to the Trash", detail: path });
+    if (!approved) return { declined: true, reason: "The user declined this action" };
+    const result = await host("/v1/fs/trash", json({ path }));
+    await browser.runtime.sendMessage({ to: "files", type: "refresh" }).catch(() => {});
+    return result;
+  },
+
   async "open-settings"() { await browser.runtime.openOptionsPage(); await browser.workspace.focusOwnTab(); return { ok: true }; },
 };
 
@@ -154,6 +164,16 @@ async function attach() {
   await broker("/v1/subscriptions", json({ agent: AGENT, group: GROUP, mode: "poll", meta: { app: "thunderbird" } }));
 }
 
+async function handle(event) {
+  try {
+    const reply = await run(event);
+    await broker("/v1/events", json({ channel: CHANNEL, type: "result", reply_to: event.id, agent: AGENT, data: reply }));
+    await broker("/v1/ack", json({ agent: AGENT, event_ids: [event.id] }));
+  } catch (error) {
+    console.error("Mail Workspace: GUI command failed", error);
+  }
+}
+
 async function loop() {
   const waiter = crypto.randomUUID();
   let attached = false;
@@ -161,11 +181,8 @@ async function loop() {
     try {
       if (!attached) { await attach(); attached = true; }
       const { events } = await broker(`/v1/agents/${encodeURIComponent(AGENT)}/next?wait_ms=240000&waiter=${waiter}&max=5`);
-      for (const event of events) {
-        const reply = await run(event);
-        await broker("/v1/events", json({ channel: CHANNEL, type: "result", reply_to: event.id, agent: AGENT, data: reply }));
-        await broker("/v1/ack", json({ agent: AGENT, event_ids: [event.id] }));
-      }
+      // Each command on its own: one that waits (for the user, a render) must not hold up the others.
+      for (const event of events) void handle(event);
     } catch (error) {
       if (error.code === "superseded") return; // another Thunderbird window/instance took over
       if (error.status === 404 || error.code === "detached") attached = false;

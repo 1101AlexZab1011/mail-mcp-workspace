@@ -139,6 +139,33 @@ export function contextMenu(event, items) {
   menu.querySelector("button")?.focus();
 }
 
+/**
+ * A small modal: a title, an optional message, an optional text field, and
+ * OK/Cancel. Resolves to the entered text (or true without a field), or null.
+ */
+export function ask({ title, message = "", value, placeholder = "", ok = "OK", danger = false, select }) {
+  return new Promise((resolveAsk) => {
+    const field = value === undefined ? null : h("input.input", { type: "text", value, placeholder, style: { width: "100%" } });
+    const close = (result) => { backdrop.remove(); resolveAsk(result); };
+    const submit = () => close(field ? (field.value.trim() || null) : true);
+    const backdrop = h("div.dialog-backdrop", { onclick: (e) => { if (e.target === backdrop) close(null); } },
+      h("form.dialog", { onsubmit: (e) => { e.preventDefault(); submit(); } },
+        h("h2", {}, title),
+        message ? h("p", {}, message) : null,
+        field,
+        h("div.actions", {},
+          h("button.btn.ghost", { type: "button", onclick: () => close(null) }, "Cancel"),
+          h(`button.btn.${danger ? "danger" : "primary"}`, { type: "submit" }, ok))));
+    backdrop.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); close(null); } });
+    document.body.append(backdrop);
+    if (field) {
+      field.focus();
+      const [start, end] = select ?? [0, field.value.length];
+      field.setSelectionRange(start, end);
+    } else backdrop.querySelector("button[type=submit]").focus();
+  });
+}
+
 /** Ask the background script to do something. */
 export const background = (type, payload = {}) => browser.runtime.sendMessage({ to: "background", type, ...payload });
 
