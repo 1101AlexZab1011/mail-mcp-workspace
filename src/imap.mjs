@@ -10,6 +10,9 @@ export async function withMailbox(account, mailbox, work) {
     tls: { rejectUnauthorized: account.imap.verify_ssl !== false },
     logger: false,
   });
+  // A dropped connection is also emitted as an 'error' event, after the awaited call has
+  // already failed; with no listener, Node treats that as fatal and the watcher exits.
+  client.on("error", () => {});
   await client.connect();
   const lock = await client.getMailboxLock(mailbox);
   try { return await work(client); }

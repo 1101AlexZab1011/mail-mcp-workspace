@@ -38,6 +38,7 @@ function smtpTransport(account) {
 function sender(account) { return account.full_name ? `"${account.full_name.replaceAll('"', "\\\"")}" <${account.email}>` : account.email; }
 async function appendSentCopy(account, raw) {
   const client = new ImapFlow({ host: account.imap.host, port: account.imap.port ?? 993, secure: account.imap.tls !== false, auth: { user: account.username ?? account.email, pass: account.password }, logger: false, tls: { rejectUnauthorized: account.imap.verify_ssl !== false } });
+  client.on("error", () => {}); // a dropped connection fails the awaited call; unheard, the event would end the process
   await client.connect();
   try {
     const mailboxes = await client.list();
