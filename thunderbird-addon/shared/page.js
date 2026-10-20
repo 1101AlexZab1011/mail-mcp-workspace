@@ -30,7 +30,7 @@ export function registerPage(name, { commands = {}, state } = {}) {
 // ------------------------------------------------ agent access to the page --
 
 const refs = new Map();
-const ACTIONABLE = "button, a[href], input:not([type=hidden]), textarea, select, [role=button], [role=treeitem], [role=tab], [role=option], [role=menuitem], [contenteditable=true], [data-agent]";
+const ACTIONABLE = "button, a[href], input:not([type=hidden]), textarea, select, [role=button], [role=treeitem], [role=tab], [role=option], [role=menuitem], [role=menuitemradio], [contenteditable=true], [data-agent]";
 
 function label(el) {
   const text = (value) => (value ?? "").replace(/\s+/g, " ").trim();

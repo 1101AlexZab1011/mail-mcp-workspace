@@ -1,16 +1,27 @@
-import { publish as brokerPublish } from "./broker.mjs";
+import { latest, publish as brokerPublish } from "./broker.mjs";
+import { DEFAULT_SESSION, SESSIONS_CHANNEL, sessionsFrom } from "./sessions.mjs";
 import { isAutoReply, list, listWatches, matchReply, matchWatch, normalizeId, recordNotified, recordWatchHits, update } from "./subscriptions.mjs";
 
-export const replyChannel = (account) => `mail/replies/${account}`;
+// A notification wakes the Agent Chat session that set up the watch. Watches from
+// before sessions, and those whose session was deleted, go to Agent 1.
+export const replyChannel = (account, chat = DEFAULT_SESSION) => `mail/replies/${chat}/${account}`;
+
+/** Ids of the chat sessions that exist, or null when the list cannot be read. */
+async function brokerSessions() {
+  try {
+    const sessions = sessionsFrom(await latest(SESSIONS_CHANNEL));
+    return sessions ? new Set(sessions.map((item) => item.id)) : new Set([DEFAULT_SESSION]);
+  } catch { return null; }
+}
 
 // The event names the reply and where it is; it never carries the body. Mail text is
 // untrusted, and the agent reads it with the ordinary read tools when it wakes.
 function eventFor(accountName, mailbox, message, subscription) {
   return {
-    channel: replyChannel(accountName),
     type: "mail.reply",
     data: {
       text: `Reply from ${message.from} to "${subscription.subject || message.subject}"`,
+      chat: subscription.chat || DEFAULT_SESSION,
       account: accountName,
       mailbox,
       uid: message.uid,
@@ -28,10 +39,10 @@ function eventFor(accountName, mailbox, message, subscription) {
 // that matched instead of a thread.
 function watchEventFor(accountName, mailbox, message, item) {
   return {
-    channel: replyChannel(accountName),
     type: "mail.watch",
     data: {
       text: `Mail from ${message.from}: "${message.subject}"`,
+      chat: item.chat || DEFAULT_SESSION,
       account: accountName,
       mailbox,
       uid: message.uid,
@@ -46,12 +57,17 @@ function watchEventFor(accountName, mailbox, message, item) {
   };
 }
 
-async function deliver(path, accountName, events, publish) {
+// The channel is chosen at send time, so a queued event follows its session even if
+// that session is deleted before the retry. Without the list, the stored session stands.
+async function deliver(path, accountName, events, publish, sessions) {
   const delivered = [];
   const failed = [];
-  for (const event of events) {
-    try { await publish(event); delivered.push(event); }
-    catch (error) { failed.push({ ...event, error: error.message }); }
+  const known = await sessions();
+  for (const { channel, ...event } of events) {
+    const chat = event.data.chat && (!known || known.has(event.data.chat)) ? event.data.chat : DEFAULT_SESSION;
+    const routed = { ...event, channel: replyChannel(event.data.account, chat), data: { ...event.data, chat } };
+    try { await publish(routed); delivered.push(routed); }
+    catch (error) { failed.push({ ...routed, error: error.message }); }
   }
   await recordNotified(path, { account: accountName, hits: delivered.filter((event) => event.data.root_id).map((event) => ({ rootId: event.data.root_id, messageId: event.data.message_id })) });
   await recordWatchHits(path, { hits: delivered.filter((event) => event.data.watch_id).map((event) => ({ watchId: event.data.watch_id, messageId: event.data.message_id })) });
@@ -66,7 +82,7 @@ async function deliver(path, accountName, events, publish) {
 }
 
 /** Announce new messages that answer a subscribed thread or match a mail watch, and retry earlier failures. */
-export async function announceReplies({ accountName, account, subscriptionsPath, arrivals, publish = brokerPublish, now = Date.now() }) {
+export async function announceReplies({ accountName, account, subscriptionsPath, arrivals, publish = brokerPublish, sessions = brokerSessions, now = Date.now() }) {
   const subscriptions = await list(subscriptionsPath, { account: accountName, now });
   const watches = await listWatches(subscriptionsPath, { account: accountName, now });
   const { queue = [] } = await update(subscriptionsPath, (state) => ({ queue: [...(state.queue ?? [])] }));
@@ -83,5 +99,5 @@ export async function announceReplies({ accountName, account, subscriptionsPath,
     events.push(subscription ? eventFor(accountName, mailbox, message, subscription) : watchEventFor(accountName, mailbox, message, watched));
   }
   if (!events.length) return { delivered: [], failed: [] };
-  return deliver(subscriptionsPath, accountName, events, publish);
+  return deliver(subscriptionsPath, accountName, events, publish, sessions);
 }

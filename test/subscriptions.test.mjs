@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { publish } from "../src/broker.mjs";
+import { latest, publish } from "../src/broker.mjs";
 import { parseHeaders } from "../src/imap.mjs";
 import { announceReplies } from "../src/replies.mjs";
 import { headerIds, isAutoReply, list, listWatches, matchReply, matchWatch, normalizeId, subscribe, unsubscribe, unwatch, watch } from "../src/subscriptions.mjs";
@@ -72,7 +72,8 @@ test("a reply is announced once, and an answer to that reply still matches", asy
   const send = async (event) => { events.push(event); return { id: `evt_${events.length}` }; };
   const first = await announceReplies({ accountName: "work", account, subscriptionsPath: path, arrivals: [{ mailbox: "Important", message: reply({ inReplyTo: "<sent@example.org>" }) }], publish: send });
   assert.equal(first.delivered.length, 1);
-  assert.equal(events[0].channel, "mail/replies/work");
+  assert.equal(events[0].channel, "mail/replies/default/work");
+  assert.equal(events[0].data.chat, "default");
   assert.equal(events[0].type, "mail.reply");
   assert.equal(events[0].data.note, "trip application");
   assert.equal(events[0].data.body, undefined);
@@ -152,4 +153,51 @@ test("a watched notification is announced once as mail.watch, and a thread reply
   assert.equal(events[1].type, "mail.reply");
   const repeat = await announceReplies({ accountName: "yandex", account, subscriptionsPath: path, arrivals: [{ mailbox: "INBOX", message: notification }], publish: send });
   assert.equal(repeat.delivered.length, 0);
+});
+
+const deliveredTo = async (path, arrivals, sessions) => {
+  const events = [];
+  await announceReplies({ accountName: "work", account, subscriptionsPath: path, arrivals, publish: async (event) => { events.push(event); }, sessions: async () => sessions });
+  return events;
+};
+
+test("a notification wakes the chat session that set up the watch, else Agent 1", async () => {
+  const path = await store();
+  await subscribe(path, { account: "work", messageId: "<hr@example.org>", chat: "k3f9qa" });
+  await subscribe(path, { account: "work", messageId: "<old@example.org>" });
+  await subscribe(path, { account: "work", messageId: "<gone@example.org>", chat: "deleted1" });
+  await watch(path, { account: "work", from: "@booking.com", chat: "k3f9qa" });
+  const events = await deliveredTo(path, [
+    { mailbox: "INBOX", message: reply({ messageId: "<a@x>", inReplyTo: "<hr@example.org>" }) },
+    { mailbox: "INBOX", message: reply({ messageId: "<b@x>", inReplyTo: "<old@example.org>" }) },
+    { mailbox: "INBOX", message: reply({ messageId: "<c@x>", inReplyTo: "<gone@example.org>" }) },
+    { mailbox: "INBOX", message: reply({ messageId: "<d@x>", from: "noreply@booking.com", subject: "Your stay" }) },
+  ], new Set(["default", "k3f9qa"]));
+  assert.deepEqual(events.map((event) => [event.data.message_id, event.channel, event.data.chat]), [
+    ["<a@x>", "mail/replies/k3f9qa/work", "k3f9qa"],
+    ["<b@x>", "mail/replies/default/work", "default"],
+    ["<c@x>", "mail/replies/default/work", "default"],
+    ["<d@x>", "mail/replies/k3f9qa/work", "k3f9qa"],
+  ]);
+  const unknown = await store();
+  await subscribe(unknown, { account: "work", messageId: "<hr@example.org>", chat: "k3f9qa" });
+  const [kept] = await deliveredTo(unknown, [{ mailbox: "INBOX", message: reply({ inReplyTo: "<hr@example.org>" }) }], null);
+  assert.equal(kept.channel, "mail/replies/k3f9qa/work", "without the session list the stored session stands");
+});
+
+test("an event queued before chat sessions is retried on Agent 1's channel", async () => {
+  const path = await store();
+  await writeFile(path, JSON.stringify({ subscriptions: [], queue: [{ channel: "mail/replies/work", type: "mail.reply", data: { account: "work", message_id: "<q@x>", text: "Reply" }, error: "connection refused" }] }));
+  const events = await deliveredTo(path, [], new Set(["default"]));
+  assert.equal(events[0].channel, "mail/replies/default/work");
+  assert.equal(events[0].data.chat, "default");
+});
+
+test("the watcher reads the newest event of a channel", async () => {
+  let url;
+  const fetchImpl = async (value) => { url = new URL(value); return { ok: true, json: async () => ({ events: [{ seq: 1 }, { seq: 2 }] }) }; };
+  const event = await latest("mail/chat/sessions", { env: { MAIL_WATCHER_TOKEN: "secret", MAIL_WATCHER_BROKER_URL: "http://127.0.0.1:1" }, fetchImpl });
+  assert.equal(event.seq, 2);
+  assert.equal(url.searchParams.get("channel"), "mail/chat/sessions");
+  assert.equal(url.searchParams.get("limit"), "1");
 });

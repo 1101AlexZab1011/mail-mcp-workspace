@@ -5,6 +5,7 @@
 import { host, HOST_ENDPOINT, json } from "./shared/broker.js";
 import { icon } from "./shared/icons.js";
 import { $, h, iconButton, contextMenu, toast, background, registerPage, agentIsActing } from "./shared/page.js";
+import { openSession } from "./shared/sessions.js";
 
 const stage = $("#stage");
 const banner = $("#banner");
@@ -272,7 +273,9 @@ async function revokeCurrent() {
 function post(message) { state.frame?.contentWindow?.postMessage({ source: "mw-host", ...message }, "*"); }
 
 async function capabilityCall(method, args) {
-  const call = () => host("/v1/artifacts/call", json({ path: state.current.path, method, args }));
+  // An artifact asking the agent reaches the chat session the user has open.
+  const chat = method === "agent.ask" ? await openSession() : undefined;
+  const call = () => host("/v1/artifacts/call", json({ path: state.current.path, method, args, chat }));
   try { return await call(); }
   catch (error) {
     if (error.code !== "needs_approval") throw error;

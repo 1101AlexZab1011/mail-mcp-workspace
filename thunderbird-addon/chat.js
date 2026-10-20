@@ -1,7 +1,8 @@
-// Agent chat, docked on the left. Messages are listener-mcp events on
-// mail/chat/default; the agent's answers come back on the same channel.
+// Agent chat, docked on the left. It holds several sessions; each is a listener-mcp
+// channel mail/chat/<id>, and the agent's answers come back on the same channel.
 import { icon } from "./shared/icons.js";
-import { registerPage, watchDockWidth, iconButton, h, agentIsActing, toast } from "./shared/page.js";
+import { registerPage, watchDockWidth, iconButton, h, agentIsActing, toast, ask } from "./shared/page.js";
+import { DEFAULT_SESSION, DEFAULT_SESSIONS, SESSIONS_CHANNEL, chatChannel, newSessionId, nextName, openSession, rememberOpenSession, sessionOfChannel, sessionOfGroup, sessionsFrom } from "./shared/sessions.js";
 import { HOST_ENDPOINT } from "./shared/broker.js";
 import { CHAT_SIDE, sideIcon } from "./shared/docks.js";
 
@@ -190,7 +191,7 @@ function setCanSend(value) {
   canSend = value;
   sendButton.disabled = !value;
   attachButton.disabled = !value;
-  text.placeholder = value ? "Message your agent" : "No agent is listening · start one with /email-start-chat";
+  text.placeholder = value ? "Message your agent" : `No agent is listening · start one with /email-start-chat ${currentSession().name}`;
 }
 function setPresence(kind, label) {
   connection.textContent = label;
@@ -199,10 +200,10 @@ function setPresence(kind, label) {
     dot.classList.toggle("busy", kind === "busy");
   }
 }
-let settings; let cursor = 0;
+let settings;
 let selectedSuggestion = 0;
 const skills = [
-  { command: "/email-start-chat", description: "Start or continue Agent Chat" },
+  { command: "/email-start-chat", description: "Start or continue an Agent Chat session" },
   { command: "/email-review-pending", description: "Review and triage Pending email" },
   { command: "/email-summary", description: "Summarize recent email" },
 ];
@@ -302,9 +303,18 @@ const show = (item, keepPinned = true) => {
   follow.observe(article);
   if (keepPinned) scrollToBottom();
 };
-// The chat is one listener-mcp channel. Messages the user sends are events on it; the
-// agent's answers are events on it too, marked with the agent that published them.
-const channel = "mail/chat/default";
+// Every session is its own listener-mcp channel, mail/chat/<id>. Messages the user sends
+// are events on it; the agent's answers are events on it too, marked with the agent that
+// published them. One poll over mail/chat/* covers every session and the session list.
+let sessions = DEFAULT_SESSIONS;
+let sessionsEvent = null;
+let current = DEFAULT_SESSION;
+let cursor = 0;
+let started = false;
+const unreadBy = new Map();
+let presenceBy = new Map();
+const currentSession = () => sessions.find((item) => item.id === current) ?? sessions[0];
+const channel = () => chatChannel(current);
 const defaultEndpoint = "http://127.0.0.1:47800";
 // Storage is a convenience, not a dependency: the panel re-pairs with the broker when it
 // is unreadable, so an extension-storage failure cannot take the whole conversation down.
@@ -345,27 +355,118 @@ async function api(path, init = {}) {
   return result;
 }
 const toItem = (event) => ({ type: event.from.agent ? "agent" : "user", text: typeof event.data?.text === "string" ? event.data.text : JSON.stringify(event.data), sequence: event.seq });
+// A deleted session's farewell to its agent is protocol, not conversation.
+const visible = (event) => event.type !== "session.closed";
+const latestEvent = async (pattern) => (await api(`/v1/events?channel=${encodeURIComponent(pattern)}&before=${Number.MAX_SAFE_INTEGER}&limit=1`)).events.at(-1) ?? null;
+// Refreshes and session switches run one after another, so a poll never draws one
+// session's messages into another's transcript.
+let chain = Promise.resolve();
+const serial = (task) => (chain = chain.then(task, task));
+
+function applySessions(event) {
+  const list = sessionsFrom(event);
+  if (event && !list) return;
+  sessionsEvent = event;
+  sessions = list ?? DEFAULT_SESSIONS;
+  for (const id of unreadBy.keys()) if (!sessions.some((item) => item.id === id)) unreadBy.delete(id);
+  renderHeader();
+  renderMenu();
+  // The open session was deleted elsewhere (another panel, an agent): fall back to Agent 1.
+  if (started && !sessions.some((item) => item.id === current)) void serial(() => switchTo(DEFAULT_SESSION));
+}
+// Edits re-read the newest list first and change that, so two writers lose nothing in
+// practice (edits are human-paced). The list is republished weekly so the broker's
+// retention can never prune it.
+async function publishSessions(change) {
+  const fresh = sessionsFrom(await latestEvent(SESSIONS_CHANNEL)) ?? DEFAULT_SESSIONS;
+  const sent = await api("/v1/events", { method: "POST", body: JSON.stringify({ channel: SESSIONS_CHANNEL, type: "sessions", data: { sessions: change(fresh.map((item) => ({ ...item }))) } }) });
+  cursor = Math.max(cursor, sent.seq);
+  applySessions(sent);
+}
+const WEEK = 7 * 86_400_000;
+
+async function loadHistory() {
+  for (let after = 0; ;) {
+    const { events } = await api(`/v1/events?channel=${channel()}&after=${after}&limit=500`);
+    for (const event of events) if (visible(event)) show(toItem(event), false);
+    if (events.length < 500) return;
+    after = events.at(-1).seq;
+  }
+}
+async function start() {
+  const [list, newest] = await Promise.all([latestEvent(SESSIONS_CHANNEL), latestEvent("mail/chat/*")]);
+  applySessions(list);
+  cursor = newest?.seq ?? 0;
+  const remembered = await openSession();
+  current = sessions.some((item) => item.id === remembered) ? remembered : DEFAULT_SESSION;
+  renderHeader();
+  await loadHistory();
+  scrollToBottom();
+  started = true;
+  if (!list || Date.now() - Date.parse(list.created_at) > WEEK) await publishSessions((items) => items);
+}
+async function switchTo(id) {
+  if (id === current) return;
+  current = id;
+  void rememberOpenSession(id);
+  unreadBy.delete(id);
+  unread = 0;
+  shown.clear();
+  messages.replaceChildren(typing);
+  renderHeader();
+  renderBadge();
+  renderMenu();
+  await loadHistory();
+  scrollToBottom();
+  await refresh();
+}
+
+// Presence per session, from the groups the mail app profile creates (mail-chat-<id>).
+function presenceOf({ groups }) {
+  const map = new Map();
+  for (const group of groups) {
+    const id = sessionOfGroup(group.name);
+    if (!id) continue;
+    map.set(id, {
+      busy: group.members.some((member) => member.working_on.length),
+      listening: group.members.some((member) => member.waiting),
+      attached: group.members.length > 0,
+      agent: group.members[0]?.agent ?? null,
+    });
+  }
+  return map;
+}
+const agentLabel = (agent) => (!agent ? "No agent" : agent.startsWith("claude:") ? "Claude Code" : agent.startsWith("codex:") ? "Codex" : agent);
+
 async function refresh() {
   try {
     await ensureSettings();
-    const [{ events }, presence] = await Promise.all([api(`/v1/events?channel=${channel}&after=${cursor}&limit=500`), api(`/v1/presence?channel=${channel}`)]);
-    const initialLoad = cursor === 0;
-    const pinned = initialLoad || following;
-    for (const event of events) { show(toItem(event), false); cursor = Math.max(cursor, event.seq); }
-    // An attached agent receives the message even if it is between waits right now.
-    setCanSend(presence.listening || presence.busy || presence.attached);
-    // History loaded on start is not news; only replies arriving later count as unread.
-    if (!initialLoad && events.some((event) => event.from.agent) && document.documentElement.hasAttribute("data-rail")) {
-      unread += events.filter((event) => event.from.agent).length;
-      railBadge.hidden = false;
-      railBadge.textContent = String(unread);
+    if (!started) await start();
+    const [{ events }, presence] = await Promise.all([api(`/v1/events?channel=mail/chat/*&after=${cursor}&limit=500`), api("/v1/presence?channel=mail/chat/**")]);
+    const pinned = following;
+    for (const event of events) {
+      cursor = Math.max(cursor, event.seq);
+      if (event.channel === SESSIONS_CHANNEL) { applySessions(event); continue; }
+      const id = sessionOfChannel(event.channel);
+      if (!id || !visible(event)) continue;
+      if (id === current) {
+        show(toItem(event), false);
+        // Only replies arriving while the panel is a rail count as unread here.
+        if (event.from.agent && document.documentElement.hasAttribute("data-rail")) unread++;
+      } else if (event.from.agent) unreadBy.set(id, (unreadBy.get(id) ?? 0) + 1);
     }
+    presenceBy = presenceOf(presence);
+    const state = presenceBy.get(current) ?? { busy: false, listening: false, attached: false };
+    // An attached agent receives the message even if it is between waits right now.
+    setCanSend(state.listening || state.busy || state.attached);
+    renderBadge();
+    renderMenu();
     const wasBusy = !typing.hidden;
-    typing.hidden = !presence.busy;
+    typing.hidden = !state.busy;
     if ((events.length || typing.hidden !== wasBusy) && pinned) scrollToBottom();
-    if (presence.busy) setPresence("busy", "Working…");
-    else if (presence.listening) setPresence("on", "Listening");
-    else if (presence.attached) setPresence("on", "Attached");
+    if (state.busy) setPresence("busy", "Working…");
+    else if (state.listening) setPresence("on", "Listening");
+    else if (state.attached) setPresence("on", "Attached");
     else setPresence("off", "No agent connected");
   } catch (error) {
     setCanSend(false);
@@ -376,7 +477,7 @@ async function refresh() {
   }
 }
 document.querySelector("#compose").addEventListener("submit", async (event) => { event.preventDefault(); const value = text.value.trim(); if ((!value && !pending.length) || !canSend) return;
-  const withFiles = pending.length ? `${value}${value ? "\n\n" : ""}Attachments:\n${pending.map((file) => `- ${file.path} (${file.type}, ${formatSize(file.size)})`).join("\n")}` : value; try { await ensureSettings(); const sent = await api("/v1/events", { method: "POST", body: JSON.stringify({ channel, type: "message", data: { text: withFiles } }) }); show(toItem(sent)); cursor = Math.max(cursor, sent.seq); text.value = ""; for (const file of pending) if (file.thumbnail) URL.revokeObjectURL(file.thumbnail); pending.length = 0; renderAttachments(); autosize(); renderPreview(); connection.textContent = "Waiting for agent"; } catch (error) { connection.textContent = error.message; } });
+  const withFiles = pending.length ? `${value}${value ? "\n\n" : ""}Attachments:\n${pending.map((file) => `- ${file.path} (${file.type}, ${formatSize(file.size)})`).join("\n")}` : value; try { await ensureSettings(); const sent = await api("/v1/events", { method: "POST", body: JSON.stringify({ channel: channel(), type: "message", data: { text: withFiles } }) }); show(toItem(sent)); text.value = ""; for (const file of pending) if (file.thumbnail) URL.revokeObjectURL(file.thumbnail); pending.length = 0; renderAttachments(); autosize(); renderPreview(); connection.textContent = "Waiting for agent"; } catch (error) { connection.textContent = error.message; } });
 // Inside an unclosed ``` fence the composer is a code editor: Enter adds a line and Tab
 // indents, instead of sending the message and moving focus.
 function insideCodeFence() {
@@ -477,6 +578,12 @@ document.querySelector("#settings").addEventListener("click", () => browser.runt
 const railBadge = document.querySelector("#rail-badge");
 let unread = 0;
 let dockState = "open";
+// The rail badge counts unread replies in every session, the open one only while railed.
+function renderBadge() {
+  const total = unread + [...unreadBy.values()].reduce((sum, count) => sum + count, 0);
+  railBadge.hidden = !total;
+  railBadge.textContent = String(total);
+}
 document.querySelector("#avatar").append(icon("smart_toy"));
 document.querySelector("#settings").append(icon("settings"));
 attachButton.append(icon("attach_file"));
@@ -493,7 +600,122 @@ function renderDockActions() {
 }
 browser.workspace.onDockChanged.addListener((dock) => { if (dock.side === CHAT_SIDE) { dockState = dock.state; renderDockActions(); } });
 browser.workspace.getDocks().then((docks) => { dockState = docks.find((d) => d.side === CHAT_SIDE)?.state ?? "open"; renderDockActions(); });
-watchDockWidth((rail) => { if (!rail) { unread = 0; railBadge.hidden = true; } });
+watchDockWidth((rail) => { if (!rail) { unread = 0; renderBadge(); } });
+
+// ------------------------------------------------------------ sessions ----
+
+function renderHeader() {
+  const { name } = currentSession();
+  document.querySelector("#session-name").textContent = name;
+  document.title = name;
+  setCanSend(canSend);
+}
+
+// The session menu opens from the agent icon: every session with its presence, rename
+// and delete per row, and "New session" at the bottom.
+const avatar = document.querySelector("#avatar");
+let menu = null;
+let editing = null;
+function closeMenu() {
+  menu?.remove();
+  menu = null;
+  editing = null;
+  avatar.setAttribute("aria-expanded", "false");
+  removeEventListener("pointerdown", outside, true);
+}
+function outside(event) { if (menu && !menu.contains(event.target) && !avatar.contains(event.target)) closeMenu(); }
+function openMenu() {
+  menu = h("div.menu.session-menu", { role: "menu", "aria-label": "Sessions", onkeydown: (event) => { if (event.key === "Escape" && !editing) { closeMenu(); avatar.focus(); } } });
+  document.body.append(menu);
+  avatar.setAttribute("aria-expanded", "true");
+  const rect = avatar.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - menu.offsetWidth - 8))}px`;
+  menu.style.top = `${rect.bottom + 6}px`;
+  renderMenu();
+  menu.querySelector(".session-row.current")?.focus();
+  setTimeout(() => addEventListener("pointerdown", outside, true));
+}
+avatar.addEventListener("click", () => (menu ? closeMenu() : openMenu()));
+
+// Polls redraw the open menu for presence and unread counts, but never under the
+// cursor of a rename in progress.
+function renderMenu() {
+  if (!menu || editing) return;
+  drawMenu();
+}
+function drawMenu() {
+  const rows = sessions.map((session) => {
+    const state = presenceBy.get(session.id);
+    const isCurrent = session.id === current;
+    const choose = () => { if (editing) return; closeMenu(); void serial(() => switchTo(session.id)); };
+    const label = editing === session.id
+      ? h("input.input.session-name", {
+          type: "text", value: session.name, maxlength: "60", "aria-label": "Session name",
+          onclick: (event) => event.stopPropagation(),
+          onkeydown: (event) => {
+            event.stopPropagation();
+            if (event.key === "Enter") { event.preventDefault(); void commitRename(session.id, event.target.value); }
+            if (event.key === "Escape") { editing = null; drawMenu(); }
+          },
+          onblur: (event) => void commitRename(session.id, event.target.value),
+        })
+      : h("span.name", {}, session.name);
+    const count = unreadBy.get(session.id);
+    return h(`div.session-row${isCurrent ? ".current" : ""}`, {
+      role: "menuitemradio", "aria-checked": String(isCurrent), tabindex: "0", onclick: choose,
+      onkeydown: (event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); choose(); } },
+    },
+      h(`span.dot${state?.busy ? ".busy" : state?.attached ? ".on" : ""}`),
+      h("span.session-text", {}, label, h("small", {}, state?.busy ? `${agentLabel(state.agent)} · working` : agentLabel(state?.agent))),
+      count ? h("span.badge", { "aria-label": `${count} unread` }, String(count)) : null,
+      h("span.row-actions", {},
+        iconButton("edit", "Rename", (event) => { event.stopPropagation(); editing = session.id; drawMenu(); }, { small: true }),
+        session.id === DEFAULT_SESSION ? null : iconButton("delete", "Delete", (event) => { event.stopPropagation(); void removeSession(session); }, { small: true })));
+  });
+  menu.replaceChildren(...rows, h("hr"), h("button", { role: "menuitem", type: "button", onclick: () => void createSession() }, icon("add"), "New session"));
+  const field = menu.querySelector(".session-name");
+  if (field) { field.focus(); field.select(); }
+}
+
+async function commitRename(id, value) {
+  if (editing !== id) return;
+  editing = null;
+  const name = value.trim();
+  const session = sessions.find((item) => item.id === id);
+  if (!session || !name || name === session.name) return drawMenu();
+  if (sessions.some((item) => item.id !== id && item.name.toLowerCase() === name.toLowerCase())) {
+    toast(`A session named “${name}” already exists`);
+    editing = id;
+    return drawMenu();
+  }
+  try { await publishSessions((items) => items.map((item) => (item.id === id ? { ...item, name } : item))); }
+  catch (error) { toast(error.message); }
+  if (menu) drawMenu();
+}
+
+// A new session opens at once with its name selected, so typing names it.
+async function createSession() {
+  const id = newSessionId(sessions);
+  try {
+    await publishSessions((items) => [...items, { id, name: nextName(items) }]);
+    await serial(() => switchTo(id));
+    if (!menu) openMenu();
+    editing = id;
+    drawMenu();
+  } catch (error) { toast(error.message); }
+}
+
+async function removeSession(session) {
+  const confirmed = await ask({ title: `Delete “${session.name}”?`, message: "The session leaves the list. An agent attached to it is told to leave.", ok: "Delete", danger: true });
+  if (!confirmed) return;
+  try {
+    await api("/v1/events", { method: "POST", body: JSON.stringify({ channel: chatChannel(session.id), type: "session.closed", data: { text: "This session was deleted." } }) });
+    await publishSessions((items) => items.filter((item) => item.id !== session.id));
+    unreadBy.delete(session.id);
+    renderBadge();
+    if (session.id === current) await serial(() => switchTo(DEFAULT_SESSION));
+  } catch (error) { toast(error.message); }
+}
 new ResizeObserver(() => document.documentElement.toggleAttribute("data-narrow", innerWidth < 360)).observe(document.body);
 
 // Confirmation cards: the GUI bridge asks here before irreversible agent actions.
@@ -543,6 +765,8 @@ async function attachExisting(files, { focus } = {}) {
 
 registerPage("chat", {
   state: () => ({
+    session: currentSession(),
+    sessions,
     status: connection.textContent,
     canSend,
     draft: text.value,
@@ -558,5 +782,5 @@ registerPage("chat", {
 });
 autosize();
 renderPreview();
-void refresh();
-setInterval(() => { void refresh(); }, 1500);
+void serial(refresh);
+setInterval(() => { void serial(refresh); }, 1500);

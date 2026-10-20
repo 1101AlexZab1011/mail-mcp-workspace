@@ -14,6 +14,8 @@ import { classifyMailbox, fileReviewedMessage, overrideStatus, reviewPending, ro
 
 const execFileAsync = promisify(execFile);
 const watcherService = "mail-mcp-workflow-watcher.service";
+// The Agent Chat session whose agent a notification wakes; the skill passes its own.
+const chatParam = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional().describe("Agent Chat session id to wake (default: Agent 1, id \"default\")");
 
 async function context() {
   return { accounts: await loadEmailConfig(), policy: await loadPolicy(), statePath: process.env.MAIL_WORKFLOW_STATE ?? defaultStatePath, subscriptionsPath: process.env.MAIL_WORKFLOW_SUBSCRIPTIONS ?? defaultSubscriptionsPath };
@@ -71,17 +73,17 @@ async function runMcp() {
   server.tool("sync_workflow", "Apply or preview Inbox routing then classify statuses. Set dry_run=false only after account policy is configured.", { account: z.string(), dry_run: z.boolean().default(true) }, { destructiveHint: true }, async (params) => {
     try { return text(await sync(params.account, params.dry_run)); } catch (e) { return error(e); }
   });
-  server.tool("subscribe_thread", "Watch a sent message's thread: when a reply arrives, the workflow watcher publishes a mail.reply event on mail/replies/<account> that wakes the attached agent. Works for any Message-ID, including mail already sent.", { account: z.string(), message_id: z.string().min(1), subject: z.string().optional(), note: z.string().max(500).optional(), days: z.number().int().min(1).max(365).default(30) }, { destructiveHint: false }, async (params) => {
-    try { const selected = await select(params.account); return text(await subscribe(selected.subscriptionsPath, { account: params.account, messageId: params.message_id, subject: params.subject, note: params.note, days: params.days })); } catch (e) { return error(e); }
+  server.tool("subscribe_thread", "Watch a sent message's thread: when a reply arrives, the workflow watcher publishes a mail.reply event on mail/replies/<chat>/<account> that wakes the agent attached to that Agent Chat session. Works for any Message-ID, including mail already sent.", { account: z.string(), message_id: z.string().min(1), subject: z.string().optional(), note: z.string().max(500).optional(), chat: chatParam, days: z.number().int().min(1).max(365).default(30) }, { destructiveHint: false }, async (params) => {
+    try { const selected = await select(params.account); return text(await subscribe(selected.subscriptionsPath, { account: params.account, messageId: params.message_id, subject: params.subject, note: params.note, chat: params.chat, days: params.days })); } catch (e) { return error(e); }
   });
   server.tool("unsubscribe_thread", "Stop watching a thread for replies. Any Message-ID in the thread identifies it.", { account: z.string(), message_id: z.string().min(1) }, { destructiveHint: false }, async (params) => {
     try { const selected = await select(params.account); return text(await unsubscribe(selected.subscriptionsPath, { account: params.account, messageId: params.message_id })); } catch (e) { return error(e); }
   });
-  server.tool("watch_mail", "Watch incoming mail by sender and/or subject, for notifications that are not replies to anything (Booking.com, Steam, PayPal). A matching message publishes a mail.watch event on mail/replies/<account> that wakes the attached agent. from is one address or a whole domain written as \"@example.org\"; subject lists words that must all appear in the subject; give one or both. account \"*\" watches every connected account.", { account: z.string(), from: z.string().optional(), subject: z.string().optional(), note: z.string().max(500).optional(), days: z.number().int().min(1).max(365).default(30) }, { destructiveHint: false }, async (params) => {
+  server.tool("watch_mail", "Watch incoming mail by sender and/or subject, for notifications that are not replies to anything (Booking.com, Steam, PayPal). A matching message publishes a mail.watch event on mail/replies/<chat>/<account> that wakes the agent attached to that Agent Chat session. from is one address or a whole domain written as \"@example.org\"; subject lists words that must all appear in the subject; give one or both. account \"*\" watches every connected account.", { account: z.string(), from: z.string().optional(), subject: z.string().optional(), note: z.string().max(500).optional(), chat: chatParam, days: z.number().int().min(1).max(365).default(30) }, { destructiveHint: false }, async (params) => {
     try {
       const current = await context();
       if (params.account !== "*" && !current.accounts.has(params.account)) throw new Error(`Unknown account: ${params.account}`);
-      return text(await watch(current.subscriptionsPath, { account: params.account, from: params.from, subject: params.subject, note: params.note, days: params.days }));
+      return text(await watch(current.subscriptionsPath, { account: params.account, from: params.from, subject: params.subject, note: params.note, chat: params.chat, days: params.days }));
     } catch (e) { return error(e); }
   });
   server.tool("unwatch_mail", "Stop a mail watch, by the id that watch_mail or list_subscriptions shows.", { id: z.string().min(1) }, { destructiveHint: false }, async (params) => {

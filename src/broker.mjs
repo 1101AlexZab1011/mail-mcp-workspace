@@ -3,7 +3,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 // The watcher publishes with its own listener-mcp credential, scoped to
-// publish:mail/replies/**, so it can announce replies but not speak in the chat.
+// publish:mail/replies/** and read:mail/chat/sessions, so it can announce replies
+// and see which chat sessions exist, but not speak in the chat.
 export const DEFAULT_BROKER_URL = "http://127.0.0.1:47800";
 export const DEFAULT_CREDENTIAL = "mail-watcher";
 
@@ -17,7 +18,7 @@ export async function brokerToken(env = process.env) {
   const name = env.MAIL_WATCHER_CREDENTIAL ?? DEFAULT_CREDENTIAL;
   try { return (await readFile(credentialPath(name, env), "utf8")).trim(); }
   catch (error) {
-    if (error.code === "ENOENT") throw new Error(`No listener-mcp credential "${name}". Create it with: listener-mcp token create --name ${name} --scopes 'publish:mail/replies/**' --save`);
+    if (error.code === "ENOENT") throw new Error(`No listener-mcp credential "${name}". Create it with: listener-mcp token create --name ${name} --scopes 'publish:mail/replies/**,read:mail/chat/sessions' --save`);
     throw error;
   }
 }
@@ -31,4 +32,14 @@ export async function publish({ channel, type, data }, { env = process.env, fetc
   });
   if (!response.ok) throw new Error(`Broker refused the event (${response.status}): ${(await response.text()).slice(0, 300)}`);
   return response.json();
+}
+
+/** The newest event on a channel, or null when there is none. */
+export async function latest(channel, { env = process.env, fetchImpl = fetch } = {}) {
+  const url = env.MAIL_WATCHER_BROKER_URL ?? DEFAULT_BROKER_URL;
+  const query = new URLSearchParams({ channel, before: String(Number.MAX_SAFE_INTEGER), limit: "1" });
+  const response = await fetchImpl(`${url}/v1/events?${query}`, { headers: { authorization: `Bearer ${await brokerToken(env)}` } });
+  if (!response.ok) throw new Error(`Broker refused to read ${channel} (${response.status})`);
+  const { events } = await response.json();
+  return events.at(-1) ?? null;
 }

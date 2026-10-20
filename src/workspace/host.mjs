@@ -29,6 +29,7 @@ import { needsConversion, toPdf } from "./convert.mjs";
 import { readSheet } from "./sheet.mjs";
 import { ArtifactStore } from "./artifacts.mjs";
 import { Capabilities } from "./capabilities.mjs";
+import { DEFAULT_SESSION, chatChannel, isSessionId } from "../sessions.mjs";
 import { Terminals } from "./terminal.mjs";
 import { FileWriter, versionOf, waitForChange } from "./writes.mjs";
 import { Writer } from "./writer.mjs";
@@ -93,8 +94,10 @@ export async function startHost({
   await mkdir(cacheDir, { recursive: true, mode: 0o700 });
   const store = new ArtifactStore(artifactsRoot);
   await mkdir(store.root, { recursive: true });
-  const publishToAgent = async (text, token) => {
-    const response = await fetch(`${brokerUrl}/v1/events`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ channel: "mail/chat/default", type: "message", data: { text } }) });
+  // Into the Agent Chat session the user has open; an unknown or missing one means Agent 1.
+  const publishToAgent = async (text, token, chat) => {
+    const channel = chatChannel(isSessionId(chat) ? chat : DEFAULT_SESSION);
+    const response = await fetch(`${brokerUrl}/v1/events`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ channel, type: "message", data: { text } }) });
     if (!response.ok) throw new HttpError(502, "broker_error", `The broker refused the message (${response.status})`);
     return { sent: true };
   };
@@ -478,9 +481,9 @@ export async function startHost({
   route("DELETE", "/v1/artifacts/grant", async ({ url, principal }) => { need(principal, "publish", "mail/workspace/grants"); return capabilities.revoke(url.searchParams.get("path")); });
   route("POST", "/v1/artifacts/call", async ({ request, principal }) => {
     need(principal, "publish", "mail/workspace/capabilities");
-    const { path, method, args } = await readJson(request);
+    const { path, method, args, chat } = await readJson(request);
     const { meta } = await store.read(path);
-    return capabilities.call(path, meta.capabilities, method, args, { token: principal.token });
+    return capabilities.call(path, meta.capabilities, method, args, { token: principal.token, chat });
   });
 
   const { canonical: canonicalize } = await import("./capabilities.mjs");

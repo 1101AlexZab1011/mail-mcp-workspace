@@ -64,17 +64,17 @@ export async function update(path, change) {
 
 const live = (subscription, now) => !subscription.expiresAt || Date.parse(subscription.expiresAt) > now;
 
-export async function subscribe(path, { account, messageId, subject = "", to = [], note = "", days = DEFAULT_DAYS, now = Date.now() }) {
+export async function subscribe(path, { account, messageId, subject = "", to = [], note = "", chat = "", days = DEFAULT_DAYS, now = Date.now() }) {
   const rootId = normalizeId(messageId);
   if (!rootId) throw new Error("A Message-ID is required to subscribe.");
   const expiresAt = new Date(now + days * 86_400_000).toISOString();
   return update(path, (state) => {
     const existing = state.subscriptions.find((item) => item.account === account && item.ids.includes(rootId));
     if (existing) {
-      Object.assign(existing, { expiresAt, ...(note ? { note } : {}), ...(subject ? { subject } : {}) });
+      Object.assign(existing, { expiresAt, ...(note ? { note } : {}), ...(subject ? { subject } : {}), ...(chat ? { chat } : {}) });
       return { subscribed: true, renewed: true, subscription: existing };
     }
-    const subscription = { account, rootId, ids: [rootId], subject, to, note, createdAt: new Date(now).toISOString(), expiresAt, notified: [] };
+    const subscription = { account, rootId, ids: [rootId], subject, to, note, ...(chat ? { chat } : {}), createdAt: new Date(now).toISOString(), expiresAt, notified: [] };
     state.subscriptions.push(subscription);
     return { subscribed: true, renewed: false, subscription };
   });
@@ -121,7 +121,7 @@ function senderMatches(pattern, from) {
   return wanted.startsWith("@") ? sender.endsWith(wanted) : sender === wanted;
 }
 
-export async function watch(path, { account, from = "", subject = "", note = "", days = DEFAULT_DAYS, now = Date.now() }) {
+export async function watch(path, { account, from = "", subject = "", note = "", chat = "", days = DEFAULT_DAYS, now = Date.now() }) {
   if (!String(from).trim() && !subjectWords(subject).length) throw new Error("A watch needs a sender, a subject query, or both.");
   const expiresAt = new Date(now + days * 86_400_000).toISOString();
   return update(path, (state) => {
@@ -129,10 +129,10 @@ export async function watch(path, { account, from = "", subject = "", note = "",
     const same = (item) => item.account === account && item.from === from.trim().toLowerCase() && item.subject === subjectWords(subject).join(" ");
     const existing = watches.find(same);
     if (existing) {
-      Object.assign(existing, { expiresAt, ...(note ? { note } : {}) });
+      Object.assign(existing, { expiresAt, ...(note ? { note } : {}), ...(chat ? { chat } : {}) });
       return { watching: true, renewed: true, watch: existing };
     }
-    const item = { id: `watch_${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`, account, from: from.trim().toLowerCase(), subject: subjectWords(subject).join(" "), note, createdAt: new Date(now).toISOString(), expiresAt, notified: [] };
+    const item = { id: `watch_${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`, account, from: from.trim().toLowerCase(), subject: subjectWords(subject).join(" "), note, ...(chat ? { chat } : {}), createdAt: new Date(now).toISOString(), expiresAt, notified: [] };
     watches.push(item);
     return { watching: true, renewed: false, watch: item };
   });

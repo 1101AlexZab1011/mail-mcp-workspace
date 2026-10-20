@@ -208,6 +208,6 @@ export class Capabilities {
   async #ask(caps, artifact, { text }, context) {
     if (!caps.agent) throw fail(403, "not_granted", "This artifact may not message the agent");
     if (!this.publishToAgent) throw fail(503, "unavailable", "The agent channel is not configured");
-    return this.publishToAgent(`[From artifact ${artifact}]\n${String(text ?? "").slice(0, 8000)}`, context.token);
+    return this.publishToAgent(`[From artifact ${artifact}]\n${String(text ?? "").slice(0, 8000)}`, context.token, context.chat);
   }
 }

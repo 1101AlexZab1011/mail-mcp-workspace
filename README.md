@@ -60,6 +60,17 @@ command = "node"
 args = ["/absolute/path/to/mail-mcp-workspace/src/gui-main.mjs"]
 ```
 
+For Claude Code, register the same servers in user scope, so agents started in
+any directory have them:
+
+```bash
+repo=/absolute/path/to/mail-mcp-workspace
+claude mcp add-json --scope user email "{\"command\":\"$repo/node_modules/.bin/email-mcp\",\"args\":[\"stdio\"]}"
+claude mcp add-json --scope user mail-workflow "{\"command\":\"node\",\"args\":[\"$repo/src/main.mjs\",\"stdio\"]}"
+claude mcp add-json --scope user mail-attachments "{\"command\":\"node\",\"args\":[\"$repo/src/attachments-main.mjs\",\"stdio\"]}"
+claude mcp add-json --scope user mail-gui "{\"command\":\"node\",\"args\":[\"$repo/src/gui-main.mjs\"]}"
+```
+
 Agent Chat's MCP server (`listener`) is added for every agent session by
 `listener-mcp init --user`; see
 [Mail Workspace for Thunderbird](#mail-workspace-for-thunderbird).
@@ -193,20 +204,30 @@ listener-mcp service install             # broker, systemd user service
 npm ci                                   # add-on and host dependencies
 node src/workspace-main.mjs install-service   # workspace host, systemd user service
 listener-mcp init --user --agent claude,codex   # listener MCP server, hooks and skill for every session
-listener-mcp app add mail --channels 'mail/chat/**,mail/replies/**' --group mail-agent --from now --exclusive --credential email-agent
-listener-mcp token create --name mail-watcher --scopes 'publish:mail/replies/**' --save   # reply announcements
+listener-mcp app add mail --credential email-agent --group 'mail-chat-{instance}' \
+  --channels 'mail/chat/{instance},mail/replies/{instance}/**' --from now --exclusive --single-instance
+listener-mcp token create --name mail-watcher --scopes 'publish:mail/replies/**,read:mail/chat/sessions' --save   # reply announcements
 npm run chat:addon                       # builds dist/agent-chat.xpi
 ```
 
-`app add` registers mail as the app `mail`, so a session in any directory can
-start Agent Chat. The group is exclusive: the chat belongs to one agent at a
-time, and another session that tries to attach is told which agent holds it.
-To make `/email-start-chat` available outside this repository, link the skills
-into your user skill folder:
+Agent Chat holds several **sessions**, each its own conversation with its own
+agent. Click the agent icon in the chat header to switch, rename, delete or
+create one. A new session is called "Agent N" (the lowest free N) and opens
+with its name selected, so you can type the real one at once. Agent 1 can be
+renamed but not deleted.
+
+`app add` registers mail as the app `mail` with one listener group per session
+(`{instance}` is the session id), so a session in any directory can start
+Agent Chat. Each session holds one agent, and an agent holds one session:
+`/email-start-chat Presentations` attaches it there, or moves it if it was in
+another session. Reply and mail-watch notifications go to the session that set
+them up. To make the skills available outside this repository, link them into
+your user skill folders:
 
 ```bash
-for skill in email-start-chat email-compose; do
-  ln -sfn "$PWD/skills/$skill" ~/.claude/skills/$skill   # Codex: ~/.agents/skills
+for skill in email-start-chat email-compose email-review-pending email-summary mail-workspace; do
+  ln -sfn "$PWD/skills/$skill" ~/.claude/skills/$skill
+  ln -sfn "$PWD/skills/$skill" ~/.agents/skills/$skill   # Codex
 done
 ```
 
@@ -237,8 +258,8 @@ file that changed since it was read. Trashing needs
 `publish:mail/workspace/fs-trash`, which only the add-on has, so the agent's
 `files_trash` always asks you in the chat first.
 
-To start chatting, run `/email-start-chat` in Claude Code or Codex, in any
-directory (restart the agent after `init --user`). The `mail-workspace` skill teaches the agent the GUI
+To start chatting, run `/email-start-chat <session name>` in Claude Code or
+Codex, in any directory (restart the agent after `init --user`). The `mail-workspace` skill teaches the agent the GUI
 tools. Disabling the add-on restores Thunderbird's own layout, tab bar and
 look.
 

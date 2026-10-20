@@ -25,7 +25,7 @@ async function setup(t) {
     const value = await response.json().catch(() => null);
     return { status: response.status, value };
   };
-  return { home, base, call, addon, agent, stranger };
+  return { home, base, call, addon, agent, stranger, admin };
 }
 
 test("files: auth, scopes, listing, kinds, text, highlight, sheets and ranged links", async (t) => {
@@ -145,6 +145,21 @@ test("capabilities: nothing runs before the user approves, and an agent cannot a
   // Changing what the artifact asks for voids the approval.
   await call(agent, "PATCH", "/v1/artifacts", { path: "shell", capabilities: { exec: { cwd: "/" } } });
   assert.equal((await call(addon, "POST", "/v1/artifacts/call", { path: "shell", method: "exec", args: { command: "echo hi" } })).value.error.code, "needs_approval");
+});
+
+test("an artifact asking the agent reaches the chat session that is open", async (t) => {
+  const { call, addon, agent, admin } = await setup(t);
+  await call(agent, "POST", "/v1/artifacts", { title: "Asker", files: { "App.tsx": "export default () => null;" }, capabilities: { agent: true } });
+  assert.equal((await call(addon, "POST", "/v1/artifacts/grant", { path: "asker", declared: { agent: true } })).status, 200);
+  assert.equal((await call(addon, "POST", "/v1/artifacts/call", { path: "asker", method: "agent.ask", args: { text: "to the open session" }, chat: "k3f9qa" })).status, 200);
+  assert.equal((await call(addon, "POST", "/v1/artifacts/call", { path: "asker", method: "agent.ask", args: { text: "no session given" } })).status, 200);
+  assert.equal((await call(addon, "POST", "/v1/artifacts/call", { path: "asker", method: "agent.ask", args: { text: "bad id" }, chat: "../x" })).status, 200);
+  const events = await admin.events({ channel: "mail/chat/*" });
+  assert.deepEqual(events.map((event) => [event.channel, event.data.text.split("\n")[1]]), [
+    ["mail/chat/k3f9qa", "to the open session"],
+    ["mail/chat/default", "no session given"],
+    ["mail/chat/default", "bad id"],
+  ]);
 });
 
 test("terminals: a real shell the add-on and the agent share", async (t) => {

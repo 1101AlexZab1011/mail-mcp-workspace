@@ -11,6 +11,26 @@ body { background: var(--mw-surface); font-size: 14px; }
 .chat-bar { gap: 10px; padding-left: 12px; }
 .avatar { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: linear-gradient(135deg, var(--mw-primary), #8a5cf6); color: #fff; flex: none; }
 .avatar .icon { width: 20px; height: 20px; }
+button.avatar { border: 0; padding: 0; cursor: pointer; transition: filter var(--mw-fast) var(--mw-ease); }
+button.avatar:hover, button.avatar[aria-expanded="true"] { filter: brightness(1.12); }
+button.avatar:focus-visible { outline: 2px solid var(--mw-primary); outline-offset: 2px; }
+.identity h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The session menu: one row per session, then "New session". */
+.session-menu { width: min(320px, calc(100vw - 16px)); }
+.session-row { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 4px 4px 4px 10px; border-radius: var(--mw-radius-s); cursor: pointer; }
+.session-row:hover, .session-row:focus-visible { background: var(--mw-hover); outline: none; }
+.session-row.current { background: var(--mw-primary-soft); }
+.session-row .dot { width: 7px; height: 7px; }
+.session-text { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.2; }
+.session-text .name { font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-row.current .session-text .name { color: var(--mw-primary-soft-text); }
+.session-text small { color: var(--mw-text-3); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-text .session-name { height: 26px; font-size: 13.5px; padding: 0 6px; width: 100%; }
+.session-row .badge { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--mw-danger); color: #fff; font-size: 10px; font-weight: 700; display: grid; place-items: center; flex: none; }
+.session-row .row-actions { display: flex; flex: none; opacity: 0; transition: opacity var(--mw-fast) var(--mw-ease); }
+.session-row:hover .row-actions, .session-row:focus-within .row-actions, .session-row.current .row-actions { opacity: 1; }
+.session-menu .row-actions .icon-btn { width: 28px; height: 28px; }
 .identity { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
 .identity h1 { font-size: 14.5px; }
 .presence { display: flex; align-items: center; gap: 6px; color: var(--mw-text-2); font-size: 12px; white-space: nowrap; overflow: hidden; }

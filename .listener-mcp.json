@@ -1,13 +1,5 @@
 {
   "version": 1,
   "credential": "email-agent",
-  "attach": {
-    "group": "mail-agent",
-    "channels": [
-      "mail/chat/**",
-      "mail/replies/**"
-    ],
-    "from": "now"
-  },
   "auto_attach": false
 }
