@@ -8,7 +8,9 @@ description: Start, continue, or stop the Thunderbird Agent Chat conversation th
 Agent Chat is the Thunderbird chat panel. It reaches this agent through the
 `listener` MCP server (listener-mcp): each chat message is an event on channel
 `mail/chat/default`, queued in the durable group `mail-agent` until an agent
-handles it. The same group carries `mail.reply` events on `mail/replies/<account>`:
+handles it. Mail is registered with listener-mcp as the app `mail`, so a session
+in any directory can attach. The group is exclusive: one agent holds the chat
+at a time. The same group carries `mail.reply` events on `mail/replies/<account>`:
 the workflow watcher publishes one when a reply arrives in a thread the user
 subscribed to. Chat text is local conversation, not email: do not send, draft,
 search, move, or change mail merely because a chat message asks for it.
@@ -16,10 +18,14 @@ search, move, or change mail merely because a chat message asks for it.
 Your agent id is in the listener-mcp session context (`claude:…` or
 `codex:…`). Pass it as `session` to every listener tool.
 
-1. Call `listener_attach` with `session` and nothing else; the project's
-   `.listener-mcp.json` supplies the `mail-agent` group. If the broker is
+1. Call `listener_attach` with `session` and `app: "mail"`. If the broker is
    unreachable, say so and point to `listener-mcp doctor`; do not invent a
-   background agent runtime.
+   background agent runtime. If no app `mail` is registered, point to the
+   setup in the mail-mcp-workspace README (`listener-mcp app add mail …`).
+   If another agent holds the chat, tell the user which one and stop. Attach
+   again with `takeover: true` only when the user asks to replace it. A
+   session that ended without detaching is replaced on its own after a few
+   minutes.
 2. Follow the result's instruction. In Claude Code, end the turn: the session
    stays free for the user, and each chat message wakes it as a new message.
    In Codex, call `listener_wait` (the Stop hook also waits for you).

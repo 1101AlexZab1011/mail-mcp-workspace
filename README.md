@@ -60,8 +60,9 @@ command = "node"
 args = ["/absolute/path/to/mail-mcp-workspace/src/gui-main.mjs"]
 ```
 
-Agent Chat's MCP server (`listener`) is added per project by `listener-mcp init`;
-see [Mail Workspace for Thunderbird](#mail-workspace-for-thunderbird).
+Agent Chat's MCP server (`listener`) is added for every agent session by
+`listener-mcp init --user`; see
+[Mail Workspace for Thunderbird](#mail-workspace-for-thunderbird).
 
 For Codex, add both blocks to `~/.codex/config.toml`. Restart the client after editing its configuration. Other MCP clients use the same command and argument in their equivalent user configuration.
 
@@ -191,9 +192,22 @@ npm install -g --allow-git=root github:1101AlexZab1011/listener-mcp
 listener-mcp service install             # broker, systemd user service
 npm ci                                   # add-on and host dependencies
 node src/workspace-main.mjs install-service   # workspace host, systemd user service
-listener-mcp init --agent claude,codex --channels 'mail/chat/**,mail/replies/**' --group mail-agent --from now --credential email-agent
+listener-mcp init --user --agent claude,codex   # listener MCP server, hooks and skill for every session
+listener-mcp app add mail --channels 'mail/chat/**,mail/replies/**' --group mail-agent --from now --exclusive --credential email-agent
 listener-mcp token create --name mail-watcher --scopes 'publish:mail/replies/**' --save   # reply announcements
 npm run chat:addon                       # builds dist/agent-chat.xpi
+```
+
+`app add` registers mail as the app `mail`, so a session in any directory can
+start Agent Chat. The group is exclusive: the chat belongs to one agent at a
+time, and another session that tries to attach is told which agent holds it.
+To make `/email-start-chat` available outside this repository, link the skills
+into your user skill folder:
+
+```bash
+for skill in email-start-chat email-compose; do
+  ln -sfn "$PWD/skills/$skill" ~/.claude/skills/$skill   # Codex: ~/.agents/skills
+done
 ```
 
 Install `dist/agent-chat.xpi` from **Add-ons and Themes → gear menu → Install
@@ -223,8 +237,8 @@ file that changed since it was read. Trashing needs
 `publish:mail/workspace/fs-trash`, which only the add-on has, so the agent's
 `files_trash` always asks you in the chat first.
 
-To start chatting, run `/email-start-chat` in Claude Code or Codex (restart the
-agent after `init`). The `mail-workspace` skill teaches the agent the GUI
+To start chatting, run `/email-start-chat` in Claude Code or Codex, in any
+directory (restart the agent after `init --user`). The `mail-workspace` skill teaches the agent the GUI
 tools. Disabling the add-on restores Thunderbird's own layout, tab bar and
 look.
 
