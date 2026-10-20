@@ -97,7 +97,7 @@ register("gui_key", "Press a key combination in Thunderbird, e.g. \"Control+Shif
 }, async ({ combo }) => text(await gui("key", { combo }, { timeoutMs: 360_000 })));
 
 register("gui_open", "Open a space: mail, addressbook, calendar, tasks, settings, viewer (file viewer), artifacts, paint, writer (document editor).", {
-  space: z.enum(["mail", "addressbook", "calendar", "tasks", "settings", "viewer", "artifacts", "paint", "writer", "slides"]),
+  space: z.enum(["mail", "addressbook", "calendar", "tasks", "settings", "viewer", "artifacts", "paint", "writer", "slides", "notes"]),
 }, async ({ space }) => text(await gui("open", { space })));
 
 register("gui_dock", "Show, minimize, maximize or resize a dock: chat (right side) or files (left side).", {
@@ -390,6 +390,118 @@ register("slides_actions", "List the editor commands slides_action can run, with
 register("slides_export", "Export the open deck as PowerPoint (saved next to the deck as name.pptx). For a PDF, ask the user to use Export → Print / export PDF.", {
   media: z.boolean().optional().describe("Include audio and video (slower)"),
 }, async ({ media }) => text(await gui("page", { page: "slides", type: "export", format: "pptx", media }, { timeoutMs: 180_000 })));
+
+// -------------------------------------------------------------- notes --
+// Notes is a vault of Markdown pages (default ~/Notes): the title is the file name, a page's subpages live
+// in a folder of the same name next to it, front matter holds icon/cover/properties, [[Page]] links pages,
+// and a database is a page X.md + X.base.json (columns, views) with its rows as pages in X/.
+
+const NOTES_GUIDE = "Pages are plain Markdown: prefer notes_append to rewriting a page, keep front matter valid YAML, link pages with [[Title]], callouts are > [!note] Title, toggles > [!toggle]- Title, to-dos - [ ]. For precise edits use files_edit on the page's path; the open page merges them live.";
+const notesQuery = (params) => new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)]));
+
+register("notes_state", "Notes: the page open in the Notes space (path, title, properties, unsaved edits, cursor, outline) and its tabs. Use it to resolve \"this page\" or \"the selected text\".", {}, async () => text(await gui("page", { page: "notes", type: "state" }).catch(() => ({ path: null, note: "The Notes space is not open" }))), { readOnlyHint: true });
+
+register("notes_tree", `The Notes vault as a tree of pages (folder notes merged; databases flagged with their row count). ${NOTES_GUIDE}`, {}, async () => text(await hostCall("/v1/notes/tree")), { readOnlyHint: true });
+
+register("notes_search", "Search Notes pages by words in their title, tags, properties and text; title matches rank first.", {
+  query: z.string(),
+  limit: z.number().int().min(1).max(100).optional(),
+}, async ({ query, limit }) => text(await hostCall(`/v1/notes/search?${notesQuery({ q: query, limit: String(limit ?? 30) })}`)), { readOnlyHint: true });
+
+async function notesPath(page) {
+  if (!page) return null;
+  if (page.startsWith("/") || page.startsWith("~")) return page;
+  const { path } = await hostCall(`/v1/notes/resolve?${notesQuery({ target: page })}`);
+  if (!path) throw new Error(`No page “${page}”`);
+  return path;
+}
+
+register("notes_read", "Read a Notes page: its text, properties, tags, headings, links (resolved) and backlinks. `page` is a path or a title.", {
+  page: z.string(),
+}, async ({ page }) => {
+  const path = await notesPath(page);
+  const info = await hostCall(`/v1/notes/page?${notesQuery({ path })}`);
+  const file = await hostCall(`/v1/fs/read?${notesQuery({ path: info.path })}`);
+  return text({ ...info, text: file.text });
+}, { readOnlyHint: true });
+
+register("notes_open", "Open a page in the Notes space for the user (a path or a title).", {
+  page: z.string(),
+}, async ({ page }) => {
+  const path = await notesPath(page);
+  await gui("open", { space: "notes" });
+  return text(await gui("page", { page: "notes", type: "open", path }));
+});
+
+register("notes_create", `Create a Notes page: at the top level, inside a parent page (as its subpage), or in a folder; optionally from a template page. Returns its path. ${NOTES_GUIDE}`, {
+  title: z.string(),
+  parent: z.string().optional().describe("A page (path or title) to put it under"),
+  folder: z.string().optional().describe("A folder path in the vault"),
+  body: z.string().optional().describe("Markdown"),
+  properties: z.record(z.any()).optional().describe("Front matter, e.g. {icon: \"🧪\", tags: [\"tau\"]}"),
+  template: z.string().optional().describe("A template page's path"),
+  open: z.boolean().optional().describe("Also open it for the user"),
+}, async ({ title, parent, folder, body, properties, template, open }) => {
+  const created = await hostCall("/v1/notes/new", { method: "POST", body: JSON.stringify({ title, parent: await notesPath(parent), folder, body, properties, template }) });
+  if (open) { await gui("open", { space: "notes" }); await gui("page", { page: "notes", type: "open", path: created.path }).catch(() => {}); }
+  return text(created);
+});
+
+register("notes_append", "Append Markdown to the end of a Notes page (a path or a title). The open page merges it live.", {
+  page: z.string(),
+  markdown: z.string(),
+}, async ({ page, markdown }) => text(await hostCall("/v1/notes/append", { method: "POST", body: JSON.stringify({ path: await notesPath(page), markdown }) })));
+
+register("notes_set_properties", "Set front-matter properties of a Notes page (null removes one), keeping its other keys and comments. For a database row, these are its cells.", {
+  page: z.string(),
+  properties: z.record(z.any()),
+}, async ({ page, properties }) => text(await hostCall("/v1/notes/properties", { method: "POST", body: JSON.stringify({ path: await notesPath(page), properties }) })));
+
+register("notes_rename", "Rename a Notes page (with its subpages and database); every [[link]] to it is updated.", {
+  page: z.string(),
+  title: z.string(),
+}, async ({ page, title }) => text(await hostCall("/v1/notes/rename", { method: "POST", body: JSON.stringify({ path: await notesPath(page), title }) })));
+
+register("notes_move", "Move a Notes page (with its subpages) under another page, into a folder, or to the top level (neither given).", {
+  page: z.string(),
+  parent: z.string().optional(),
+  folder: z.string().optional(),
+}, async ({ page, parent, folder }) => text(await hostCall("/v1/notes/move", { method: "POST", body: JSON.stringify({ path: await notesPath(page), parent: await notesPath(parent), folder }) })));
+
+register("notes_db_create", "Create a Notes database: a new page (inside `parent` if given) or an existing page turned into one. Default columns: Status (Idea/Running/Done), Date, Tags; views Table and Board.", {
+  title: z.string().optional(),
+  page: z.string().optional().describe("An existing page to turn into a database"),
+  parent: z.string().optional(),
+  properties: z.array(z.object({ name: z.string(), type: z.enum(["text", "number", "select", "multi-select", "date", "checkbox", "person", "url", "relation"]), options: z.array(z.string()).optional() })).optional(),
+}, async ({ title, page, parent, properties }) => text(await hostCall("/v1/notes/database", { method: "POST", body: JSON.stringify({ title, path: await notesPath(page), parent: await notesPath(parent), properties }) })));
+
+register("notes_db_query", "Rows of a Notes database (a path or a title), with the schema. Filter clauses: {property, op: is|is-not|contains|empty|not-empty|before|after, value}; sort: [{property, direction}]. `view` applies a saved view's filter and sort.", {
+  database: z.string(),
+  view: z.string().optional(),
+  filter: z.array(z.object({ property: z.string(), op: z.string().optional(), value: z.any().optional() })).optional(),
+  sort: z.array(z.object({ property: z.string(), direction: z.enum(["asc", "desc"]).optional() })).optional(),
+}, async ({ database, view, filter, sort }) => text(await hostCall(`/v1/notes/database?${notesQuery({ path: await notesPath(database), view, filter, sort })}`)), { readOnlyHint: true });
+
+register("notes_db_add", "Add a row to a Notes database: a page in its folder with these properties (cells) and an optional body.", {
+  database: z.string(),
+  title: z.string(),
+  properties: z.record(z.any()).optional(),
+  body: z.string().optional(),
+}, async ({ database, title, properties, body }) => text(await hostCall("/v1/notes/database/row", { method: "POST", body: JSON.stringify({ path: await notesPath(database), title, properties, body }) })));
+
+register("notes_db_update", "Update cells of database rows: the rows matching `where` (filter clauses, as in notes_db_query) or the row titled `row` get `properties`.", {
+  database: z.string(),
+  row: z.string().optional(),
+  where: z.array(z.object({ property: z.string(), op: z.string().optional(), value: z.any().optional() })).optional(),
+  properties: z.record(z.any()),
+}, async ({ database, row, where, properties }) => {
+  const filter = row ? [{ property: "Title", op: "is", value: row }, ...(where ?? [])] : where ?? [];
+  if (!filter.length) throw new Error("Say which rows: row or where");
+  const db = await hostCall(`/v1/notes/database?${notesQuery({ path: await notesPath(database), filter })}`);
+  const updated = [];
+  for (const r of db.rows) { await hostCall("/v1/notes/properties", { method: "POST", body: JSON.stringify({ path: r.path, properties }) }); updated.push(r.title); }
+  return text({ updated });
+});
 
 // ---------------------------------------------------------- artifacts --
 

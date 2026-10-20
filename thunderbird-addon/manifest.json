@@ -45,6 +45,7 @@
     "tabs",
     "accountsRead",
     "messagesRead",
+    "menus",
     "http://127.0.0.1/*",
     "clipboardRead",
     "clipboardWrite"

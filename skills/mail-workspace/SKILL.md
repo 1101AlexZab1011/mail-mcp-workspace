@@ -97,6 +97,21 @@ as `~/.ssh` are refused):
 - `files_mkdir`, `files_move` and `files_trash` cover the rest. Trashing asks
   the user in the chat; respect a "declined".
 
+## Editors: tabs and saving
+
+Writer, Slides and Paint keep every open file in a tab, the way VS Code does. A dot on a tab marks
+unsaved changes, and nothing saves on its own: the user saves with Ctrl+S, and unsaved changes survive
+a reload as drafts.
+
+- Your edits through the editors (`writer_insert`, `slides_apply`, …) are saved at once when the
+  document had no unsaved changes of the user's.
+- When the user has unsaved changes, your edit joins them, unsaved; the result says so. Tell the user,
+  and never save over their work unasked.
+- `*_state` lists the open tabs and which are modified.
+- Switching from the File viewer to an editor opens the viewed file there (images in Paint, decks in
+  Slides, .qmd/.md in Writer, pages of the notes vault in Notes).
+- Notes is the exception: it saves as the user types, so your edits to a page land at once.
+
 ## Writer (papers in Quarto)
 
 The Writer space edits `.qmd` and `.md` files. The user writes there; you add
@@ -120,9 +135,9 @@ content when asked.
   Put each sentence on its own line inside a paragraph, so diffs stay readable.
 - `writer_render` builds the PDF and shows it in the viewer. On failure it
   returns the errors: fix them and render again.
-- **Supervisor review.** The user can select a passage and ask for a review.
+- **Agent review.** The user can select a passage and choose "Review with agent".
   Its comments appear in the Writer. "Discuss in chat" sends you the passage
-  and the comment. Answer as the supervisor would. Change the text only when
+  and the comment. Answer as a demanding but fair reviewer would. Change the text only when
   the user asks, and then use `files_edit` or `writer_replace_selection`.
 
 
@@ -181,3 +196,35 @@ hand; you work through the `slides_*` tools.
     poster.
   - Scripts you write through `slides_apply` are trusted. If someone
     changes a script outside the editor, the user must allow it once.
+
+## Notes (a Notion-like notebook)
+
+The Notes space keeps pages as Markdown files in a vault folder (`~/Notes` unless the user chose
+another; `notes_state` says which). The user writes there; you read and write the same files.
+
+- **The vault:**
+  - A page is `Title.md`; its title is the file name.
+  - Subpages of `X.md` live in the folder `X/` next to it.
+  - Front matter holds `icon` (an emoji), `cover` and any properties.
+  - `[[Title]]`, `[[Title#Heading]]` and `[[Title|label]]` link pages.
+  - Callouts are `> [!note] Title` (also tip, warning, danger, question). The first line is the title.
+  - Toggles are `> [!toggle]- Title`, with `-` for folded and `+` for open.
+  - To-dos are `- [ ]`.
+  - Images go in `attachments/`, linked by a relative path.
+- **Databases:**
+  - A database is a page `X.md` with `X.base.json` (columns and views: table, board) and its rows
+    as pages in `X/`.
+  - A row's properties are its cells.
+  - Use `notes_db_query`, `notes_db_add` and `notes_db_update`. Don't edit the files by hand.
+  - A ```` ```database ```` block with `source: [[X]]` and `view: Board` embeds a view in any page.
+- **Find before you write:** `notes_search` (title, tags, properties, text), `notes_tree`, `notes_read`
+  (text, links, backlinks).
+- **Write carefully:**
+  - Prefer `notes_append` or `files_edit` on the page to rewriting it. The open page merges your
+    edit live.
+  - Keep front matter valid YAML; `notes_set_properties` does that for you.
+  - Rename and move with `notes_rename` and `notes_move` so links to the page are updated.
+  - New pages: `notes_create` with a `parent` page to nest them; `open: true` shows the page to the user.
+- **From the user:** "Discuss in chat" and "Ask the agent…" on a block or selection send you its text,
+  with the page title and path. "Save to Notes" on a message makes a page in `Mail/` with `from`, `date`
+  and a `message: mid:…` link back.

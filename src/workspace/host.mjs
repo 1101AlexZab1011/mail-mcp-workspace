@@ -33,6 +33,7 @@ import { Terminals } from "./terminal.mjs";
 import { FileWriter, versionOf, waitForChange } from "./writes.mjs";
 import { Writer } from "./writer.mjs";
 import { Slides } from "./slides.mjs";
+import { Notes } from "./notes.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const here = dirname(fileURLToPath(import.meta.url));
@@ -86,6 +87,7 @@ export async function startHost({
   grantsPath,
   filesRoot = process.env.MAIL_WORKSPACE_FILES_ROOT ?? homedir(),
   trashDir,
+  configDir = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "mail-workspace"),
   log = () => {},
 } = {}) {
   await mkdir(cacheDir, { recursive: true, mode: 0o700 });
@@ -100,8 +102,9 @@ export async function startHost({
   const terminals = new Terminals();
   const theme = iconTheme();
   const writer = new FileWriter({ root: filesRoot, trashDir });
-  const documents = new Writer({ files: writer, cacheDir, log });
+  const documents = new Writer({ files: writer, cacheDir, log, configDir });
   const decks = new Slides({ files: writer });
+  const notes = new Notes({ files: writer, configDir });
 
   // --- auth: tokens are listener-mcp tokens, verified by the broker, cached briefly.
   const principals = new Map();
@@ -343,6 +346,40 @@ export async function startHost({
     });
     response.end(`<!doctype html><html><head><meta charset="utf-8"><title>Script</title></head><body><script type="module" src="runtime.js"></script></body></html>`);
   }, { auth: false });
+  // Notes: the vault index, page operations that keep links intact, databases.
+  const filesRead = (principal) => need(principal, "read", "mail/workspace/files");
+  route("GET", "/v1/notes/vault", async ({ principal }) => { filesRead(principal); return { root: await notes.ensureVault() }; });
+  route("POST", "/v1/notes/vault", async ({ request, principal }) => { fsWrite(principal); return notes.setVault((await readJson(request)).path); });
+  route("GET", "/v1/notes/tree", async ({ principal }) => { filesRead(principal); return notes.tree(); });
+  route("GET", "/v1/notes/page", async ({ url, principal }) => { filesRead(principal); return notes.page(url.searchParams.get("path")); });
+  route("GET", "/v1/notes/search", async ({ url, principal }) => { filesRead(principal); return { results: await notes.search(url.searchParams.get("q"), { limit: Number(url.searchParams.get("limit") ?? 30) }) }; });
+  route("GET", "/v1/notes/resolve", async ({ url, principal }) => {
+    filesRead(principal);
+    await notes.refresh();
+    return { path: notes.resolve(url.searchParams.get("target"), url.searchParams.get("from") ? expand(url.searchParams.get("from")) : undefined) };
+  });
+  route("POST", "/v1/notes/new", async ({ request, principal }) => { fsWrite(principal); return notes.create(await readJson(request)); });
+  route("POST", "/v1/notes/rename", async ({ request, principal }) => { fsWrite(principal); const { path, title } = await readJson(request); return notes.rename(path, title); });
+  route("POST", "/v1/notes/move", async ({ request, principal }) => { fsWrite(principal); const { path, parent, folder } = await readJson(request); return notes.move(path, { parent, folder }); });
+  route("POST", "/v1/notes/append", async ({ request, principal }) => { fsWrite(principal); const { path, markdown } = await readJson(request); return notes.append(path, markdown); });
+  route("POST", "/v1/notes/properties", async ({ request, principal }) => { fsWrite(principal); const { path, properties } = await readJson(request); return notes.setProperties(path, properties ?? {}); });
+  route("POST", "/v1/notes/trash", async ({ request, principal }) => {
+    fsTrash(principal);
+    const full = await writer.target((await readJson(request)).path);
+    const trashed = [await writer.trash(full)];
+    for (const extra of [full.replace(/\.md$/i, ""), full.replace(/\.md$/i, ".base.json")]) {
+      if (await stat(extra).catch(() => null)) trashed.push(await writer.trash(extra));
+    }
+    return { trashed };
+  });
+  route("POST", "/v1/notes/database", async ({ request, principal }) => { fsWrite(principal); return notes.createDatabase(await readJson(request)); });
+  route("GET", "/v1/notes/database", async ({ url, principal }) => {
+    filesRead(principal);
+    const p = url.searchParams;
+    return notes.query(p.get("path"), { view: p.get("view") ?? undefined, filter: JSON.parse(p.get("filter") ?? "[]"), sort: JSON.parse(p.get("sort") ?? "[]") });
+  });
+  route("PUT", "/v1/notes/database", async ({ request, principal }) => { fsWrite(principal); const { path, schema } = await readJson(request); return notes.saveSchema(path, schema); });
+  route("POST", "/v1/notes/database/row", async ({ request, principal }) => { fsWrite(principal); const { path, title, properties, body } = await readJson(request); return notes.addRow(path, { title, properties, body }); });
   route("GET", "/v1/slides/fonts", async ({ principal }) => { need(principal, "read", "mail/workspace/files"); return { fonts: await decks.fonts() }; });
   route("POST", "/v1/slides/rewrite", async ({ request, principal }) => {
     need(principal, "publish", "mail/workspace/review");

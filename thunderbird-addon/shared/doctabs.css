@@ -1,0 +1,35 @@
+/* Editor tabs (shared/doctabs.js): VS Code style, in Mail Workspace colours. */
+.dt-bar {
+  flex: none; display: flex; align-items: stretch; height: 36px; overflow-x: auto; overflow-y: hidden;
+  background: var(--mw-surface-2); border-bottom: 1px solid var(--mw-border); scrollbar-width: none;
+}
+.dt-bar:empty { display: none; }
+.dt-tab {
+  position: relative; flex: none; display: flex; align-items: center; gap: 7px; max-width: 240px; padding: 0 6px 0 12px;
+  border-right: 1px solid var(--mw-border); color: var(--mw-text-2); font: 13px var(--mw-font); cursor: pointer; user-select: none;
+}
+.dt-tab:hover { background: var(--mw-hover); }
+.dt-tab.active { background: var(--mw-surface); color: var(--mw-text); }
+.dt-tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--mw-primary); }
+.dt-tab .icon { color: var(--mw-primary); flex: none; }
+.dt-tab .dt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dt-tab .dt-dir { color: var(--mw-text-3); font-size: 12px; white-space: nowrap; }
+.dt-tab.drop { box-shadow: inset 2px 0 0 var(--mw-primary); }
+.dt-close {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border: 0; border-radius: 5px;
+  background: none; color: var(--mw-text-3); cursor: pointer; padding: 0; visibility: hidden;
+}
+.dt-tab:hover .dt-close, .dt-tab.active .dt-close, .dt-tab.dirty .dt-close { visibility: visible; }
+.dt-close:hover { background: var(--mw-pressed); color: var(--mw-text); }
+.dt-close .dt-dot { display: none; width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
+/* Modified: a dot where the close button is; hovering the tab turns it back into the close button. */
+.dt-tab.dirty .dt-close { color: var(--mw-text-2); }
+.dt-tab.dirty .dt-close .dt-dot { display: block; }
+.dt-tab.dirty .dt-close .icon { display: none; }
+.dt-tab.dirty:hover .dt-close .dt-dot { display: none; }
+.dt-tab.dirty:hover .dt-close .icon { display: inline-block; }
+.dt-confirm { width: min(460px, calc(100vw - 32px)); }
+.dt-confirm h2 { font-size: 16px; line-height: 1.35; }
+.dt-confirm p { color: var(--mw-text-2); margin: 6px 0 18px; }
+.dt-confirm .actions { display: flex; gap: 8px; }
+.dt-confirm .actions .spacer { flex: 1; }

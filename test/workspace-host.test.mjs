@@ -16,7 +16,7 @@ async function setup(t) {
   const addon = (await admin.createToken({ name: "thunderbird", scopes: ["publish:mail/**", "read:mail/**", "blobs"] })).token;
   const agent = (await admin.createToken({ name: "agent", scopes: ["read:mail/workspace/files", "read:mail/workspace/artifacts", "publish:mail/workspace/artifacts", "publish:mail/workspace/fs", "publish:mail/workspace/render"] })).token;
   const stranger = (await admin.createToken({ name: "stranger", scopes: ["publish:crm/**"] })).token;
-  const host = await startHost({ port: 0, brokerUrl: broker.url, artifactsRoot: join(home, "Artifacts"), cacheDir: join(home, "cache"), grantsPath: join(home, "grants.json"), filesRoot: join(home, "files"), trashDir: join(home, "trash") });
+  const host = await startHost({ port: 0, brokerUrl: broker.url, artifactsRoot: join(home, "Artifacts"), cacheDir: join(home, "cache"), grantsPath: join(home, "grants.json"), filesRoot: join(home, "files"), trashDir: join(home, "trash"), configDir: join(home, "files/.config/mail-workspace") });
   await mkdir(join(home, "files"), { recursive: true });
   t.after(async () => { await host.close(); await broker.close(); await rm(home, { recursive: true, force: true }); });
   const base = `http://127.0.0.1:${host.port}`;
@@ -356,4 +356,45 @@ test("slides: script frames are sealed off and expire with their link", async (t
   assert.equal((await fetch(`${base}/s/nope/script.js`)).status, 404);
   const outside = await call(agent, "POST", "/v1/slides/script", { deck, src: "../../.ssh/id_rsa" });
   assert.ok([403, 404].includes(outside.status), `reading outside the home folder is refused (${outside.status})`);
+});
+
+test("notes: vault, pages, links and backlinks, rename that rewrites links, databases", async (t) => {
+  const { home, call, agent, addon } = await setup(t);
+  const vault = join(home, "files/Notes");
+  assert.equal((await call(agent, "POST", "/v1/notes/vault", { path: vault })).status, 200);
+  const tree0 = await call(agent, "GET", "/v1/notes/tree");
+  assert.deepEqual(tree0.value.tree.map((n) => n.title), ["Welcome"], "a new vault gets a welcome page");
+
+  const projects = await call(agent, "POST", "/v1/notes/new", { title: "Projects", body: "Work in progress." });
+  const paper = await call(agent, "POST", "/v1/notes/new", { title: "gCAN paper", parent: projects.value.path, properties: { status: "draft" }, body: "See [[Experiments]] and [[Welcome|the welcome page]]." });
+  assert.equal(paper.status, 200, JSON.stringify(paper.value));
+  assert.equal(paper.value.path, join(vault, "Projects/gCAN paper.md"), "a subpage lives in its parent's folder");
+  const tree = (await call(agent, "GET", "/v1/notes/tree")).value.tree;
+  const node = tree.find((n) => n.title === "Projects");
+  assert.deepEqual(node.children.map((c) => c.title), ["gCAN paper"], "a folder note shows as one item with children");
+
+  const db = await call(agent, "POST", "/v1/notes/database", { title: "Experiments", parent: projects.value.path });
+  assert.equal(db.status, 200, JSON.stringify(db.value));
+  await call(agent, "POST", "/v1/notes/database/row", { path: db.value.path, title: "tau sweep", properties: { Status: "Running", Date: "2026-10-20" } });
+  await call(agent, "POST", "/v1/notes/database/row", { path: db.value.path, title: "noise", properties: { Status: "Done" } });
+  const running = await call(agent, "GET", `/v1/notes/database?path=${encodeURIComponent(db.value.path)}&filter=${encodeURIComponent(JSON.stringify([{ property: "Status", op: "is", value: "Running" }]))}`);
+  assert.deepEqual(running.value.rows.map((r) => r.title), ["tau sweep"]);
+  assert.deepEqual(running.value.schema.views.map((v) => v.type), ["table", "board"]);
+
+  const page = await call(agent, "GET", `/v1/notes/page?path=${encodeURIComponent(db.value.path)}`);
+  assert.deepEqual(page.value.backlinks.map((b) => b.title), ["gCAN paper"]);
+  assert.equal(page.value.database, join(vault, "Projects/Experiments.base.json"));
+  const found = await call(agent, "GET", "/v1/notes/search?q=progress");
+  assert.deepEqual(found.value.results.map((r) => r.title), ["Projects"]);
+
+  const renamed = await call(agent, "POST", "/v1/notes/rename", { path: db.value.path, title: "Runs" });
+  assert.equal(renamed.value.updated, 1);
+  assert.match(await readFile(paper.value.path, "utf8"), /See \[\[Runs\]\] and \[\[Welcome\|the welcome page\]\]/);
+  assert.ok((await readdir(join(vault, "Projects/Runs"))).includes("tau sweep.md"), "the rows moved with the database");
+
+  await call(agent, "POST", "/v1/notes/properties", { path: paper.value.path, properties: { status: "submitted", icon: "📄" } });
+  assert.match(await readFile(paper.value.path, "utf8"), /^---\nstatus: submitted\nicon: 📄\n---\n/);
+  assert.equal((await call(agent, "POST", "/v1/notes/trash", { path: renamed.value.path })).status, 403, "trash is the add-on's (it asks the user)");
+  const trashed = await call(addon, "POST", "/v1/notes/trash", { path: renamed.value.path });
+  assert.equal(trashed.value.trashed.length, 3, "the page, its rows folder and its database file");
 });

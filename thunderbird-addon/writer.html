@@ -7,6 +7,8 @@
 <link rel="stylesheet" href="vendor/writer/prosemirror.css">
 <link rel="stylesheet" href="vendor/writer/tables.css">
 <link rel="stylesheet" href="vendor/writer/gapcursor.css">
+<link rel="stylesheet" href="shared/doctabs.css">
+<link rel="stylesheet" href="shared/editor.css">
 <link rel="stylesheet" href="writer.css">
 <body>
   <header class="appbar writer-bar">
@@ -20,6 +22,7 @@
     <span id="actions" class="actions"></span>
     <button id="render" class="btn primary" type="button" hidden></button>
   </header>
+  <div id="tabs" class="tabs-host"></div>
   <div id="toolbar" class="toolbar" hidden></div>
   <div id="conflict" class="conflict" hidden></div>
   <div class="body">

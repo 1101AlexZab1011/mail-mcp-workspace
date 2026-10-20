@@ -1,30 +1,30 @@
 // Slides space: presentations in a Google-Slides-like editor (vendor/slides, our PPTist fork), kept
 // in `name.slides.json` files with media in `media/` next to them.
 //
-// The file on disk is the source of truth. This page loads it into the editor, saves with the
-// lost-update guard, merges outside edits (the agent's, or another program's) by slide and element
-// id, and reloads live. The agent works through the page while a deck is open (its edits become one
-// undo step for the user) and through the host otherwise (src/workspace/slides.mjs).
+// Each open deck has a tab (shared/doctabs.js). The editor shows one deck at a time: switching tabs
+// stashes the deck, its undo history and its current slide, and brings in the other. Ctrl+S saves
+// with the lost-update guard; a tab with unsaved changes shows a dot and keeps a draft. Outside edits
+// (the agent's, or another program's) reload a clean deck live and merge into a modified one by slide
+// and element id. The agent works through the page while a deck is open (its edits become one undo
+// step for the user) and through the host otherwise (src/workspace/slides.mjs).
 import { host, HOST_ENDPOINT } from "./shared/broker.js";
 import { icon } from "./shared/icons.js";
 import { $, h, iconButton, background, toast, registerPage, ask } from "./shared/page.js";
+import { DocTabs } from "./shared/doctabs.js";
 import { applyOps, isDeckPath, isRelativeMedia, mapMedia, mergeDecks, newDeck, parseDeck, serializeDeck, summarize, extensionForMime, EXTENSION } from "./vendor/slides-core/slides-core.mjs";
 
-const SAVE_DELAY = 1000;
 const BACKUPS = "~/.local/state/mail-workspace/slides-backups";
 const SHOTS = "~/.cache/mail-workspace/slides-shots";
 
 const ui = { app: $("#app"), start: $("#start"), bar: $("#bar") };
 
-const doc = {
-  path: null,     // absolute path of the open deck
-  hash: null,     // version on disk we last read or wrote (sent as `expect`)
-  base: null,     // that version, parsed (media as on disk)
-  baseText: null, // and its text
-  status: "idle", // idle | saved | unsaved | saving | conflict | error
-  backedUp: new Set(),
-};
-let saveTimer = null;
+// One state object per tab; `doc` is the active one's.
+//   path, hash (the version on disk we last read or wrote, sent as `expect`), base (it, parsed, media as
+//   on disk), baseText (its text), status (saved | saving | conflict | error); while in the background:
+//   deck (as shown), history (undo), slideIndex
+const EMPTY = { path: null, hash: null, base: null, baseText: null, status: "idle" };
+let doc = EMPTY;
+const backedUp = new Set();
 let saving = null;
 let watchToken = 0;
 let applying = false; // true while we load a deck into the editor ourselves
@@ -129,7 +129,7 @@ const hostLeft = h("div.host-file", {}, status.chip, status.path);
 const hostRight = h("div.host-actions", {},
   iconButton("note_add", "New presentation", () => void newDeckDialog(), { small: true }),
   iconButton("folder_open", "Open a presentation", () => void openDialog(), { small: true }),
-  iconButton("save", "Save (Ctrl+S)", () => void save(), { small: true }),
+  iconButton("save", "Save (Ctrl+S)", () => void tabs.save(), { small: true }),
 );
 function mountHeader() {
   document.querySelector("#pptist-host-left")?.replaceChildren(hostLeft);
@@ -138,12 +138,14 @@ function mountHeader() {
 // The editor re-renders its header when it shows or leaves the slideshow; put our parts back.
 new MutationObserver(() => { if (!hostLeft.isConnected || !hostRight.isConnected) mountHeader(); }).observe(ui.app, { childList: true, subtree: true });
 
-function setStatus(state, detail = "") {
-  doc.status = state;
-  const label = { saved: "Saved", unsaved: "Unsaved", saving: "Saving…", conflict: "Changed on disk", error: "Not saved" }[state];
+/** The header chip, for states worth a word (the tab's dot already says "modified"). */
+function setStatus(state, detail = "", tab = doc) {
+  tab.status = state;
+  if (tab !== doc) return;
+  const label = { saving: "Saving…", conflict: "Changed on disk", error: "Not saved" }[state];
   status.chip.hidden = !label;
   status.chip.textContent = label ?? "";
-  status.chip.className = `chip ${state === "saved" ? "saved" : state === "unsaved" || state === "saving" ? "unsaved" : "warning"}`;
+  status.chip.className = `chip ${state === "saving" ? "unsaved" : "warning"}`;
   status.chip.title = detail;
 }
 
@@ -154,11 +156,72 @@ function showBar(message, buttons = [], danger = false) {
 }
 const hideBar = () => { ui.bar.hidden = true; };
 
-// -------------------------------------------------------------------- open --
+// -------------------------------------------------------------------- tabs --
 
 // Agent commands wait while a deck is opening (its media can take a while to load).
 let opening = null;
 async function settled() { while (opening) await opening.catch(() => {}); }
+const readDeckFile = (path) => host(`/v1/fs/read?path=${encodeURIComponent(path)}&limit=${50 * 1024 * 1024}`);
+
+const tabs = new DocTabs({
+  page: "slides",
+  mount: $("#tabs"),
+  icon: "slides",
+  onEmpty: () => void showStart(),
+  adapter: {
+    /** Read the deck into a new tab; a draft (unsaved changes from before a reload) is merged back in. */
+    async load(tab, draft) {
+      const file = await readDeckFile(tab.path);
+      if (file.truncated) throw new Error("This deck is too large to open");
+      const base = parseDeck(file.text);
+      Object.assign(tab, { hash: file.hash, base, baseText: file.text, status: "saved", slideIndex: 0, history: null });
+      let deck = base;
+      if (draft?.deck) {
+        const mine = parseDeck(JSON.stringify(draft.deck));
+        deck = draft.baseHash === file.hash ? mine : mergeDecks(draft.base ?? base, mine, base).deck;
+      }
+      tab.pending = deck; // as on disk; shown (with media loaded) when the tab is first activated
+      tab.dirty = serializeDeck(deck) !== file.text;
+    },
+    async show(tab) {
+      doc = tab;
+      applying = true;
+      try {
+        const deck = tab.pending ? await forDisplay(tab.pending) : tab.deck;
+        await pptist.setDeck(deck, { history: "reset" });
+        if (tab.history) await pptist.importHistory(tab.history);
+        pptist.select({ slide: Math.min(tab.slideIndex ?? 0, deck.slides.length - 1) });
+      } finally { applying = false; }
+      tab.pending = null;
+      tab.deck = null;
+      ui.start.hidden = true;
+      ui.app.hidden = false;
+      status.path.textContent = tilde(tab.path);
+      status.path.title = tab.path;
+      document.title = `${pptist.getDeck().title || deckName(tab.path)} · Slides`;
+      setStatus(tab.status === "conflict" ? "conflict" : "saved", "", tab);
+      hideBar();
+      mountHeader();
+      await remember(tab.path);
+      void watch(tab);
+    },
+    async hide(tab) {
+      watchToken++;
+      if (tab.pending) return;
+      tab.deck = pptist.getDeck();
+      tab.history = await pptist.exportHistory();
+      tab.slideIndex = pptist.state().slideIndex;
+    },
+    save: (tab) => save({ tab }).then((result) => result.saved),
+    draft: (tab) => ({ deck: deckOf(tab), base: tab.base, baseHash: tab.hash }),
+    dispose(tab) {
+      if (doc === tab) doc = EMPTY;
+    },
+  },
+});
+
+/** A tab's deck as the file holds it, whether it is shown or in the background. */
+const deckOf = (tab) => (tab === doc ? currentDisk() : tab.pending ?? forDisk(tab.deck));
 
 async function open(path) {
   const task = openNow(path);
@@ -168,51 +231,31 @@ async function open(path) {
 
 async function openNow(path) {
   if (!path) return showStart();
-  if (doc.path && doc.status === "unsaved") await save();
   const info = await host(`/v1/fs/stat?path=${encodeURIComponent(path)}`).catch((error) => { toast(error.message); return null; });
-  if (!info || info.directory) return showStart();
+  if (!info || info.directory) return tabs.tabs.length ? { opened: null } : showStart();
   if (/\.pptx$/i.test(info.path)) return importPptx(info.path);
   if (!isDeckPath(info.path)) { await background("open-file", { path: info.path }); return { opened: "viewer", path: info.path }; }
-  const file = await host(`/v1/fs/read?path=${encodeURIComponent(info.path)}&limit=${50 * 1024 * 1024}`);
-  if (file.truncated) { toast("This deck is too large to open"); return showStart(); }
-  let deck;
-  try { deck = parseDeck(file.text); } catch (error) { toast(error.message); return showStart(); }
-  for (const url of mediaUrl.values()) URL.revokeObjectURL(url);
-  mediaUrl.clear();
-  mediaRef.clear();
-  Object.assign(doc, { path: info.path, hash: file.hash, base: deck, baseText: file.text });
-  applying = true;
-  try { await pptist.setDeck(await forDisplay(deck), { history: "reset" }); }
-  finally { applying = false; }
-  pptist.select({ slide: 0 });
-  ui.start.hidden = true;
-  ui.app.hidden = false;
-  status.path.textContent = tilde(info.path);
-  status.path.title = info.path;
-  document.title = `${deck.title || deckName(info.path)} · Slides`;
-  setStatus("saved");
-  hideBar();
-  mountHeader();
-  await remember(info.path);
-  void watch();
+  let tab;
+  try { tab = await tabs.open(info.path); }
+  catch (error) { toast(error.message); return tabs.tabs.length ? { opened: null } : showStart(); }
   // A deck that still holds inline media (e.g. written by another tool) gets it moved to files.
-  if (await internalize()) await save();
-  return { opened: "slides", path: info.path, slides: deck.slides.length };
+  if (!tab.dirty && await internalize()) await save();
+  return { opened: "slides", path: tab.path, slides: pptist.state().slideCount, modified: tab.dirty };
 }
 
-/** Import a PowerPoint file into a new deck next to it (name.slides.json). */
+/** Import a PowerPoint file into a new deck next to it (name.slides.json), in a tab of its own. */
 async function importPptx(path) {
   let target = path.replace(/\.pptx$/i, EXTENSION);
   const exists = await host(`/v1/fs/stat?path=${encodeURIComponent(target)}`).then(() => true, () => false);
   if (exists) {
     const choice = await ask({ title: "Import PowerPoint", message: `${nameOf(target)} already exists. Open it, or import into a new deck under another name:`, value: target.replace(/\.slides\.json$/i, " (2).slides.json"), ok: "Import" });
-    if (!choice) return open(target);
+    if (!choice) return openNow(target);
     target = choice.endsWith(EXTENSION) ? choice : `${choice}${EXTENSION}`;
   }
   const link = await host("/v1/links", { method: "POST", body: JSON.stringify({ path }) });
   const blob = await (await fetch(`${HOST_ENDPOINT}${link.url}`)).blob();
   await host("/v1/slides/new", { method: "POST", body: JSON.stringify({ path: target, title: nameOf(path).replace(/\.pptx$/i, "") }) });
-  await open(target);
+  await tabs.open(target);
   const ok = await pptist.importPPTX(blob, nameOf(path));
   if (!ok) { toast("Could not read this PowerPoint file"); return { imported: false }; }
   pptist.stores.slides().setTitle(nameOf(path).replace(/\.pptx$/i, ""));
@@ -225,36 +268,45 @@ async function importPptx(path) {
 // -------------------------------------------------------------------- save --
 
 const currentDisk = () => forDisk(pptist.getDeck());
-const unsaved = () => doc.path && serializeDeck(currentDisk()) !== doc.baseText;
+const unsaved = () => Boolean(doc.path) && serializeDeck(currentDisk()) !== doc.baseText;
 
+// Edits mark the tab modified (no saving behind the user's back: Ctrl+S saves; drafts keep the rest).
+let dirtyTimer = null;
 pptist.onChange(() => {
   if (!doc.path || applying) return;
-  if (!unsaved()) { if (doc.status === "unsaved") setStatus("saved"); return; }
-  setStatus("unsaved");
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => void save(), SAVE_DELAY);
+  clearTimeout(dirtyTimer);
+  const tab = doc;
+  dirtyTimer = setTimeout(() => { if (tab === doc) tabs.setDirty(tab, unsaved()); }, 250);
 });
 
-async function save({ force = false } = {}) {
-  clearTimeout(saveTimer);
-  if (!doc.path) return { saved: false };
+async function save({ tab = doc, force = false } = {}) {
+  if (!tab?.path) return { saved: false };
   if (saving) await saving;
   saving = (async () => {
-    await internalize();
-    const deck = currentDisk();
+    if (tab === doc) await internalize();
+    const deck = deckOf(tab);
     const text = serializeDeck(deck);
-    if (text === doc.baseText && !force) { setStatus("saved"); return { saved: true, unchanged: true }; }
-    setStatus("saving");
+    if (text === tab.baseText && !force) { tabs.setDirty(tab, false); return { saved: true, unchanged: true }; }
+    setStatus("saving", "", tab);
     try {
-      await backup();
-      const result = await host("/v1/fs/file", { method: "PUT", body: JSON.stringify({ path: doc.path, text, expect: doc.hash }) });
-      Object.assign(doc, { hash: result.hash, base: deck, baseText: text });
-      setStatus(unsaved() ? "unsaved" : "saved");
-      document.title = `${deck.title || deckName(doc.path)} · Slides`;
+      await backup(tab);
+      const result = await host("/v1/fs/file", { method: "PUT", body: JSON.stringify({ path: tab.path, text, expect: tab.hash }) });
+      Object.assign(tab, { hash: result.hash, base: deck, baseText: text });
+      setStatus("saved", "", tab);
+      tabs.saved(tab);
+      if (tab === doc) {
+        hideBar();
+        document.title = `${deck.title || deckName(tab.path)} · Slides`;
+        if (unsaved()) tabs.setDirty(tab, true);
+      }
       return { saved: true };
     } catch (error) {
-      if (error.status === 409) return reconcile();
-      setStatus("error", error.message);
+      if (error.status === 409 && tab === doc) {
+        const outcome = await mergeFromDisk(tab);
+        if (outcome === "merged" || outcome === "reloaded") return save({ tab });
+        return { saved: false, conflict: true };
+      }
+      setStatus("error", error.message, tab);
       toast(`Not saved: ${error.message}`);
       return { saved: false, error: error.message };
     }
@@ -263,11 +315,11 @@ async function save({ force = false } = {}) {
 }
 
 /** First save of a session: keep a copy of the file as it was. */
-async function backup() {
-  if (doc.backedUp.has(doc.path)) return;
-  doc.backedUp.add(doc.path);
+async function backup(tab) {
+  if (backedUp.has(tab.path)) return;
+  backedUp.add(tab.path);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  await host("/v1/fs/file", { method: "PUT", body: JSON.stringify({ path: `${BACKUPS}/${nameOf(doc.path)}.${stamp}`, text: doc.baseText, createDirs: true }) }).catch(() => {});
+  await host("/v1/fs/file", { method: "PUT", body: JSON.stringify({ path: `${BACKUPS}/${nameOf(tab.path)}.${stamp}`, text: tab.baseText, createDirs: true }) }).catch(() => {});
 }
 
 /** Show a deck from disk in the editor, as one undo step (so the user can undo an outside change). */
@@ -277,44 +329,60 @@ async function showDeck(deck) {
   finally { applying = false; }
 }
 
-/** The file changed under us: merge by slide and element; on a clash the user's version wins. */
-async function reconcile() {
-  const file = await host(`/v1/fs/read?path=${encodeURIComponent(doc.path)}&limit=${50 * 1024 * 1024}`).catch(() => null);
-  if (!file) { setStatus("error", "The file was removed"); showBar("The deck was moved or deleted on disk.", [["Save here again", () => { doc.hash = "absent"; hideBar(); return save({ force: true }); }]], true); return { saved: false }; }
+/**
+ * The active deck's file changed on disk. A clean deck reloads; a modified one merges the change in by
+ * slide and element (still unsaved); where both changed the same thing, the user's version is kept.
+ * Returns "reloaded" | "merged" | "gone" | "invalid".
+ */
+async function mergeFromDisk(tab) {
+  const file = await readDeckFile(tab.path).catch(() => null);
+  if (!file) {
+    setStatus("error", "The file was removed", tab);
+    showBar("The deck was moved or deleted on disk.", [["Save here again", () => { tab.hash = "absent"; hideBar(); return save({ tab, force: true }); }]], true);
+    return "gone";
+  }
   let theirs;
-  try { theirs = parseDeck(file.text); } catch (error) { setStatus("conflict"); showBar(`The file on disk is no longer a deck (${error.message}).`, [["Overwrite with mine", () => { doc.hash = file.hash; hideBar(); return save({ force: true }); }]], true); return { saved: false }; }
-  const { deck, conflicts } = mergeDecks(doc.base, currentDisk(), theirs);
-  Object.assign(doc, { hash: file.hash, base: theirs, baseText: file.text });
+  try { theirs = parseDeck(file.text); }
+  catch (error) {
+    setStatus("conflict", "", tab);
+    showBar(`The file on disk is no longer a deck (${error.message}).`, [["Overwrite with mine", () => { tab.hash = file.hash; hideBar(); return save({ tab, force: true }); }]], true);
+    return "invalid";
+  }
+  if (!unsaved()) {
+    Object.assign(tab, { hash: file.hash, base: theirs, baseText: file.text });
+    await showDeck(theirs);
+    tabs.setDirty(tab, false);
+    setStatus("saved", "", tab);
+    return "reloaded";
+  }
+  const { deck, conflicts } = mergeDecks(tab.base, currentDisk(), theirs);
+  Object.assign(tab, { hash: file.hash, base: theirs, baseText: file.text });
   await showDeck(deck);
+  tabs.setDirty(tab, serializeDeck(deck) !== file.text);
+  setStatus("saved", "", tab);
   if (conflicts.length) toast(`Merged changes from disk; where both changed the same thing (${conflicts.length}), yours was kept`, { ms: 5000 });
-  return save();
+  return "merged";
 }
 
-/** Live reload: wait for the file to change on disk, then fold the change in. */
-async function watch() {
+/** Live reload of the active deck: wait for its file to change on disk, then fold the change in. */
+async function watch(tab) {
   const token = ++watchToken;
-  const path = doc.path;
-  while (token === watchToken && doc.path === path) {
-    const change = await host(`/v1/fs/watch?path=${encodeURIComponent(path)}&since=${doc.hash}&wait=25000`).catch(() => null);
-    if (token !== watchToken || doc.path !== path) return;
+  while (token === watchToken && doc === tab && tabs.tabs.includes(tab)) {
+    const change = await host(`/v1/fs/watch?path=${encodeURIComponent(tab.path)}&since=${tab.hash}&wait=25000`).catch(() => null);
+    if (token !== watchToken || doc !== tab) return;
     if (!change) { await new Promise((r) => setTimeout(r, 3000)); continue; }
-    if (change.hash === doc.hash || saving) continue;
-    if (change.absent) { setStatus("error", "The file was removed"); continue; }
-    if (unsaved()) { await reconcile(); continue; }
-    const file = await host(`/v1/fs/read?path=${encodeURIComponent(path)}&limit=${50 * 1024 * 1024}`).catch(() => null);
-    if (!file || file.hash === doc.hash) continue;
-    let deck;
-    try { deck = parseDeck(file.text); } catch { continue; }
-    Object.assign(doc, { hash: file.hash, base: deck, baseText: file.text });
-    await showDeck(deck);
-    setStatus("saved");
-    toast("Updated from disk", { ms: 1800 });
+    if (change.hash === tab.hash || saving) continue;
+    if (change.absent) { setStatus("error", "The file was removed", tab); continue; }
+    const outcome = await mergeFromDisk(tab);
+    if (outcome === "reloaded") toast("Updated from disk", { ms: 1800 });
+    if (outcome === "merged") toast("Merged changes from disk into your unsaved edits", { ms: 2500 });
   }
 }
 
 // ------------------------------------------------------------ start screen --
 
 async function showStart() {
+  doc = EMPTY;
   ui.app.hidden = true;
   ui.start.hidden = false;
   document.title = "Slides";
@@ -531,11 +599,17 @@ host("/v1/slides/fonts").then(({ fonts }) => pptist.addFonts(fonts), () => {});
 // ---------------------------------------------------------------- keyboard --
 
 addEventListener("keydown", (event) => {
-  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "s") { event.preventDefault(); void save(); }
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "s") { event.preventDefault(); void tabs.save(); }
 }, true);
-// Saving on hide (not beforeunload: a pending unload handler blocks add-on reloads).
-addEventListener("pagehide", () => { if (doc.status === "unsaved") void save(); });
-document.addEventListener("visibilitychange", () => { if (document.hidden && doc.status === "unsaved") void save(); });
+// Unsaved changes are kept as drafts (not saved behind the user's back); write them now when the page goes.
+addEventListener("pagehide", () => { for (const tab of tabs.tabs) if (tab.dirty) void tabs.writeDraft(tab); });
+// Coming here straight from the File viewer brings its deck along.
+async function takeHandoff() {
+  const handoff = await background("viewer-handoff", { editor: "slides" }).catch(() => null);
+  if (handoff?.path) await open(handoff.path);
+  return Boolean(handoff?.path);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) void takeHandoff(); });
 
 // --------------------------------------------------------------- agent API --
 
@@ -564,6 +638,7 @@ registerPage("slides", {
     const selected = summarize(deck, { from: state.slideIndex, to: state.slideIndex }).slides[0]?.elements.filter((e) => state.selected.includes(e.id)) ?? [];
     return {
       path: doc.path, status: doc.status, unsavedChanges: unsaved(), title: deck.title,
+      tabs: tabs.tabs.map((t) => ({ path: t.path, modified: t.dirty, active: t === doc })),
       slide: { index: state.slideIndex, id: slide?.id, count: state.slideCount, elements: slide?.elements.length ?? 0 },
       selected, selectedSlides: state.selectedSlides, canvas: state.canvas, presenting: state.screening,
     };
@@ -571,6 +646,11 @@ registerPage("slides", {
   commands: {
     open: ({ path, query }) => open(path ?? query),
     new: ({ path }) => newDeckDialog(path),
+    close: async ({ path }) => {
+      const tab = path ? tabs.tabs.find((t) => t.path === path) : doc;
+      if (!tab?.path) throw new Error("No such deck is open");
+      return { closed: await tabs.close(tab) };
+    },
     import: ({ path }) => importPptx(path),
     save: () => save(),
     read: async ({ first, last, html }) => { await requireDeck(); return summarize(currentDisk(), { from: first, to: last, html }); },
@@ -603,7 +683,7 @@ registerPage("slides", {
           const slideId = pptist.getDeck().slides.find((slide) => slide.elements.some((el) => el.id === id))?.id;
           pptist.stores.slides().updateElement({ id, slideId, props: { poster: await savePoster(result.picture) } });
           await pptist.stores.snapshot().addSnapshot();
-          await save();
+          if (!doc.dirty) await save(); else tabs.setDirty(doc, true);
         }
       }
       return { logs: result.logs, errors: result.errors, steps: result.steps, picture: path, posterSet: Boolean(poster && path && !result.errors.length) };
@@ -618,16 +698,19 @@ registerPage("slides", {
     select: async ({ ids, slide }) => { await requireDeck(); return pptist.select({ ids, slide }); },
     apply: async ({ ops }) => {
       await requireDeck();
+      const wasClean = !unsaved();
       const { deck, results } = await applyOps(currentDisk(), ops, { imageSize, writeScript });
       await showDeck(deck);
-      const saved = await save();
+      // Saved when the deck had no unsaved changes of the user's; otherwise the edit joins them, unsaved.
+      const saved = wasClean ? await save() : { saved: false };
+      if (!wasClean) tabs.setDirty(doc, true);
       // Definitions are checked structurally by the ops; the browser checks the CSS itself.
       const warnings = [];
       for (const op of ops) {
         if (op.op === "define_transition") warnings.push(...pptist.validateTransition(deck.motion.transitions[op.name]).map((p) => `transition ${op.name}: ${p}`));
         if (op.op === "define_effect") warnings.push(...pptist.validateEffect(deck.motion.effects[op.name]).map((p) => `effect ${op.name}: ${p}`));
       }
-      return { results, saved: saved.saved, slideCount: pptist.state().slideCount, ...(warnings.length ? { warnings } : {}) };
+      return { results, saved: saved.saved, slideCount: pptist.state().slideCount, ...(wasClean ? {} : { note: "The user has unsaved changes in this deck; your edit is unsaved too." }), ...(warnings.length ? { warnings } : {}) };
     },
     actions: () => pptist.actions(),
     action: async ({ name, args }) => { await requireDeck(); await pptist.runAction(name, args ?? {}); return pptist.state(); },
@@ -644,7 +727,12 @@ registerPage("slides", {
 // ------------------------------------------------------------------- start --
 
 mountHeader();
-const { "slides.last": last } = await browser.storage.local.get("slides.last").catch(() => ({}));
+// The tabs of the last session come back (with their unsaved changes); before tabs, the last deck.
 const query = new URLSearchParams(location.search).get("path");
-if (query || last) await open(query ?? last).catch((error) => { toast(error.message); return showStart(); });
-else await showStart();
+const restored = await (opening = tabs.restore().catch(() => false)).finally(() => { opening = null; });
+if (query) await open(query);
+else if (!(await takeHandoff()) && !restored) {
+  const { "slides.last": last } = await browser.storage.local.get("slides.last").catch(() => ({}));
+  if (last) await open(last).catch((error) => { toast(error.message); return showStart(); });
+  else await showStart();
+}

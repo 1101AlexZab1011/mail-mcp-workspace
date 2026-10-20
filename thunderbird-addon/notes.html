@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Notes</title>
+<link rel="stylesheet" href="shared/ui.css">
+<link rel="stylesheet" href="vendor/katex.css">
+<link rel="stylesheet" href="vendor/writer/prosemirror.css">
+<link rel="stylesheet" href="vendor/writer/tables.css">
+<link rel="stylesheet" href="vendor/writer/gapcursor.css">
+<link rel="stylesheet" href="shared/doctabs.css">
+<link rel="stylesheet" href="shared/editor.css">
+<link rel="stylesheet" href="notes.css">
+<body>
+  <aside id="sidebar" class="sidebar" aria-label="Pages">
+    <div class="side-head">
+      <span id="vault-icon" class="vault-icon"></span>
+      <button id="vault" class="vault-name" type="button" title="The notes folder"></button>
+    </div>
+    <div class="side-actions">
+      <button id="search" class="side-btn" type="button" data-agent="Search"><span class="si"></span>Search<kbd>Ctrl+P</kbd></button>
+      <button id="new-page" class="side-btn" type="button" data-agent="New page"><span class="si"></span>New page</button>
+    </div>
+    <div id="side-scroll" class="side-scroll">
+      <section id="favourites" class="side-section" hidden>
+        <h2>Favourites</h2>
+        <div id="fav-list" role="tree"></div>
+      </section>
+      <section class="side-section">
+        <h2>Pages <button id="add-root" class="side-add" type="button" title="New page"></button></h2>
+        <div id="tree" class="tree" role="tree"></div>
+      </section>
+    </div>
+    <div class="side-foot">
+      <button id="trash" class="side-btn" type="button"><span class="si"></span>Trash</button>
+    </div>
+  </aside>
+  <div class="main">
+    <div id="tabs" class="tabs-host"></div>
+    <div id="crumbs" class="crumbs" hidden></div>
+    <div id="conflict" class="conflict" hidden></div>
+    <main id="scroll" class="scroll">
+      <div id="start" class="start"></div>
+      <article id="page" class="note" hidden>
+        <div id="cover" class="cover" hidden></div>
+        <div class="note-inner">
+          <div id="icon" class="note-icon" hidden></div>
+          <div id="header-tools" class="header-tools"></div>
+          <h1 id="title" class="note-title" contenteditable="plaintext-only" spellcheck="false" data-placeholder="Untitled"></h1>
+          <div id="properties" class="properties"></div>
+          <div id="database" class="database" hidden></div>
+          <div id="editor"></div>
+          <section id="backlinks" class="backlinks" hidden></section>
+        </div>
+      </article>
+    </main>
+  </div>
+  <div id="slash" class="slash-menu" role="listbox" hidden></div>
+  <input id="image-input" type="file" accept="image/*" hidden>
+  <input id="cover-input" type="file" accept="image/*" hidden>
+  <script type="module" src="notes.js"></script>
+</body>
+</html>

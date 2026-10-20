@@ -8,7 +8,7 @@
 // blocks (the same ProseMirror node objects) back verbatim; only edited blocks
 // are serialized. Kept constructs are nodes that carry their exact source.
 import katex from "katex";
-import { Editor, rootCtx, editorViewCtx, parserCtx, serializerCtx, schemaCtx, remarkCtx, commandsCtx, editorViewOptionsCtx } from "@milkdown/kit/core";
+import { Editor, rootCtx, editorViewCtx, parserCtx, serializerCtx, schemaCtx, remarkCtx, commandsCtx, editorViewOptionsCtx, remarkStringifyOptionsCtx } from "@milkdown/kit/core";
 import { commonmark, imageSchema } from "@milkdown/kit/preset/commonmark";
 import * as cm from "@milkdown/kit/preset/commonmark";
 import { gfm, insertTableCommand, toggleStrikethroughCommand } from "@milkdown/kit/preset/gfm";
@@ -20,6 +20,8 @@ import { EditorState, Plugin, PluginKey, TextSelection } from "@milkdown/kit/pro
 import { Decoration, DecorationSet } from "@milkdown/kit/prose/view";
 import remarkMath from "remark-math";
 import { assemble, gapsOf, inlineTokens, splitQuarto } from "./quarto.mjs";
+import { notesTokens } from "../notes/vault.mjs";
+import { notesPlugins, notesApi } from "../notes/editor-notes.mjs";
 
 // ------------------------------------------------------ remark: safety net --
 
@@ -30,9 +32,9 @@ const BLOCK_PARENTS = new Set(["root", "blockquote", "listItem", "footnoteDefini
 /**
  * Runs after parsing: anything Milkdown has no node for becomes a kept node
  * with its exact source, display math becomes a kept block, and Quarto inline
- * syntax inside text becomes chips. Nothing the parser does not model is lost.
+ * syntax inside text becomes chips (Notes: [[links]]). Nothing the parser does not model is lost.
  */
-function quartoRemark() {
+function quartoRemark(tokenize = inlineTokens) {
   return (tree, file) => {
     const source = String(file?.value ?? "");
     const slice = (node) => (node.position ? source.slice(node.position.start.offset, node.position.end.offset) : "");
@@ -47,7 +49,7 @@ function quartoRemark() {
         if (blockParent && child.type === "math") { out.push({ type: "quartoBlock", kind: "math", label: "", source: slice(child), position: child.position }); continue; }
         if (blockParent && !BLOCK_TYPES.has(child.type)) { out.push({ type: "quartoBlock", kind: "raw", label: child.type, source: slice(child), position: child.position }); continue; }
         if (!blockParent && !INLINE_TYPES.has(child.type) && !BLOCK_TYPES.has(child.type)) { out.push({ type: "quartoInline", kind: "raw", source: slice(child), position: child.position }); continue; }
-        if (child.type === "text" && child.value) { out.push(...splitText(child)); continue; }
+        if (child.type === "text" && child.value) { out.push(...splitText(child, tokenize)); continue; }
         if (child.type === "inlineMath") { out.push({ type: "quartoInline", kind: "math", source: slice(child) || `$${child.value}$`, position: child.position }); continue; }
         walk(child);
         out.push(child);
@@ -58,8 +60,8 @@ function quartoRemark() {
   };
 }
 
-function splitText(node) {
-  const tokens = inlineTokens(node.value);
+function splitText(node, tokenize) {
+  const tokens = tokenize(node.value);
   if (!tokens.length) return [node];
   const out = [];
   let at = 0;
@@ -193,6 +195,11 @@ function blockView(hooks) {
         summary.className = "qb-summary";
         summary.textContent = title ? title : `${source.split("\n").length - 2} settings`;
         dom.append(summary);
+      } else if (kind === "code" && /^database\b/.test(current.attrs.label) && hooks.renderDatabase) {
+        const body = document.createElement("div");
+        body.className = "qb-database";
+        dom.append(body);
+        hooks.renderDatabase(body, source.split("\n").slice(1, -1).join("\n"), { edit });
       } else if (kind === "div") {
         if (/^\s*:{3,}\s*$/.test(source)) { const end = document.createElement("span"); end.className = "qb-kind"; end.textContent = "end of block"; dom.append(end); }
         else dom.append(header(false));
@@ -205,7 +212,7 @@ function blockView(hooks) {
       }
     };
 
-    dom.addEventListener("click", (event) => { if (!editing && !event.defaultPrevented) edit(); });
+    dom.addEventListener("click", (event) => { if (!editing && !event.defaultPrevented && !event.target.closest?.(".qb-database")) edit(); });
     draw();
     return {
       dom,
@@ -228,6 +235,12 @@ function divTitle(source) {
   return rest ? `Block ${rest}` : "Block";
 }
 
+/** [[Target#Heading|Label]] → its parts. */
+export function parseWikilink(source) {
+  const m = /^(!?)\[\[([^\]|#]*)(?:#([^\]|]*))?(?:\|([^\]]*))?\]\]$/.exec(source);
+  return m ? { embed: m[1] === "!", target: m[2].trim(), heading: m[3]?.trim() ?? "", label: m[4]?.trim() ?? "" } : null;
+}
+
 const INLINE_ICON = { cite: "📖", crossref: "#", attr: "", shortcode: "⟨⟩", math: "", span: "", raw: "" };
 
 function inlineView(hooks) {
@@ -239,6 +252,13 @@ function inlineView(hooks) {
       dom.className = `qi qi-${kind}`;
       dom.replaceChildren();
       if (kind === "math") { renderMath(dom, source.replace(/^\$+|\$+$/g, ""), false); return; }
+      if (kind === "wikilink" || kind === "embed") {
+        const link = parseWikilink(source) ?? { target: source, heading: "", label: "" };
+        dom.textContent = link.label || (link.heading ? `${link.target} › ${link.heading}` : link.target);
+        dom.title = `${link.target}${link.heading ? `#${link.heading}` : ""} · click to open, Alt+click to edit`;
+        hooks.describeLink?.(link, dom);
+        return;
+      }
       if (kind === "cite") dom.textContent = source.replace(/^\[|\]$/g, "");
       else dom.textContent = source;
       dom.title = kind === "cite" ? "Citation · click to edit" : kind === "crossref" ? "Cross-reference · click to edit" : "Click to edit";
@@ -247,6 +267,8 @@ function inlineView(hooks) {
     dom.contentEditable = "false";
     dom.addEventListener("click", async (event) => {
       event.preventDefault();
+      const { kind } = current.attrs;
+      if ((kind === "wikilink" || kind === "embed") && !event.altKey && hooks.openLink) { hooks.openLink(parseWikilink(current.attrs.source), event); return; }
       const pos = getPos();
       const next = await hooks.editInline?.(current.attrs);
       if (typeof pos !== "number" || next === null || next === undefined || next === current.attrs.source) return;
@@ -369,12 +391,21 @@ const reviewPlugin = $prose(() => new Plugin({
  *   resolveImage(src)          → URL to display a relative image path
  *   editInline(attrs)          → new source for a chip, "" to delete, null to keep
  *   describeInline(attrs, el)  decorate a citation/cross-reference chip
+ * Notes mode (options.mode === "notes") adds, see src/notes/editor-notes.mjs:
+ *   openLink(link, event)      a [[link]] chip was clicked; describeLink(link, el) decorates it
+ *   renderDatabase(el, query, { edit })   draw a ```database block
+ *   onSlash(state|null), onSlashKey(key, event) → true if handled, onBlockMenu({ pos, node, rect }), onAddBlock({ pos, node })
  */
-export async function createWriter(root, hooks = {}) {
+export async function createWriter(root, hooks = {}, options = {}) {
+  const notes = options.mode === "notes";
+  const notesLayer = notes ? notesPlugins(hooks) : { plugins: [], config: () => {} };
   const editor = await Editor.make()
+    .config(notesLayer.config)
     .config((ctx) => {
       ctx.set(rootCtx, root);
-      ctx.update(editorViewOptionsCtx, (prev) => ({ ...prev, attributes: { class: "wr-doc", spellcheck: "false" } }));
+      // Edited blocks are written the way people (and GitHub, Obsidian) write Markdown: - bullets, --- rules.
+      ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: "-", rule: "-" }));
+      ctx.update(editorViewOptionsCtx, (prev) => ({ ...prev, attributes: { class: notes ? "wr-doc nt-doc" : "wr-doc", spellcheck: notes ? "true" : "false" } }));
       ctx.get(listenerCtx).updated(() => hooks.onChange?.());
       ctx.get(listenerCtx).selectionUpdated(() => hooks.onSelection?.());
     })
@@ -384,7 +415,7 @@ export async function createWriter(root, hooks = {}) {
     .use(clipboard)
     .use(listener)
     .use($remark("remarkMath", () => remarkMath))
-    .use($remark("quartoRemark", () => quartoRemark))
+    .use($remark("quartoRemark", () => () => quartoRemark(notes ? notesTokens : inlineTokens)))
     .use(quartoBlock)
     .use(quartoInline)
     .use($view(quartoBlock, () => blockView(hooks)))
@@ -392,9 +423,11 @@ export async function createWriter(root, hooks = {}) {
     .use($view(imageSchema.node, () => imageView(hooks)))
     .use(grammarPlugin)
     .use(reviewPlugin)
+    .use(notesLayer.plugins.flat())
     .create();
 
   const view = editor.ctx.get(editorViewCtx);
+  notesLayer.start?.();
   const schema = editor.ctx.get(schemaCtx);
   const parse = editor.ctx.get(parserCtx);
   const stringify = editor.ctx.get(serializerCtx);
@@ -402,7 +435,10 @@ export async function createWriter(root, hooks = {}) {
 
   let loaded = { source: "", units: [], gaps: [""] };
 
-  const serializeNodes = (nodes) => stringify(schema.topNodeType.create(null, nodes));
+  // Notes writes plain Markdown: a callout's [!type] is not escaped, and empty paragraphs (Milkdown's
+  // "<br />" placeholder) are left out instead of written as HTML.
+  const tidy = notes ? (md) => md.replace(/^((?:> ?)+)\\\[!([\w-]+)\]/gm, "$1[!$2]").replace(/^<br \/>\n(\n|$)/gm, "") : (md) => md;
+  const serializeNodes = (nodes) => tidy(stringify(schema.topNodeType.create(null, nodes)));
   const own = (node) => (node.type.name === "quarto_block" ? node.attrs.source : null);
   const current = () => { const out = []; view.state.doc.forEach((n) => out.push(n)); return out; };
 
@@ -699,6 +735,7 @@ export async function createWriter(root, hooks = {}) {
 
     destroy: () => editor.destroy(),
   };
+  if (notes) api.notes = notesApi({ view, run, commands: { ...cm, insertTableCommand }, build, schema });
   return api;
 }
 
@@ -710,3 +747,6 @@ function firstDifference(a, b) {
 
 // The page uses these too (merging on conflicts, cross-reference autocomplete).
 export { merge3, labels, splitQuarto } from "./quarto.mjs";
+// The Notes page edits front matter and parses [[links]] with the vault model.
+export { splitPage, setProperties, wikilinks } from "../notes/vault.mjs";
+export { SLASH_ITEMS, filterSlash } from "../notes/editor-notes.mjs";

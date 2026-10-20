@@ -190,8 +190,8 @@ function applyLayout(window, ctx) {
   // Keyboard: Ctrl+5 toggles chat (right), Ctrl+6 files (left); Ctrl+7/8/9 open the add-on spaces,
   // Ctrl+Shift+6 the Writer, Ctrl+Shift+7 Slides.
   const onKey = (event) => {
-    if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && (event.code === "Digit6" || event.code === "Digit7")) {
-      event.preventDefault(); event.stopPropagation(); ctx.shortcut(event.code === "Digit6" ? "writer" : "slides"); return;
+    if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && (event.code === "Digit6" || event.code === "Digit7" || event.code === "Digit8")) {
+      event.preventDefault(); event.stopPropagation(); ctx.shortcut({ Digit6: "writer", Digit7: "slides", Digit8: "notes" }[event.code]); return;
     }
     if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
     // Ctrl+` toggles the terminal (handled before the dock/space shortcuts).

@@ -1,15 +1,15 @@
 // Writer space: a word-processor-like editor for Quarto (.qmd) and Markdown.
 //
-// The file on disk is the source of truth. The editor (vendor/writer, see
-// src/writer/editor.mjs) writes untouched blocks back byte for byte; this page
-// saves with a lost-update guard, merges outside edits (the agent's, another
-// editor's) line by line, and reloads live when the file changes on disk.
+// Each open document has a tab (shared/doctabs.js) with its own editor (vendor/writer, see
+// src/writer/editor.mjs), which writes untouched blocks back byte for byte. Ctrl+S saves with a
+// lost-update guard; a tab with unsaved changes shows a dot and keeps a draft. Outside edits (the
+// agent's, another editor's) reload a clean tab live and merge line by line into a modified one.
 import { host, HOST_ENDPOINT } from "./shared/broker.js";
 import { icon } from "./shared/icons.js";
 import { $, h, iconButton, contextMenu, background, toast, registerPage, ask } from "./shared/page.js";
+import { DocTabs } from "./shared/doctabs.js";
 import { createWriter, merge3, labels } from "./vendor/writer/writer.mjs";
 
-const SAVE_DELAY = 1000;
 const GRAMMAR_DELAY = 1800;
 const BACKUPS = "~/.local/state/mail-workspace/writer-backups";
 
@@ -20,16 +20,13 @@ const ui = {
   grammarCount: $("#grammar-count"), imageInput: $("#image-input"),
 };
 
-const doc = {
-  path: null,      // absolute path of the open document
-  hash: null,      // version on disk we last read or wrote (sent as `expect`)
-  base: null,      // text of that version
-  status: "idle",  // idle | saved | unsaved | saving | conflict | readonly | error
-  backedUp: new Set(),
-  bibliography: new Map(),
-};
+// One state object per tab; `doc` and `editor` always point at the active tab's.
+//   path, hash (the version on disk we last read or wrote, sent as `expect`), base (its text),
+//   status (saved | saving | conflict | readonly | error), bibliography, editor, root, scroll
+const EMPTY = { path: null, hash: null, base: null, status: "idle", bibliography: new Map() };
+let doc = EMPTY;
 let editor = null;
-let saveTimer = null;
+const backedUp = new Set();
 let saving = null;
 let watchToken = 0;
 let outlineOpen = false;
@@ -45,12 +42,14 @@ const nameOf = (path) => path.split("/").pop();
 const isDocument = (path) => /\.(qmd|md|markdown|rmd)$/i.test(path);
 const isQuarto = () => /\.qmd$/i.test(doc.path ?? "");
 
-function setStatus(status, detail = "") {
-  doc.status = status;
-  const label = { saved: "Saved", unsaved: "Unsaved", saving: "Saving…", conflict: "Changed on disk", readonly: "Read-only", error: "Not saved", rendering: "Rendering…" }[status];
+/** The header chip, for states worth a word (the tab's dot already says "modified"). */
+function setStatus(status, detail = "", tab = doc) {
+  tab.status = status;
+  if (tab !== doc) return;
+  const label = { saving: "Saving…", conflict: "Changed on disk", readonly: "Read-only", error: "Not saved", rendering: "Rendering…" }[status];
   ui.state.hidden = !label;
   ui.state.textContent = label ?? "";
-  ui.state.className = `chip ${status === "saved" ? "saved" : status === "unsaved" || status === "saving" ? "unsaved" : status === "rendering" ? "" : "warning"}`;
+  ui.state.className = `chip ${status === "saving" ? "unsaved" : status === "rendering" ? "" : "warning"}`;
   ui.state.title = detail;
 }
 
@@ -66,40 +65,40 @@ async function remember(path) {
 
 // ----------------------------------------------------------- editor setup --
 
-async function ensureEditor() {
-  if (editor) return editor;
-  editor = await createWriter(ui.editorRoot, {
+/** An editor of its own for a tab (undo history and scroll survive switching tabs). */
+async function createTabEditor(tab) {
+  tab.root = h("div.tab-editor", { hidden: true });
+  ui.editorRoot.append(tab.root);
+  tab.editor = await createWriter(tab.root, {
     onChange: () => {
-      if (!doc.path || doc.status === "readonly") return;
-      if (editor.markdown() === doc.base) { if (doc.status === "unsaved") setStatus("saved"); return; }
-      setStatus("unsaved");
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => void save(), SAVE_DELAY);
+      if (!tab.path || tab.status === "readonly") return;
+      tabs.setDirty(tab, tab.editor.markdown() !== tab.base);
+      if (tab !== doc) return;
       scheduleOutline();
       scheduleGrammar();
       drawFrames();
     },
-    onSelection: () => updateWhere(),
-    resolveImage,
+    onSelection: () => { if (tab === doc) updateWhere(); },
+    resolveImage: (src) => resolveImage(tab, src),
     editInline: editChip,
     describeInline: (attrs, el) => {
       if (attrs.kind !== "cite") return;
       const keys = [...attrs.source.matchAll(/@([\w:.#$%&\-+?<>~/]+\w)/g)].map((m) => m[1]);
-      const known = keys.map((k) => doc.bibliography.get(k));
-      if (doc.bibliography.size && known.some((e) => !e)) el.classList.add("unknown");
+      const known = keys.map((k) => tab.bibliography.get(k));
+      if (tab.bibliography.size && known.some((e) => !e)) el.classList.add("unknown");
       el.title = known.map((e, i) => e ? `${e.author.split(" and ")[0]}${e.year ? ` (${e.year})` : ""}: ${e.title}` : `${keys[i]}: not in the bibliography`).join("\n") || el.title;
     },
   });
-  ui.editorRoot.addEventListener("paste", onPasteImages, true);
-  ui.editorRoot.addEventListener("drop", onDropImages, true);
-  ui.editorRoot.addEventListener("click", onGrammarClick);
-  return editor;
+  return tab.editor;
 }
+ui.editorRoot.addEventListener("paste", onPasteImages, true);
+ui.editorRoot.addEventListener("drop", onDropImages, true);
+ui.editorRoot.addEventListener("click", onGrammarClick);
 
-async function resolveImage(src) {
+async function resolveImage(tab, src) {
   if (/^(https?:|data:|blob:)/.test(src)) return src;
-  if (!doc.path) return null;
-  const full = src.startsWith("/") ? src : `${dirOf(doc.path)}/${src.replace(/^\.\//, "")}`;
+  if (!tab.path) return null;
+  const full = src.startsWith("/") ? src : `${dirOf(tab.path)}/${src.replace(/^\.\//, "")}`;
   if (imageUrls.has(full)) return imageUrls.get(full);
   const link = await host("/v1/links", { method: "POST", body: JSON.stringify({ path: full }) }).catch(() => null);
   const url = link ? `${HOST_ENDPOINT}${link.url}` : null;
@@ -107,80 +106,131 @@ async function resolveImage(src) {
   return url;
 }
 
-// ---------------------------------------------------------------- open --
+// ---------------------------------------------------------------- tabs --
 
+const tabs = new DocTabs({
+  page: "writer",
+  mount: $("#tabs"),
+  icon: "writer",
+  onEmpty: () => void showStart(),
+  adapter: {
+    /** Read the file into a new tab; a draft (unsaved changes from before a reload) is merged back in. */
+    async load(tab, draft) {
+      const file = await host(`/v1/fs/read?path=${encodeURIComponent(tab.path)}`);
+      if (file.truncated) throw new Error("This document is too large for the Writer");
+      Object.assign(tab, { hash: file.hash, base: file.text, status: "saved", bibliography: new Map(), scroll: 0 });
+      await createTabEditor(tab);
+      let text = file.text;
+      if (draft?.text !== undefined && draft.text !== file.text) {
+        if (draft.baseHash === file.hash) text = draft.text;
+        else {
+          const merged = merge3(draft.base ?? file.text, draft.text, file.text);
+          text = merged.conflicts ? draft.text : merged.text;
+          if (merged.conflicts) tab.conflictOnShow = true;
+        }
+      }
+      const result = tab.editor.load(text);
+      tab.safe = result.safe;
+      tab.blocks = result.blocks;
+      if (!result.safe) tab.status = "readonly";
+      tab.dirty = tab.status !== "readonly" && tab.editor.markdown() !== tab.base;
+      void loadBibliography(tab);
+    },
+    async show(tab) {
+      doc = tab;
+      editor = tab.editor;
+      for (const other of tabs.tabs) if (other.root) other.root.hidden = other !== tab;
+      ui.start.hidden = true;
+      ui.page.hidden = false;
+      ui.toolbar.hidden = false;
+      ui.statusbar.hidden = false;
+      ui.render.hidden = false;
+      ui.title.textContent = nameOf(tab.path);
+      ui.subtitle.textContent = dirOf(tab.path).replace(/^\/home\/[^/]+/, "~");
+      document.title = `${nameOf(tab.path)} · Writer`;
+      ui.page.classList.toggle("readonly", !tab.safe);
+      editor.view.setProps({ editable: () => tab.safe });
+      setStatus(tab.status === "readonly" ? "readonly" : tab.status === "conflict" ? "conflict" : "saved", "", tab);
+      hideBar();
+      if (!tab.safe) {
+        showBar("This document cannot be edited safely here: saving would change text you did not edit. It is open read-only.", [["Open in viewer", () => background("open-file", { path: tab.path })]], true);
+      } else if (tab.conflictOnShow) {
+        tab.conflictOnShow = false;
+        showBar("This document changed on disk while it had unsaved changes here; your version is kept. Save to overwrite, or reload.", [["Reload from disk", () => reloadFromDisk(tab)]]);
+      }
+      hideCard();
+      renderToolbar();
+      renderActions();
+      renderOutline();
+      updateWhere();
+      drawFrames();
+      requestAnimationFrame(() => { ui.scroll.scrollTop = tab.scroll ?? 0; });
+      if (grammarOn) scheduleGrammar(200);
+      await remember(tab.path);
+      void watch(tab);
+    },
+    hide(tab) {
+      tab.scroll = ui.scroll.scrollTop;
+      if (tab.root) tab.root.hidden = true;
+      watchToken++;
+      hideCard();
+    },
+    save: (tab) => save({ tab }).then((result) => result.saved),
+    draft: (tab) => ({ text: tab.editor.markdown(), base: tab.base, baseHash: tab.hash }),
+    dispose(tab) {
+      try { tab.editor?.destroy(); } catch { /* already gone */ }
+      tab.root?.remove();
+      if (doc === tab) { doc = EMPTY; editor = null; }
+    },
+  },
+});
+
+/** Open a document in its tab (other files go to the viewer). */
 async function open(path) {
   if (!path) return showStart();
-  if (doc.path && doc.status === "unsaved") await save();
   const info = await host(`/v1/fs/stat?path=${encodeURIComponent(path)}`).catch((error) => { toast(error.message); return null; });
-  if (!info || info.directory) return showStart();
+  if (!info || info.directory) return tabs.tabs.length ? { opened: null } : showStart();
   if (!isDocument(info.path)) { await background("open-file", { path: info.path }); return { opened: "viewer", path: info.path }; }
-  const file = await host(`/v1/fs/read?path=${encodeURIComponent(info.path)}`);
-  if (file.truncated) { toast("This document is too large for the Writer"); return showStart(); }
-  await ensureEditor();
-  Object.assign(doc, { path: info.path, hash: file.hash, base: file.text });
-  imageUrls.clear();
-  grammarCache.clear();
-  const result = editor.load(file.text);
-  drawFrames();
-  ui.start.hidden = true;
-  ui.page.hidden = false;
-  ui.toolbar.hidden = false;
-  ui.statusbar.hidden = false;
-  ui.render.hidden = false;
-  ui.title.textContent = nameOf(info.path);
-  ui.subtitle.textContent = dirOf(info.path).replace(/^\/home\/[^/]+/, "~");
-  document.title = `${nameOf(info.path)} · Writer`;
-  ui.page.classList.toggle("readonly", !result.safe);
-  editor.view.setProps({ editable: () => result.safe });
-  if (!result.safe) {
-    setStatus("readonly", "This file has syntax the Writer cannot round-trip; editing is disabled so nothing is lost.");
-    showBar("This document cannot be edited safely here: saving would change text you did not edit. It is open read-only.", [["Open in viewer", () => background("open-file", { path: doc.path })]], true);
-    console.warn("writer: unsafe round trip", result.mismatchAt);
-  } else {
-    setStatus("saved");
-    hideBar();
-  }
-  ui.scroll.scrollTop = 0;
-  renderToolbar();
-  renderActions();
-  renderOutline();
-  updateWhere();
-  await remember(info.path);
-  void loadBibliography();
-  void watch();
-  if (grammarOn) scheduleGrammar(200);
-  return { opened: "writer", path: info.path, safe: result.safe, blocks: result.blocks };
+  let tab;
+  try { tab = await tabs.open(info.path); }
+  catch (error) { toast(error.message); return tabs.tabs.length ? { opened: null } : showStart(); }
+  return { opened: "writer", path: tab.path, safe: tab.safe, blocks: tab.blocks, modified: tab.dirty };
 }
 
-async function loadBibliography() {
-  doc.bibliography = new Map();
-  if (!doc.path) return;
-  const bib = await host(`/v1/writer/bibliography?path=${encodeURIComponent(doc.path)}`).catch(() => null);
-  for (const entry of bib?.entries ?? []) doc.bibliography.set(entry.key, entry);
+async function loadBibliography(tab = doc) {
+  tab.bibliography = new Map();
+  if (!tab.path) return;
+  const bib = await host(`/v1/writer/bibliography?path=${encodeURIComponent(tab.path)}`).catch(() => null);
+  for (const entry of bib?.entries ?? []) tab.bibliography.set(entry.key, entry);
 }
 
 // ---------------------------------------------------------------- save --
 
-/** Save now. Refuses while read-only; merges if the file changed on disk. */
-async function save({ force = false } = {}) {
-  clearTimeout(saveTimer);
-  if (!doc.path || !editor || doc.status === "readonly") return { saved: false };
+/** Save a tab (the active one by default). If the file changed on disk, merge first, then save. */
+async function save({ tab = doc, force = false } = {}) {
+  if (!tab?.path || !tab.editor || tab.status === "readonly") return { saved: false };
   if (saving) { await saving; }
-  const text = editor.markdown();
-  if (text === doc.base && !force) { setStatus("saved"); return { saved: true, unchanged: true }; }
+  const text = tab.editor.markdown();
+  if (text === tab.base && !force) { tabs.setDirty(tab, false); return { saved: true, unchanged: true }; }
   saving = (async () => {
-    setStatus("saving");
+    setStatus("saving", "", tab);
     try {
-      await backup();
-      const result = await host("/v1/fs/file", { method: "PUT", body: JSON.stringify({ path: doc.path, text, expect: doc.hash }) });
-      doc.hash = result.hash;
-      doc.base = text;
-      setStatus(editor.markdown() === text ? "saved" : "unsaved");
+      await backup(tab);
+      const result = await host("/v1/fs/file", { method: "PUT", body: JSON.stringify({ path: tab.path, text, expect: tab.hash }) });
+      tab.hash = result.hash;
+      tab.base = text;
+      setStatus("saved", "", tab);
+      tabs.saved(tab);
+      if (tab.editor.markdown() !== text) tabs.setDirty(tab, true);
+      if (tab === doc) hideBar();
       return { saved: true };
     } catch (error) {
-      if (error.status === 409) return reconcile(error.details?.current);
-      setStatus("error", error.message);
+      if (error.status === 409) {
+        const merged = await mergeFromDisk(tab);
+        if (merged === "merged") return save({ tab });
+        return { saved: false, conflict: true };
+      }
+      setStatus("error", error.message, tab);
       toast(`Not saved: ${error.message}`);
       return { saved: false, error: error.message };
     }
@@ -189,66 +239,80 @@ async function save({ force = false } = {}) {
 }
 
 /** First save of a session: keep a copy of the file as it was on disk. */
-async function backup() {
-  if (doc.backedUp.has(doc.path)) return;
-  doc.backedUp.add(doc.path);
+async function backup(tab) {
+  if (backedUp.has(tab.path)) return;
+  backedUp.add(tab.path);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  await host("/v1/fs/file", { method: "PUT", body: JSON.stringify({ path: `${BACKUPS}/${nameOf(doc.path)}.${stamp}`, text: doc.base, createDirs: true }) }).catch(() => {});
+  await host("/v1/fs/file", { method: "PUT", body: JSON.stringify({ path: `${BACKUPS}/${nameOf(tab.path)}.${stamp}`, text: tab.base, createDirs: true }) }).catch(() => {});
 }
 
-/** The file changed under us: merge line by line, or ask the user. */
-async function reconcile(current) {
-  if (!current || current.absent) { setStatus("error", "The file was removed"); showBar("The file was moved or deleted on disk.", [["Save here again", () => { doc.hash = "absent"; return save({ force: true }); }]], true); return { saved: false }; }
-  const theirs = current.text ?? (await host(`/v1/fs/read?path=${encodeURIComponent(doc.path)}`)).text;
-  const mine = editor.markdown();
-  const merged = merge3(doc.base, mine, theirs);
-  if (merged.conflicts === 0) {
-    reloadText(merged.text);
-    doc.base = theirs;
-    doc.hash = current.hash;
-    if (merged.text !== theirs) return save();
-    setStatus("saved");
-    return { saved: true, merged: true };
+/**
+ * The file changed on disk. A clean tab just reloads; a modified one merges the change in line by line
+ * (still unsaved), or, when both changed the same lines, keeps the user's version and says so.
+ * Returns "reloaded" | "merged" | "conflict" | "gone".
+ */
+async function mergeFromDisk(tab) {
+  const file = await host(`/v1/fs/read?path=${encodeURIComponent(tab.path)}`).catch(() => null);
+  if (!file) {
+    setStatus("error", "The file was removed", tab);
+    if (tab === doc) showBar("This document was moved or deleted on disk.", [["Save here again", () => { tab.hash = "absent"; hideBar(); return save({ tab, force: true }); }]], true);
+    return "gone";
   }
-  setStatus("conflict");
-  showBar("This document changed on disk while you edited the same lines.", [
-    ["Show changes", () => showDiff(theirs, mine)],
-    ["Reload from disk", () => { reloadText(theirs); doc.base = theirs; doc.hash = current.hash; hideBar(); setStatus("saved"); }],
-    ["Keep mine", async () => { doc.hash = current.hash; doc.base = theirs; hideBar(); await save({ force: true }); }],
-  ]);
-  return { saved: false, conflict: true };
+  if (file.hash === tab.hash) return "reloaded";
+  const mine = tab.editor.markdown();
+  if (mine === tab.base) {
+    reloadText(tab, file.text);
+    Object.assign(tab, { base: file.text, hash: file.hash });
+    tabs.setDirty(tab, false);
+    setStatus("saved", "", tab);
+    return "reloaded";
+  }
+  const merged = merge3(tab.base, mine, file.text);
+  if (merged.conflicts === 0) {
+    reloadText(tab, merged.text);
+    Object.assign(tab, { base: file.text, hash: file.hash });
+    tabs.setDirty(tab, merged.text !== file.text);
+    setStatus("saved", "", tab);
+    return "merged";
+  }
+  setStatus("conflict", "", tab);
+  if (tab === doc) {
+    showBar("This document changed on disk where you have unsaved edits to the same lines.", [
+      ["Show changes", () => showDiff(file.text, mine)],
+      ["Reload from disk", () => reloadFromDisk(tab, file)],
+      ["Keep mine", async () => { tab.hash = file.hash; tab.base = file.text; hideBar(); await save({ tab, force: true }); }],
+    ]);
+  }
+  return "conflict";
 }
 
-function reloadText(text) {
-  const result = editor.load(text, { keep: true });
-  drawFrames();
-  if (!result.safe) { setStatus("readonly"); editor.view.setProps({ editable: () => false }); }
-  renderOutline();
+async function reloadFromDisk(tab, file) {
+  file ??= await host(`/v1/fs/read?path=${encodeURIComponent(tab.path)}`);
+  reloadText(tab, file.text);
+  Object.assign(tab, { base: file.text, hash: file.hash });
+  tabs.setDirty(tab, false);
+  setStatus("saved", "", tab);
+  hideBar();
 }
 
-/** Live reload: wait for the file to change on disk, then fold the change in. */
-async function watch() {
+function reloadText(tab, text) {
+  const result = tab.editor.load(text, { keep: true });
+  if (tab === doc) { drawFrames(); renderOutline(); }
+  if (!result.safe) { setStatus("readonly", "", tab); tab.editor.view.setProps({ editable: () => false }); }
+}
+
+/** Live reload of the active tab: wait for its file to change on disk, then fold the change in. */
+async function watch(tab) {
   const token = ++watchToken;
-  const path = doc.path;
-  while (token === watchToken && doc.path === path) {
-    const since = doc.hash;
-    const change = await host(`/v1/fs/watch?path=${encodeURIComponent(path)}&since=${since}&wait=25000`).catch(() => null);
-    if (token !== watchToken || doc.path !== path) return;
+  while (token === watchToken && doc === tab && tabs.tabs.includes(tab)) {
+    const change = await host(`/v1/fs/watch?path=${encodeURIComponent(tab.path)}&since=${tab.hash}&wait=25000`).catch(() => null);
+    if (token !== watchToken || doc !== tab) return;
     if (!change) { await new Promise((r) => setTimeout(r, 3000)); continue; }
-    if (change.hash === doc.hash || saving) continue;
-    if (change.absent) { setStatus("error", "The file was removed"); continue; }
-    const file = await host(`/v1/fs/read?path=${encodeURIComponent(path)}`).catch(() => null);
-    if (!file || file.hash === doc.hash) continue;
-    const mine = editor.markdown();
-    if (mine === doc.base) {
-      reloadText(file.text);
-      doc.base = file.text;
-      doc.hash = file.hash;
-      setStatus("saved");
-      flash("Updated from disk");
-    } else {
-      await reconcile({ ...file, text: file.text });
-    }
+    if (change.hash === tab.hash || saving) continue;
+    if (change.absent) { setStatus("error", "The file was removed", tab); continue; }
+    const outcome = await mergeFromDisk(tab);
+    if (outcome === "reloaded") flash("Updated from disk");
+    if (outcome === "merged") flash("Merged changes from disk into your unsaved edits");
   }
 }
 
@@ -525,9 +589,9 @@ function onGrammarClick(event) {
 }
 function textOfBlockAt(pos) { return editor.textBlocks().find((b) => b.map[0] <= pos && b.map.at(-1) >= pos)?.text; }
 
-// ------------------------------------------------- supervisor review --
+// ------------------------------------------------------ agent review --
 //
-// Select text → right click → "Review with supervisor". The passage gets a frame
+// Select text → right click → "Review with agent". The passage gets a frame
 // whose colour says how it fared (green: sound, amber: minor, red: needs work);
 // comments are wavy underlines by kind. Hover an underline for the comment,
 // accept its suggestion or take it to the chat; hover the frame's tab for the
@@ -651,7 +715,7 @@ function showRegionCard(id, { pin = false } = {}) {
   card.className = `rv-card rv-card-region rv-card-${region.state}`;
   card.replaceChildren(
     h("div.rv-card-head", {}, h(`span.rv-badge.rv-${region.state}`, {}, region.state === "pending" ? h("span.rv-spin") : icon(verdict.icon, { size: 15 }), verdict.label), h("span.spacer"), ...counts.map(([k, n]) => h("span.rv-count", { title: KIND[k].label }, h(`span.rv-dot.rv-${k}`), String(n)))),
-    region.summary ? h("p.rv-comment", {}, region.summary) : h("p.rv-comment.rv-muted", {}, region.state === "pending" ? "Your supervisor is reading this passage…" : ""),
+    region.summary ? h("p.rv-comment", {}, region.summary) : h("p.rv-comment.rv-muted", {}, region.state === "pending" ? "The agent is reading this passage…" : ""),
     h("div.rv-actions", {},
       h("button.btn.rv-btn", { type: "button", onclick: () => { discussRegion(region, comments); hideCard(); } }, icon("forum", { size: 16 }), "Discuss in chat"),
       region.state !== "pending" ? h("button.btn.ghost.rv-btn", { type: "button", onclick: () => { reReview(region); hideCard(); } }, icon("refresh", { size: 16 }), "Review again") : null,
@@ -702,7 +766,7 @@ ui.editorRoot.addEventListener("contextmenu", (event) => {
   const { selection } = editor.where();
   if (!selection) return;
   contextMenu(event, [
-    { label: "Review with supervisor", icon: "rate_review", run: () => void reviewSelection() },
+    { label: "Review with agent", icon: "rate_review", run: () => void reviewSelection() },
     { label: "Discuss in chat", icon: "forum", run: discussSelection },
     "-",
     { label: "Copy", icon: "content_copy", run: () => navigator.clipboard.writeText(selection) },
@@ -725,12 +789,13 @@ addEventListener("resize", drawFrames);
 
 async function render() {
   if (!doc.path) return { ok: false, error: "No document is open" };
-  if (doc.status === "unsaved" || saving) await save();
+  // Quarto renders the file on disk: save first.
+  if (doc.dirty || saving) { const result = await save(); if (!result.saved) return { ok: false, error: "The document could not be saved" }; }
   setStatus("rendering");
   ui.render.disabled = true;
   try {
     const result = await host("/v1/writer/render", { method: "POST", body: JSON.stringify({ path: doc.path, to: "pdf" }) });
-    setStatus(editor.markdown() === doc.base ? "saved" : "unsaved");
+    setStatus("saved");
     if (result.ok) {
       toast(`Rendered in ${result.seconds.toFixed(0)} s`);
       await background("open-file", { path: result.output });
@@ -764,7 +829,10 @@ async function showStart() {
   ui.outline.hidden = true;
   ui.title.textContent = "Writer";
   ui.subtitle.textContent = "";
-  setStatus("idle");
+  document.title = "Writer";
+  hideBar();
+  setStatus("idle", "", EMPTY);
+  ui.state.hidden = true;
   renderActions();
   const list = await recent();
   ui.start.replaceChildren(
@@ -795,11 +863,17 @@ async function newDocument() {
 // --------------------------------------------------------- keyboard --
 
 addEventListener("keydown", (event) => {
-  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "s") { event.preventDefault(); void save(); }
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "s") { event.preventDefault(); void tabs.save(); }
 });
-// Saving on hide (not beforeunload: a pending unload handler blocks add-on reloads).
-addEventListener("pagehide", () => { if (doc.status === "unsaved") void save(); });
-document.addEventListener("visibilitychange", () => { if (document.hidden && doc.status === "unsaved") void save(); });
+// Unsaved changes are kept as drafts (not saved behind the user's back); write them now when the page goes.
+addEventListener("pagehide", () => { for (const tab of tabs.tabs) if (tab.dirty) void tabs.writeDraft(tab); });
+// Coming here straight from the File viewer brings its document along.
+async function takeHandoff() {
+  const handoff = await background("viewer-handoff", { editor: "writer" }).catch(() => null);
+  if (handoff?.path) await open(handoff.path);
+  return Boolean(handoff?.path);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) void takeHandoff(); });
 
 // ------------------------------------------------------------- agent API --
 
@@ -812,7 +886,8 @@ registerPage("writer", {
   state: () => doc.path ? {
     path: doc.path,
     status: doc.status,
-    unsavedChanges: editor ? editor.markdown() !== doc.base : false,
+    unsavedChanges: Boolean(doc.dirty),
+    tabs: tabs.tabs.map((t) => ({ path: t.path, modified: t.dirty, active: t === doc })),
     cursor: editor?.where(),
     outline: editor?.outline().map((o) => `${"#".repeat(o.level || 0) || "-"} ${o.text}`),
     words: editor?.view.state.doc.textContent.split(/\s+/).filter(Boolean).length,
@@ -821,22 +896,31 @@ registerPage("writer", {
   commands: {
     open: ({ query, path }) => open(path ?? query),
     save: () => save(),
+    close: async ({ path }) => {
+      const tab = path ? tabs.tabs.find((t) => t.path === path) : doc;
+      if (!tab?.path) throw new Error("No such document is open");
+      return { closed: await tabs.close(tab) };
+    },
     render: () => render(),
     insert: async ({ markdown, at = "cursor" }) => {
       if (!doc.path) throw new Error("No document is open");
       if (doc.status === "readonly") throw new Error("The document is open read-only");
       let where = at;
       if (at !== "cursor" && at !== "end") { where = blockAfterHeading(at); if (where === null) throw new Error(`No heading “${at}”`); }
+      const wasClean = !doc.dirty;
       const count = editor.insertMarkdown(markdown, where);
-      await save();
-      return { inserted: count, at };
+      // The agent's edit is saved when the document had no unsaved changes of the user's; otherwise it
+      // joins them, unsaved, for the user to save (or not).
+      const saved = wasClean ? (await save()).saved : false;
+      return { inserted: count, at, saved, ...(wasClean ? {} : { note: "The user has unsaved changes in this document; the insertion is unsaved too." }) };
     },
     "replace-selection": async ({ markdown }) => {
       if (!doc.path || doc.status === "readonly") throw new Error("No editable document is open");
       if (!editor.where().selection) throw new Error("Nothing is selected");
+      const wasClean = !doc.dirty;
       editor.replaceSelection(markdown);
-      await save();
-      return { replaced: true };
+      const saved = wasClean ? (await save()).saved : false;
+      return { replaced: true, saved };
     },
     reveal: ({ heading, text }) => {
       if (!doc.path) throw new Error("No document is open");
@@ -871,5 +955,9 @@ registerPage("writer", {
 // ---------------------------------------------------------------- start --
 
 $("#doc-icon").append(icon("writer"));
-const { "writer.last": last } = await browser.storage.local.get("writer.last").catch(() => ({}));
-if (last) await open(last).catch(() => showStart()); else await showStart();
+// The tabs of the last session come back (with their unsaved changes); before tabs, the last document.
+const restored = await tabs.restore();
+if (!(await takeHandoff()) && !restored) {
+  const { "writer.last": last } = await browser.storage.local.get("writer.last").catch(() => ({}));
+  if (last) await open(last).catch(() => showStart()); else await showStart();
+}

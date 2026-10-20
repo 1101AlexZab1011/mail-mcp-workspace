@@ -312,6 +312,21 @@ const runScript = async (id: string, { steps = 0, wait = 1500, code }: { steps?:
   }
 }
 
+/** The undo history (snapshots and position), so a host can keep one per open deck. */
+const exportHistory = async () => {
+  const snapshot = useSnapshotStore()
+  const entries = await db.snapshots.orderBy('id').toArray()
+  return { snapshots: entries.map(({ index, slides }) => ({ index, slides })), cursor: snapshot.snapshotCursor, length: snapshot.snapshotLength }
+}
+const importHistory = async (history?: { snapshots: { index: number, slides: Slide[] }[], cursor: number, length: number }) => {
+  const snapshot = useSnapshotStore()
+  await db.snapshots.clear()
+  if (!history?.snapshots?.length) return snapshot.initSnapshotDatabase()
+  await db.snapshots.bulkAdd(history.snapshots)
+  snapshot.setSnapshotCursor(history.cursor)
+  snapshot.setSnapshotLength(history.length)
+}
+
 const importPPTX = (data: Blob, name = 'presentation.pptx') => useImport().importPPTXFile([new File([data], name)], { cover: true })
 
 export const installBridge = (instance: App) => {
@@ -329,6 +344,8 @@ export const installBridge = (instance: App) => {
     elementText,
     renderLatex,
     motionFrames,
+    exportHistory,
+    importHistory,
     runScript,
     validateTransition,
     validateEffect,

@@ -1,4 +1,7 @@
-// Paint: a small drawing space for marking up screenshots for the agent.
+// Paint: a small drawing space for marking up screenshots (for the agent) and editing images.
+//
+// Each open picture has a tab (shared/doctabs.js): an image file (saved back in its own format) or a
+// new canvas (saved where the user says). A tab with unsaved changes shows a dot and keeps a draft.
 //
 // The picture is a list of objects (images, strokes, shapes, text) that stay
 // editable, drawn in order onto one layer over the background. Pixel work is
@@ -12,7 +15,8 @@
 //            Ctrl+C / Ctrl+X copy / cut it, dragging it lifts it into a movable image.
 import { broker, host, HOST_ENDPOINT, json } from "./shared/broker.js";
 import { icon } from "./shared/icons.js";
-import { $, h, iconButton, toast, background, registerPage } from "./shared/page.js";
+import { $, h, iconButton, toast, background, registerPage, ask } from "./shared/page.js";
+import { DocTabs } from "./shared/doctabs.js";
 
 const viewport = $("#viewport");
 const canvas = $("#canvas");
@@ -53,9 +57,9 @@ const SHORTCUTS = [
   ["Ctrl+0 / Ctrl+1", "Fit / actual size"],
   ["Ctrl+= / Ctrl+-, + / −", "Zoom in / out"],
   ["Space + drag, middle drag", "Pan"],
-  ["Ctrl+N", "New canvas"],
-  ["Ctrl+O", "Open image"],
-  ["Ctrl+S", "Save as PNG"],
+  ["Ctrl+N", "New canvas (a new tab)"],
+  ["Ctrl+O", "Add an image to this canvas"],
+  ["Ctrl+S / Ctrl+Shift+S", "Save / Save as"],
   ["Ctrl+Shift+C", "Copy the whole picture"],
   ["Ctrl+Enter", "Send to agent"],
   ...TOOLS.filter((t) => t !== "-").map((t) => [t.key.toUpperCase(), t.label]),
@@ -65,6 +69,7 @@ const SHORTCUTS = [
 
 const NEW_SIZE = { width: 1600, height: 1000 };
 let doc = { ...NEW_SIZE, background: "#ffffff", objects: [] };
+let current = null; // the active tab (shared/doctabs.js); `doc` is its picture
 const style = { color: "#e53935", fill: null, width: 4, opacity: 1, fontSize: 28 };
 let tool = "pen";
 let selection = new Set(); // object ids
@@ -328,6 +333,7 @@ function render() {
   }
   $("#empty").hidden = doc.objects.length > 0 || Boolean(draft);
   $("#doc-size").textContent = `${doc.width} × ${doc.height}`;
+  checkModified();
 }
 
 function drawChecker() {
@@ -901,15 +907,8 @@ function nudge(dx, dy) {
   render();
 }
 
-function newCanvas() {
-  if (doc.objects.length) commit("New canvas");
-  doc = { ...NEW_SIZE, background: "#ffffff", objects: [] };
-  selection.clear();
-  region = null;
-  dirty = true;
-  fit();
-  renderProps();
-}
+/** A new canvas, in a tab of its own. */
+function newCanvas() { void tabs.openNew(); }
 
 async function addImageFromPath(path) {
   const { url } = await host("/v1/links", json({ path }));
@@ -940,6 +939,112 @@ $("#file-input").addEventListener("change", async (event) => {
 // ---------------------------------------------------------------- export --
 
 const exportBlob = () => canvasBlob(composite());
+
+// ------------------------------------------------------------------ tabs --
+
+const SAVE_TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
+const OPENS = /\.(png|jpe?g|webp|bmp|gif)$/i;
+const blankDoc = () => ({ ...NEW_SIZE, background: "#ffffff", objects: [] });
+const savedState = () => ({ width: doc.width, height: doc.height, background: doc.background, objects: [...doc.objects] });
+// Objects are never changed in place (edits replace them), so "unchanged" is the same objects in order.
+const sameState = (a, b) => Boolean(a && b) && a.width === b.width && a.height === b.height && a.background === b.background
+  && a.objects.length === b.objects.length && a.objects.every((o, i) => o === b.objects[i]);
+
+function checkModified() {
+  if (!current) return;
+  const modified = !sameState(doc, current.saved);
+  if (modified !== Boolean(current.dirty)) tabs.setDirty(current, modified);
+  else if (modified) tabs.touch(current);
+}
+
+/** An image file as a document: the picture itself, one image object filling the canvas. */
+async function imageDoc(path) {
+  const { url } = await host("/v1/links", json({ path }));
+  const src = await fileToDataUrl(await (await fetch(`${HOST_ENDPOINT}${url}`)).blob());
+  const img = await loadImage(src);
+  return { width: img.naturalWidth, height: img.naturalHeight, background: "transparent", objects: [{ id: newId(), type: "image", src, x: 0, y: 0, w: img.naturalWidth, h: img.naturalHeight, opacity: 1 }] };
+}
+
+const tabs = new DocTabs({
+  page: "paint",
+  mount: $("#tabs"),
+  icon: "image",
+  onEmpty: () => void tabs.openNew(),
+  adapter: {
+    untitled: "Untitled",
+    async load(tab, draft) {
+      const base = tab.path ? await imageDoc(tab.path) : blankDoc();
+      const shown = draft?.doc ?? base;
+      for (const o of shown.objects) if (o.type === "image") await loadImage(o.src).catch(() => {});
+      tab.state = { doc: shown, undo: [], redo: [], view: null, selection: new Set(), region: null };
+      tab.saved = draft?.doc ? (tab.path ? { ...base, objects: [...base.objects] } : null) : { ...base, objects: [...base.objects] };
+      tab.dirty = Boolean(draft?.doc);
+    },
+    show(tab) {
+      current = tab;
+      doc = tab.state.doc;
+      undoStack.splice(0, undoStack.length, ...tab.state.undo);
+      redoStack.splice(0, redoStack.length, ...tab.state.redo);
+      selection = tab.state.selection;
+      region = tab.state.region;
+      polygonDraft = null;
+      dirty = true;
+      if (tab.state.view) { Object.assign(view, tab.state.view); render(); renderZoom(); } else fit();
+      renderChrome();
+      document.title = `${tab.title} · Paint`;
+    },
+    hide(tab) {
+      tab.state = { doc, undo: [...undoStack], redo: [...redoStack], view: { ...view }, selection, region };
+    },
+    save: (tab) => saveTab(tab),
+    draft: (tab) => ({ doc: tab === current ? doc : tab.state.doc }),
+  },
+});
+
+/** Save a tab to its file (its own format), or ask where to save a new picture. */
+async function saveTab(tab, { as = false } = {}) {
+  if (tab !== current) await tabs.activate(tab);
+  let path = tab.path;
+  let type = path ? SAVE_TYPES[path.split(".").pop().toLowerCase()] : null;
+  if (!path || as || !type) {
+    const suggestion = path ? path.replace(/\.[^.]+$/, ".png") : `~/Pictures/${tab.title.toLowerCase()}.png`;
+    const chosen = await ask({ title: as || !path ? "Save picture as" : "Save as PNG", message: path && !type ? `${path.split("/").pop()} cannot be written in its format; save a PNG instead.` : "PNG, JPEG or WebP, by the file's extension", value: suggestion, ok: "Save" });
+    if (!chosen) return false;
+    path = /\.(png|jpe?g|webp)$/i.test(chosen) ? chosen : `${chosen}.png`;
+    type = SAVE_TYPES[path.split(".").pop().toLowerCase()];
+  }
+  try {
+    let out = composite({ background: type !== "image/png" && type !== "image/webp" ? true : doc.background !== "transparent" });
+    if (type === "image/jpeg" && doc.background === "transparent") {
+      const flat = document.createElement("canvas");
+      flat.width = out.width; flat.height = out.height;
+      const c = flat.getContext("2d");
+      c.fillStyle = "#ffffff"; c.fillRect(0, 0, flat.width, flat.height); c.drawImage(out, 0, 0);
+      out = flat;
+    }
+    const blob = await new Promise((resolve) => out.toBlob(resolve, type, 0.92));
+    const result = await host(`/v1/fs/raw?${new URLSearchParams({ path, createDirs: "1" })}`, { method: "PUT", body: blob });
+    tab.path = result.path;
+    tab.saved = savedState();
+    tabs.saved(tab);
+    document.title = `${tab.title} · Paint`;
+    status(`Saved ${tab.title}`);
+    return true;
+  } catch (error) {
+    toast(`Not saved: ${error.message}`);
+    return false;
+  }
+}
+
+/** Open an image file in its tab (or switch to it). */
+async function openImage(path) {
+  const info = await host(`/v1/fs/stat?path=${encodeURIComponent(path)}`).catch((error) => { toast(error.message); return null; });
+  if (!info || info.directory) return { opened: null };
+  if (!OPENS.test(info.path)) { toast("Paint opens PNG, JPEG, WebP, GIF and BMP images"); return { opened: null }; }
+  try { await tabs.open(info.path); }
+  catch (error) { toast(error.message); return { opened: null }; }
+  return { opened: "paint", path: info.path };
+}
 
 async function uploadDrawing() {
   const blob = await exportBlob();
@@ -1013,10 +1118,11 @@ function renderChrome() {
   renderHistory();
   $("#file-actions").replaceChildren(
     iconButton("note_add", "New canvas (Ctrl+N)", newCanvas, { small: true }),
-    iconButton("photo_library", "Open an image (Ctrl+O)", () => $("#file-input").click(), { small: true }),
+    iconButton("save", "Save (Ctrl+S)", () => void tabs.save(), { small: true }),
+    iconButton("photo_library", "Add an image to this canvas (Ctrl+O)", () => $("#file-input").click(), { small: true }),
     iconButton("content_paste", "Paste (Ctrl+V)", paste, { small: true }),
     iconButton("content_copy", "Copy the whole picture (Ctrl+Shift+C)", copyPicture, { small: true }),
-    iconButton("download", "Save as PNG (Ctrl+S)", download, { small: true }),
+    iconButton("download", "Download as PNG", download, { small: true }),
     iconButton("keyboard", "Keyboard shortcuts", showShortcuts, { small: true }),
     iconButton("tune", "Show or hide the style panel", () => {
       if (document.body.classList.contains("narrow")) document.body.classList.toggle("props-shown");
@@ -1118,7 +1224,7 @@ addEventListener("keydown", (event) => {
     const actions = {
       z: () => (event.shiftKey ? redo() : undo()), y: redo, a: selectAll, d: duplicate,
       c: () => (event.shiftKey ? copyPicture() : copySelection()), x: () => copySelection({ cut: true }), v: paste,
-      n: newCanvas, o: () => $("#file-input").click(), s: download,
+      n: newCanvas, o: () => $("#file-input").click(), s: () => (event.shiftKey ? current && saveTab(current, { as: true }) : tabs.save()),
       0: fit, 1: actualSize, "=": () => zoomCenter(1.2), "+": () => zoomCenter(1.2), "-": () => zoomCenter(1 / 1.2),
       enter: () => sendToAgent().catch((error) => toast(error.message)),
     };
@@ -1154,6 +1260,9 @@ new ResizeObserver(() => { document.body.classList.toggle("narrow", innerWidth <
 const SHAPE_TYPES = new Set(["stroke", "line", "arrow", "rect", "ellipse", "text"]);
 registerPage("paint", {
   state: () => ({
+    path: current?.path ?? null,
+    modified: Boolean(current?.dirty),
+    tabs: tabs.tabs.map((t) => ({ path: t.path, title: t.title, modified: t.dirty, active: t === current })),
     width: doc.width, height: doc.height, background: doc.background, tool, color: style.color,
     objects: doc.objects.length,
     kinds: doc.objects.reduce((acc, o) => ({ ...acc, [o.type]: (acc[o.type] ?? 0) + 1 }), {}),
@@ -1161,6 +1270,8 @@ registerPage("paint", {
     area: region ? regionBounds(region) : null,
   }),
   commands: {
+    open: ({ path, query }) => openImage(path ?? query),
+    save: async () => ({ saved: current ? await tabs.save() : false }),
     snapshot: async () => uploadDrawing(),
     "insert-image": async ({ path }) => { await addImageFromPath(path); return { objects: doc.objects.length }; },
     "add-shapes": async ({ shapes = [] }) => {
@@ -1179,8 +1290,20 @@ registerPage("paint", {
 
 // ------------------------------------------------------------------ start --
 
-// Paint starts empty every time; earlier versions kept a drawing between sessions.
+// Earlier versions kept one drawing in IndexedDB; tabs and drafts replace that.
 indexedDB.deleteDatabase("mail-workspace-paint");
 renderChrome();
 setTool("pen");
-fit();
+// Unsaved changes are kept as drafts; write them now when the page goes.
+addEventListener("pagehide", () => { for (const tab of tabs.tabs) if (tab.dirty) void tabs.writeDraft(tab); });
+// Coming here straight from the File viewer brings its image along.
+async function takeHandoff() {
+  const handoff = await background("viewer-handoff", { editor: "paint" }).catch(() => null);
+  if (handoff?.path) await openImage(handoff.path);
+  return Boolean(handoff?.path);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) void takeHandoff(); });
+// The tabs of the last session come back; otherwise a new canvas. (A page loading because the user
+// switched here from the viewer takes the viewer's image too.)
+const restored = await tabs.restore();
+if (!(await takeHandoff()) && !restored) await tabs.openNew();

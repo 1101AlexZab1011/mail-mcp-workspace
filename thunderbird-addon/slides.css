@@ -16,8 +16,9 @@
   --pp-font: var(--mw-font);
   --pp-radius: var(--mw-radius-s);
 }
-body { background: var(--mw-bg); }
-#app { height: 100%; }
+body { background: var(--mw-bg); display: flex; flex-direction: column; height: 100vh; margin: 0; }
+.tabs-host { flex: none; }
+#app { flex: 1; min-height: 0; }
 #app[hidden] { display: none; }
 
 /* Header status, rendered into the editor's header (#pptist-host-left / -right). */

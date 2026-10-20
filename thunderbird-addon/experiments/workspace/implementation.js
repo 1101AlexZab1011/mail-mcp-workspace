@@ -79,6 +79,26 @@ var workspace = class extends ExtensionAPI {
           // Before any window is laid out: registering the window listener below
           // already applies the layout to open windows.
           scope.migrateDockPrefs();
+          // Reloading the add-on can leave a space of ours on the toolbar's list with its button gone; a new
+          // space of that name is then never shown. Drop such leftovers before the spaces are made again.
+          const prefix = `${self.extension.id.replace(/[^a-z0-9_-]/gi, "_")}-spacesButton-`;
+          const shown = new Set();
+          for (const window of self.messengerWindows()) {
+            const bar = window.gSpacesToolbar;
+            if (bar?.spaces) bar.spaces = bar.spaces.filter((space) => !(String(space.name).startsWith(prefix) && !space.button?.isConnected));
+            for (const space of bar?.spaces ?? []) if (space.button?.isConnected) shown.add(space.name);
+          }
+          // The spaces API's own record of such a space must go too: removing it through the API fails while
+          // its button is gone, and creating one of the same name is refused.
+          try {
+            const { ExtensionParent } = ChromeUtils.importESModule("resource://gre/modules/ExtensionParent.sys.mjs");
+            const tracker = ExtensionParent.apiManager.global.spaceTracker;
+            for (const [buttonId, data] of [...(tracker?._spaceData ?? [])]) {
+              if (data.extension?.id !== self.extension.id || shown.has(buttonId)) continue;
+              tracker._spaceData.delete(buttonId);
+              tracker._spaceIds?.delete(data.spaceId);
+            }
+          } catch (error) { console.warn("Mail Workspace: could not tidy the spaces", error); }
           const ctx = {
             extension: self.extension,
             leftUrl,

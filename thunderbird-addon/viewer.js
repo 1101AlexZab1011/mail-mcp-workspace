@@ -130,6 +130,11 @@ function renderFallback(file) {
   )));
 }
 
+// Leaving the viewer for an editor takes the document along (see "viewer-handoff" in background.js).
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) void background("viewer-left", { path: current?.file?.path ?? null }).catch(() => {});
+});
+
 registerPage("viewer", {
   state: () => ({
     file: current?.file ?? null,

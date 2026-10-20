@@ -313,8 +313,10 @@ tree.addEventListener("contextmenu", (event) => {
       ? [{ label: "Open as root", icon: "folder_open", run: () => navigate(entry.path) }, { label: state.expanded.has(entry.path) ? "Collapse" : "Expand", icon: "chevron_right", run: () => toggle(entry.path) },
         { label: "New document", icon: "note_add", run: () => newDocument(entry.path) }, { label: "New presentation", icon: "slides", run: () => newPresentation(entry.path) }, { label: "New folder", icon: "create_new_folder", run: () => newFolder(entry.path) }]
       : [...(isDocument(entry.path) ? [{ label: "Open in Writer", icon: "writer", run: () => openFile(entry.path) }] : []),
+        ...(/\.md$/i.test(entry.path) ? [{ label: "Open in Notes", icon: "notes", run: () => background("open-space", { name: "notes", query: entry.path }) }] : []),
         ...(isDeck(entry.path) ? [{ label: "Open in Slides", icon: "slides", run: () => openFile(entry.path) }] : []),
         ...(isPowerPoint(entry.path) ? [{ label: "Open in Slides (import)", icon: "slides", run: () => background("open-document", { path: entry.path }) }] : []),
+        ...(/\.(png|jpe?g|webp|bmp|gif)$/i.test(entry.path) ? [{ label: "Edit in Paint", icon: "brush", run: () => background("open-space", { name: "paint", query: entry.path }) }] : []),
         { label: "Open in viewer", icon: "preview", run: () => openFile(entry.path, { viewer: true }) }, { label: "Attach to chat", icon: "attach_file", run: () => attachToChat(paths) }]),
     "-",
     ...(paths.length === 1 ? [{ label: "Rename…", icon: "drive_file_rename", run: () => rename(entry) }] : []),

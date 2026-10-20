@@ -82,15 +82,6 @@ const consoleLines = computed(() => {
 const timer = setInterval(() => { if (scriptEditor.visible) tick.value++ }, 400)
 onUnmounted(() => clearInterval(timer))
 
-watch(() => [scriptEditor.visible, scriptEditor.elementId], async () => {
-  stop()
-  if (!scriptEditor.visible || !element.value) return
-  libs.value = [...(element.value.libs ?? [])]
-  steps.value = element.value.steps ?? 0
-  data.value = (element.value.data ?? []).join(', ')
-  code.value = savedCode.value = hooks.readScript ? await hooks.readScript(element.value.src).catch(() => '') : ''
-  void run()
-}, { immediate: true })
 
 const draft = (): PPTScriptElement => ({
   ...element.value!,
@@ -161,6 +152,17 @@ const askAgent = () => {
     elements: [{ id: element.value.id, type: 'script', name: element.value.name, text: `${element.value.src}${host.value?.errors.length ? `\nErrors:\n${host.value.errors.join('\n')}` : ''}` }],
   })
 }
+
+// Opening the dialog (or switching element) loads the script and runs it.
+watch(() => [scriptEditor.visible, scriptEditor.elementId], async () => {
+  stop()
+  if (!scriptEditor.visible || !element.value) return
+  libs.value = [...(element.value.libs ?? [])]
+  steps.value = element.value.steps ?? 0
+  data.value = (element.value.data ?? []).join(', ')
+  code.value = savedCode.value = hooks.readScript ? await hooks.readScript(element.value.src).catch(() => '') : ''
+  void run()
+}, { immediate: true })
 
 const close = () => {
   stop()
