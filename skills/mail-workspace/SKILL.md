@@ -28,6 +28,9 @@ user instead of describing clicks.
 - Prefer the direct tools: `gui_open`, `gui_dock`, `mail_select`,
   `calendar_goto`, `viewer_open`, `viewer_command`, `files_navigate`,
   `files_select`, `paint_*`, `artifact_*`.
+- The space bar shows tool groups: Mail and calendar, Files, Create. Each group
+  button opens its last-used tool, and its other tools are in a flyout. Open a
+  space with `gui_open`, not by clicking a group.
 - For anything else: `gui_snapshot` → `gui_click` / `gui_type` /
   `gui_select` / `gui_key`, then check the result with `gui_state` or a new
   snapshot.

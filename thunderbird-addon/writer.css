@@ -13,10 +13,13 @@ body { display: flex; flex-direction: column; background: var(--mw-bg); }
 
 /* --- formatting toolbar ---------------------------------------------------- */
 .toolbar {
-  flex: none; display: flex; align-items: center; gap: 2px; height: 42px; padding: 0 10px;
-  background: var(--mw-surface); border-bottom: 1px solid var(--mw-border); overflow-x: auto;
+  flex: none; padding: 5px 10px;
+  background: var(--mw-surface); border-bottom: 1px solid var(--mw-border);
 }
-.toolbar .divider { width: 1px; height: 22px; background: var(--mw-border); margin: 0 6px; flex: none; }
+/* The bar wraps between groups when the editor is narrow. Each group draws its divider on its left, one
+   pixel outside; the clip hides it on whichever group starts a row. */
+.toolbar .tb-rows { display: flex; flex-wrap: wrap; align-items: center; row-gap: 2px; overflow: hidden; }
+.toolbar .tb-group { display: flex; align-items: center; gap: 2px; flex: none; margin-left: -1px; padding: 0 6px; border-left: 1px solid var(--mw-border); }
 .toolbar .icon-btn[aria-pressed="true"] { background: var(--mw-primary-soft); color: var(--mw-primary-soft-text); }
 .toolbar .tb-text { height: 30px; padding: 0 10px; border: 0; border-radius: var(--mw-radius-s); background: none; color: var(--mw-text-2); font-weight: 600; font-size: 12.5px; cursor: pointer; }
 .toolbar .tb-text:hover { background: var(--mw-hover); color: var(--mw-text); }

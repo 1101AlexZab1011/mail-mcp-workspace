@@ -5,7 +5,7 @@
       <Thumbnails class="layout-content-left" />
       <div class="layout-content-center">
         <CanvasTool class="center-top" />
-        <Canvas class="center-body" :style="{ height: `calc(100% - ${remarkHeight + 40}px)` }" />
+        <Canvas class="center-body" />
         <Remark
           class="center-bottom" 
           v-model:height="remarkHeight" 
@@ -79,14 +79,20 @@ usePasteEvent()
 </script>
 
 <style lang="scss" scoped>
+// A column of flex boxes: the header and the canvas toolbar may wrap onto more rows when the editor is
+// narrow (e.g. beside a wide dock), and the canvas takes whatever height is left.
 .pptist-editor {
   height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 .layout-header {
-  height: 40px;
+  min-height: 40px;
+  flex: none;
 }
 .layout-content {
-  height: calc(100% - 40px);
+  flex: 1;
+  min-height: 0;
   display: flex;
 }
 .layout-content-left {
@@ -96,9 +102,20 @@ usePasteEvent()
 }
 .layout-content-center {
   width: calc(100% - 160px - 260px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 
   .center-top {
-    height: 40px;
+    min-height: 40px;
+    flex: none;
+  }
+  .center-body {
+    flex: 1;
+    min-height: 0;
+  }
+  .center-bottom {
+    flex: none;
   }
 }
 .layout-content-right {

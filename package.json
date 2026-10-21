@@ -17,7 +17,7 @@
     "workflow:watch": "node src/main.mjs watch",
     "workflow:install-watcher": "node src/main.mjs install-watcher-service",
     "workflow:init": "node src/main.mjs init",
-    "chat:addon": "mkdir -p dist && (cd thunderbird-addon && zip -qr ../dist/agent-chat.xpi .)",
+    "chat:addon": "mkdir -p dist && rm -f dist/agent-chat.xpi && (cd thunderbird-addon && zip -qr ../dist/agent-chat.xpi .)",
     "test": "node --test test/*.test.mjs"
   },
   "keywords": [

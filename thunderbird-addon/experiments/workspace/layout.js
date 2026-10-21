@@ -179,6 +179,7 @@ function applyLayout(window, ctx) {
   window.mwCtx = ctx;
   installSidebarButtons(window, ctx);
   markSidebar(window, ctx.filesSide);
+  const stopGroups = installToolGroups(window);
   const stopSearch = installSearch(window);
   dropEchoTooltips(window);
   // Refit when the window changes size (debounced to a frame).
@@ -226,6 +227,7 @@ function applyLayout(window, ctx) {
     tabmail.unregisterTabMonitor(monitor);
     observer.disconnect();
     stopSearch();
+    stopGroups();
     document.getElementById("mw-files-dock-button")?.remove();
     document.getElementById("mw-appmenu-button")?.remove();
     document.getElementById("mw-terminal")?.remove();

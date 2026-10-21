@@ -20,11 +20,25 @@ async function installSpaces() {
       defaultIcons: `icons/${space.icon}.svg`,
     };
     try {
-      // A space can outlive its button when the add-on is reloaded, and updating it then still "succeeds"
-      // (the Slides button went missing that way). Spaces from before are removed and made again, in order.
+      // spaces.update takes the space's id, not its name; look it up first.
       const [existing] = await browser.spaces.query({ name: space.name });
-      if (existing) await browser.spaces.remove(existing.id).catch((error) => console.warn(`Mail Workspace: could not remove the old ${space.name} space`, error));
-      await browser.spaces.create(space.name, space.url, props);
+      if (!existing) await browser.spaces.create(space.name, space.url, props);
+      else {
+        // A space can survive while its button is gone (e.g. the add-on was reloaded with the space
+        // open); updating it then fails. Recreate it.
+        try { await browser.spaces.update(existing.id, props); }
+        catch (error) {
+          console.warn(`Mail Workspace: recreating the ${space.name} space`, error);
+          await browser.spaces.remove(existing.id).catch(() => {});
+          await browser.spaces.create(space.name, space.url, props);
+        }
+      }
+      // Or the update "succeeds" and still no button shows: forget that space and make it again.
+      if (!(await browser.workspace.spaceShown(space.name))) {
+        console.warn(`Mail Workspace: the ${space.name} button was missing; making it again`);
+        await browser.workspace.dropSpace(space.name);
+        await browser.spaces.create(space.name, space.url, props);
+      }
     } catch (error) { console.error(`Mail Workspace: could not install the ${space.name} space`, error); }
   }
 }

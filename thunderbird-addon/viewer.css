@@ -7,10 +7,10 @@ body { display: flex; flex-direction: column; background: var(--mw-bg); }
 .actions { display: flex; gap: 2px; align-items: center; }
 
 .toolbar {
-  flex: none; display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 10px;
-  background: var(--mw-surface); border-bottom: 1px solid var(--mw-border); overflow-x: auto;
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-height: 44px; padding: 6px 10px; box-sizing: border-box;
+  background: var(--mw-surface); border-bottom: 1px solid var(--mw-border); /* wraps onto more rows when narrow */
 }
-.toolbar .group { display: flex; align-items: center; gap: 2px; }
+.toolbar .group { display: flex; align-items: center; gap: 2px; flex: none; }
 .toolbar .divider { width: 1px; height: 22px; background: var(--mw-border); margin: 0 4px; flex: none; }
 .toolbar .spacer { flex: 1; }
 .toolbar .label { color: var(--mw-text-2); font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }

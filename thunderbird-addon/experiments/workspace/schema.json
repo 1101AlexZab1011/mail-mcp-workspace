@@ -184,6 +184,20 @@
         ]
       },
       {
+        "name": "spaceShown",
+        "type": "function",
+        "async": true,
+        "description": "Whether the space of this name (one of ours) has its button on the toolbar.",
+        "parameters": [{ "name": "name", "type": "string" }]
+      },
+      {
+        "name": "dropSpace",
+        "type": "function",
+        "async": true,
+        "description": "Forget a space of ours whose button is gone, so one of that name can be made again.",
+        "parameters": [{ "name": "name", "type": "string" }]
+      },
+      {
         "name": "pressKey",
         "type": "function",
         "async": true,

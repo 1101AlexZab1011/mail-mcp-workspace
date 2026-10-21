@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "name": "Mail Workspace",
   "description": "Agent-first workspace for Thunderbird: chat and file docks, file viewer, artifacts, paint, and GUI control for your agent.",
-  "version": "2.0.0",
+  "version": "2.2.1",
   "icons": {
     "16": "app-icon.svg",
     "32": "app-icon.svg",

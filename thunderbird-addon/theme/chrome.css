@@ -97,10 +97,54 @@
 :root[mw-workspace] .spaces-badge-container { background: var(--mw-danger) !important; }
 /* The file-browser toggle is on while its dock is open. */
 :root[mw-workspace] #spacesToolbar .mw-space-button.mw-active { background: var(--mw-hover) !important; color: var(--mw-text) !important; }
-/* Add-on space buttons: draw their icons like the built-in ones (same fill). */
+/* Add-on space buttons: draw their icons like the built-in ones (same fill). Their own moz-extension:
+   icons get no context-fill and draw black, so every space needs a line here. */
 :root[mw-workspace] [id$="spacesButton-viewer"] img { content: url("resource://mailworkspace/icons/preview.svg"); }
 :root[mw-workspace] [id$="spacesButton-artifacts"] img { content: url("resource://mailworkspace/icons/artifact.svg"); }
 :root[mw-workspace] [id$="spacesButton-paint"] img { content: url("resource://mailworkspace/icons/brush.svg"); }
+:root[mw-workspace] [id$="spacesButton-writer"] img { content: url("resource://mailworkspace/icons/writer.svg"); }
+:root[mw-workspace] [id$="spacesButton-slides"] img { content: url("resource://mailworkspace/icons/slides.svg"); }
+:root[mw-workspace] [id$="spacesButton-notes"] img { content: url("resource://mailworkspace/icons/notes.svg"); }
+
+/* Tool groups (experiments/workspace/groups.js): one button per group opens its last tool; the tools'
+   own buttons stay in the toolbar, hidden, and keep their state. */
+:root[mw-groups] #spacesToolbar :is(#mailButton, #addressBookButton, #calendarButton, #tasksButton, #mw-files-dock-button,
+  [id$="spacesButton-viewer"], [id$="spacesButton-artifacts"], [id$="spacesButton-notes"], [id$="spacesButton-paint"],
+  [id$="spacesButton-writer"], [id$="spacesButton-slides"]) { display: none !important; }
+:root[mw-workspace] #spacesToolbar .mw-group-button { position: relative; }
+:root[mw-workspace] #spacesToolbar .mw-group-button + .mw-group-button { margin-top: 2px; }
+:root[mw-workspace] #spacesToolbar .mw-group-button.mw-active { background: var(--mw-hover) !important; color: var(--mw-text) !important; }
+:root[mw-workspace] #spacesToolbar .mw-group-button.mw-flyout-open { background: var(--mw-hover) !important; }
+/* The corner mark says "more tools here", as in Illustrator; clicking it opens the flyout. */
+:root[mw-workspace] .mw-group-corner {
+  position: absolute; right: 3px; bottom: 3px; width: 9px; height: 9px; padding: 3px; margin: -3px; box-sizing: content-box;
+  background: linear-gradient(135deg, transparent 50%, currentColor 50%) content-box; opacity: 0.45; border-radius: 0 0 3px 0;
+}
+:root[mw-workspace] .mw-group-button:hover .mw-group-corner { opacity: 0.8; }
+:root[mw-workspace] .mw-group-badge {
+  position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px;
+  background: var(--mw-danger); color: #fff; font: 600 10px/16px var(--mw-font, sans-serif); text-align: center; pointer-events: none;
+}
+:root[mw-workspace] .mw-group-badge[hidden] { display: none; }
+:root[mw-workspace] .mw-group-flyout {
+  position: fixed; z-index: 2147483000; min-width: 220px; padding: 6px; display: flex; flex-direction: column; gap: 1px;
+  background: var(--mw-surface); color: var(--mw-text); border: 1px solid var(--mw-border); border-radius: var(--mw-radius, 10px);
+  box-shadow: var(--mw-shadow-3, 0 8px 28px rgba(0, 0, 0, 0.18)); font: 13.5px var(--mw-font, sans-serif);
+}
+:root[mw-workspace] .mw-group-flyout[hidden] { display: none; }
+:root[mw-workspace] .mw-group-flyout-title { padding: 4px 8px 6px; font-size: 11.5px; font-weight: 650; color: var(--mw-text-3); }
+:root[mw-workspace] .mw-group-item {
+  display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px 0 8px; border: 0; border-radius: var(--mw-radius-s, 6px);
+  background: none; color: var(--mw-text); font: inherit; text-align: start; cursor: pointer; appearance: none;
+}
+:root[mw-workspace] .mw-group-item:is(:hover, .active) { background: var(--mw-hover); }
+:root[mw-workspace] .mw-group-item.current { background: var(--mw-primary-soft); color: var(--mw-primary-soft-text); }
+:root[mw-workspace] .mw-group-item img {
+  width: 20px; height: 20px; -moz-context-properties: fill, fill-opacity; fill: currentColor; fill-opacity: 1;
+}
+:root[mw-workspace] .mw-group-item-label { flex: 1; }
+:root[mw-workspace] .mw-group-item-key { font-size: 11.5px; color: var(--mw-text-3); }
+:root[mw-workspace] .mw-group-item.last:not(.current) .mw-group-item-label { font-weight: 600; }
 
 /* Tooltips: compact and on the palette. Square corners: popups are separate
    windows, and rounded ones show dark corners under some compositors. */

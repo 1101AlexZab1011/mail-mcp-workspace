@@ -346,16 +346,17 @@ function renderToolbar() {
   const run = (name, payload) => () => { try { editor.command(name, payload); } catch (error) { toast(error.message); } };
   const tb = (name, title, onclick) => iconButton(name, title, onclick, { small: true });
   const text = (label, title, onclick) => h("button.tb-text", { type: "button", title, onclick }, label);
-  const sep = () => h("span.divider");
-  ui.toolbar.replaceChildren(
-    tb("undo", "Undo (Ctrl+Z)", run("undo")), tb("redo", "Redo (Ctrl+Shift+Z)", run("redo")), sep(),
-    text("Text", "Normal text", run("paragraph")), tb("format_h1", "Heading 1", run("heading", 1)), tb("format_h2", "Heading 2", run("heading", 2)), tb("format_h3", "Heading 3", run("heading", 3)), sep(),
-    tb("format_bold", "Bold (Ctrl+B)", run("bold")), tb("format_italic", "Italic (Ctrl+I)", run("italic")), tb("format_strikethrough", "Strikethrough", run("strike")), tb("code", "Inline code", run("code")), sep(),
-    tb("format_list_bulleted", "Bulleted list", run("bullet")), tb("format_list_numbered", "Numbered list", run("ordered")), tb("format_quote", "Quote", run("quote")), sep(),
-    tb("link", "Link", insertLink), tb("image", "Figure", insertFigure), tb("table", "Table", run("table")), tb("horizontal_rule", "Divider", run("hr")), sep(),
-    text("x²", "Inline math", insertInlineMath), tb("functions", "Equation", insertEquation), tb("menu_book", "Citation", insertCitation), tb("tag", "Cross-reference", insertCrossref), sep(),
-    tb("lightbulb", "Callout", insertCallout), tb("data_object", "Code cell", insertCodeCell),
-  );
+  // Groups of buttons: when the editor is narrow (a wide chat dock), the bar wraps between groups.
+  const group = (...buttons) => h("span.tb-group", {}, ...buttons);
+  ui.toolbar.replaceChildren(h("div.tb-rows", {},
+    group(tb("undo", "Undo (Ctrl+Z)", run("undo")), tb("redo", "Redo (Ctrl+Shift+Z)", run("redo"))),
+    group(text("Text", "Normal text", run("paragraph")), tb("format_h1", "Heading 1", run("heading", 1)), tb("format_h2", "Heading 2", run("heading", 2)), tb("format_h3", "Heading 3", run("heading", 3))),
+    group(tb("format_bold", "Bold (Ctrl+B)", run("bold")), tb("format_italic", "Italic (Ctrl+I)", run("italic")), tb("format_strikethrough", "Strikethrough", run("strike")), tb("code", "Inline code", run("code"))),
+    group(tb("format_list_bulleted", "Bulleted list", run("bullet")), tb("format_list_numbered", "Numbered list", run("ordered")), tb("format_quote", "Quote", run("quote"))),
+    group(tb("link", "Link", insertLink), tb("image", "Figure", insertFigure), tb("table", "Table", run("table")), tb("horizontal_rule", "Divider", run("hr"))),
+    group(text("x²", "Inline math", insertInlineMath), tb("functions", "Equation", insertEquation), tb("menu_book", "Citation", insertCitation), tb("tag", "Cross-reference", insertCrossref)),
+    group(tb("lightbulb", "Callout", insertCallout), tb("data_object", "Code cell", insertCodeCell)),
+  ));
 }
 
 function renderActions() {

@@ -1,5 +1,5 @@
 /* Mail Workspace Experiment: the privileged half of the add-on. Layout lives in
-   layout.js, GUI state and automation in automation.js; both are loaded into
+   layout.js (the space bar's tool groups in groups.js), GUI state and automation in automation.js; all are loaded into
    this scope so they share helpers without globals leaking into Thunderbird. */
 /* global ExtensionAPI */
 var { ExtensionCommon } = ChromeUtils.importESModule("resource://gre/modules/ExtensionCommon.sys.mjs");
@@ -14,7 +14,7 @@ var workspace = class extends ExtensionAPI {
     const resProto = Services.io.getProtocolHandler("resource").QueryInterface(Ci.nsIResProtocolHandler);
     resProto.setSubstitutionWithFlags(RESOURCE_HOST, this.extension.rootURI, resProto.ALLOW_CONTENT_ACCESS);
     this.scope = { Services, ChromeUtils, Ci, Cc, Cu, ExtensionParent, console };
-    for (const file of ["layout.js", "shell.js", "automation.js"]) {
+    for (const file of ["layout.js", "shell.js", "groups.js", "automation.js"]) {
       // Through resource://, which is trusted also when the add-on runs from a folder.
       Services.scriptloader.loadSubScript(`resource://${RESOURCE_HOST}/experiments/workspace/${file}?${Date.now()}`, this.scope);
     }
@@ -72,6 +72,8 @@ var workspace = class extends ExtensionAPI {
       return dock;
     };
 
+    const spaceButtonPrefix = () => `${ExtensionCommon.makeWidgetId(self.extension.id)}-spacesButton-`;
+
     return {
       workspace: {
         async install({ leftUrl, rightUrl, filesSide = "left", terminalUrl }) {
@@ -79,26 +81,6 @@ var workspace = class extends ExtensionAPI {
           // Before any window is laid out: registering the window listener below
           // already applies the layout to open windows.
           scope.migrateDockPrefs();
-          // Reloading the add-on can leave a space of ours on the toolbar's list with its button gone; a new
-          // space of that name is then never shown. Drop such leftovers before the spaces are made again.
-          const prefix = `${self.extension.id.replace(/[^a-z0-9_-]/gi, "_")}-spacesButton-`;
-          const shown = new Set();
-          for (const window of self.messengerWindows()) {
-            const bar = window.gSpacesToolbar;
-            if (bar?.spaces) bar.spaces = bar.spaces.filter((space) => !(String(space.name).startsWith(prefix) && !space.button?.isConnected));
-            for (const space of bar?.spaces ?? []) if (space.button?.isConnected) shown.add(space.name);
-          }
-          // The spaces API's own record of such a space must go too: removing it through the API fails while
-          // its button is gone, and creating one of the same name is refused.
-          try {
-            const { ExtensionParent } = ChromeUtils.importESModule("resource://gre/modules/ExtensionParent.sys.mjs");
-            const tracker = ExtensionParent.apiManager.global.spaceTracker;
-            for (const [buttonId, data] of [...(tracker?._spaceData ?? [])]) {
-              if (data.extension?.id !== self.extension.id || shown.has(buttonId)) continue;
-              tracker._spaceData.delete(buttonId);
-              tracker._spaceIds?.delete(data.spaceId);
-            }
-          } catch (error) { console.warn("Mail Workspace: could not tidy the spaces", error); }
           const ctx = {
             extension: self.extension,
             leftUrl,
@@ -129,6 +111,29 @@ var workspace = class extends ExtensionAPI {
         // parameter does not replace, so null options are normalised here.
         async snapshot(options) { return scope.snapshot(self.mainWindow(), options ?? {}); },
         async act(ref, action, value, options) { return scope.act(self.mainWindow(), ref, action, value, options ?? {}); },
+        // A space of ours can be on record while its button is gone (after an add-on reload); a new space
+        // of that name is then refused or never shown. The background asks after each space it installs.
+        async spaceShown(name) {
+          const id = `${spaceButtonPrefix()}${name}`;
+          const window = self.mainWindow();
+          // Only once the window and its toolbar are up: during startup a restored button is not there yet.
+          for (let i = 0; i < 50 && !(window?.document.readyState === "complete" && window.gSpacesToolbar?.isLoaded !== false); i++) await new Promise((r) => setTimeout(r, 100));
+          if (!window?.gSpacesToolbar) return true;
+          return Boolean(window.document.getElementById(id)?.isConnected);
+        },
+        async dropSpace(name) {
+          const id = `${spaceButtonPrefix()}${name}`;
+          for (const window of self.messengerWindows()) {
+            const bar = window.gSpacesToolbar;
+            if (bar?.spaces) bar.spaces = bar.spaces.filter((space) => space.name !== id);
+            window.document.getElementById(id)?.remove();
+            window.document.getElementById(`${id}-menuitem`)?.remove();
+          }
+          const tracker = ExtensionParent.apiManager.global.spaceTracker;
+          const data = tracker?._spaceData?.get(id);
+          if (data) { tracker._spaceData.delete(id); tracker._spaceIds?.delete(data.spaceId); }
+          return true;
+        },
         async pressKey(combo, options) { return scope.pressKey(self.mainWindow(), combo, options ?? {}); },
         async screenshot(options) { return scope.screenshot(self.mainWindow(), options ?? {}); },
         async selectMail(folderUri, messageKeys) { return scope.selectMail(self.mainWindow(), folderUri, messageKeys); },

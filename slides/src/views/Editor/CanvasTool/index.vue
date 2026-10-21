@@ -351,15 +351,23 @@ const toggleSymbolPanel = () => {
 </script>
 
 <style lang="scss" scoped>
+// Undo/redo on the left, the insert buttons in the middle, zoom on the right; when the editor is narrow
+// the row wraps (no part is hidden), and labels give way first. Sizes follow the editor, not the window.
 .canvas-tool {
   position: relative;
   border-bottom: 1px solid $borderColor;
   background-color: var(--pp-surface);
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  padding: 0 10px;
+  gap: 4px 8px;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 4px 10px;
   font-size: 13px;
   user-select: none;
+  container-type: inline-size;
 }
 .left-handler, .more {
   display: flex;
@@ -382,11 +390,10 @@ const toggleSymbolPanel = () => {
   }
 }
 .add-element-handler {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 2px;
 
   & > div {
     flex-shrink: 0;
@@ -492,7 +499,7 @@ const toggleSymbolPanel = () => {
   }
 }
 
-@media screen and (width <= 1600px) {
+@container (width <= 1250px) {
   .add-element-handler {
     .insert-handler-item {
       .icon {
@@ -504,14 +511,14 @@ const toggleSymbolPanel = () => {
     }
   }
 }
-@media screen and (width <= 1366px) {
+@container (width <= 950px) {
   .add-element-handler {
     .insert-handler-item {
       padding: 0 6px;
     }
   }
 }
-@media screen and (width <= 1200px) {
+@container (width <= 820px) {
   .right-handler .text {
     display: none;
   }
@@ -522,9 +529,5 @@ const toggleSymbolPanel = () => {
     display: block;
   }
 }
-@media screen and (width <= 1000px) {
-  .left-handler, .right-handler {
-    display: none;
-  }
-}
+
 </style>

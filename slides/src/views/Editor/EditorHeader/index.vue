@@ -152,7 +152,10 @@ const openMarkupPanel = () => {
   user-select: none;
   border-bottom: 1px solid $borderColor;
   display: flex;
+  flex-wrap: wrap; // more rows when the editor is narrow
+  align-items: center;
   justify-content: space-between;
+  min-height: 40px;
   padding: 0 5px;
 }
 .group-menu-item.slideshow {
