@@ -116,6 +116,7 @@ function installToolGroups(window) {
     window.clearTimeout(closeTimer);
     const button = buttons.get(group.id);
     const tools = toolsOf(group);
+    if (tools.length < 2) { close(); return; } // a group of one has nothing to choose from
     const current = currentTool(group)?.id;
     flyout.replaceChildren(...[html("div", "mw-group-flyout-title")].map((t) => { t.textContent = group.label; return t; }),
       ...tools.map((tool) => {
@@ -177,7 +178,7 @@ function installToolGroups(window) {
     button.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
       held = false;
-      holdTimer = window.setTimeout(() => { held = true; open(group); }, HOLD_DELAY);
+      holdTimer = window.setTimeout(() => { held = toolsOf(group).length > 1; open(group); }, HOLD_DELAY);
     });
     button.addEventListener("pointerup", () => window.clearTimeout(holdTimer));
     button.addEventListener("click", (event) => {
@@ -231,6 +232,7 @@ function installToolGroups(window) {
       const el = original(tool);
       const { label, key } = splitTitle(el?.getAttribute("title"));
       const others = toolsOf(group).filter((t) => t !== tool).length;
+      button.querySelector(".mw-group-corner").hidden = !others;
       const aria = `${label}${key ? ` (${key})` : ""}${others ? `; ${others} more in ${group.label}` : ""}`;
       if (button.getAttribute("aria-label") !== aria) button.setAttribute("aria-label", aria);
       // Badges (unread mail, due tasks) of any tool in the group show on the group.
