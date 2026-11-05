@@ -7,10 +7,10 @@
    each web tab's toolbox gets a strip of the open web tabs, and its toolbar an editable address bar,
    reload/stop and a new-tab button. The agent reads and fills pages through the add-on's content
    script (background/web.js); clicks are sent from here, as real mouse input. */
-/* global Services, ChromeUtils, Ci, ExtensionParent, parseAddress, makeSpaceButton */
+/* global Services, ChromeUtils, Cc, Ci, ExtensionParent, parseAddress, webShortcut, makeSpaceButton */
 
 var WEB_GROUP = "browsers";
-var WEB_START = "about:blank";
+var WEB_START = "https://www.google.com/";
 var WEB_FALLBACK_SEARCH = "https://duckduckgo.com/?q=";
 var WEB_BUTTON = "mw-browser-button";
 
@@ -42,13 +42,26 @@ async function resolveAddress(input) {
   return WEB_FALLBACK_SEARCH + encodeURIComponent(parsed.search);
 }
 
+/** Thunderbird's user agent with Firefox in its place: sites serve Thunderbird reduced pages (Google its
+    legacy one), and a web tab is the Firefox engine Thunderbird is built on. */
+function firefoxUserAgent() {
+  const ua = Cc["@mozilla.org/network/protocol;1?name=http"].getService(Ci.nsIHttpProtocolHandler).userAgent;
+  return ua.replace(/Thunderbird\/([\d.]+)/, "Firefox/$1");
+}
+
+/** Before its first request (it stays across navigations). */
+function presentAsFirefox(info) {
+  const context = info.browser?.browsingContext;
+  if (context) context.customUserAgent = firefoxUserAgent();
+}
+
 function loadInTab(info, url) {
   // Typed into the address bar (or given by the agent on the user's behalf): loaded as the user's own navigation.
   info.browser.fixupAndLoadURIString(url, { triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
 }
 
 /** Open `input` (an address or search words) in the active web tab, or in a new one. Without input:
-    show the active web tab, or open an empty one. */
+    show the active web tab, or open one on the start page (Google). */
 async function openWeb(window, input, { newTab = false } = {}) {
   const tabmail = window.gTabmail;
   if (!input && !newTab) return showBrowser(window);
@@ -60,13 +73,15 @@ async function openWeb(window, input, { newTab = false } = {}) {
     tabmail.switchToTab(target);
     loadInTab(target, url);
   } else {
-    info = tabmail.openTab("contentTab", { url, linkHandler: null, background: false });
+    // Opened blank and loaded after, so the first request already carries the Firefox user agent.
+    info = tabmail.openTab("contentTab", { url: "about:blank", linkHandler: null, background: false });
     enhanceWebTab(window, info);
+    presentAsFirefox(info);
+    loadInTab(info, url);
   }
-  if (url === WEB_START) window.setTimeout(() => { info.urlbar?.focus(); info.urlbar?.select(); }, 100);
   renderWebChrome(window);
   // Loading has only begun: report where the tab is going.
-  return { ...describeWebTab(window, info), url, loading: url !== WEB_START };
+  return { ...describeWebTab(window, info), url, loading: true };
 }
 
 /** The Web button: back to the web tab shown last, or a new one. */
@@ -165,7 +180,7 @@ function enhanceWebTab(window, info) {
   strip.setAttribute("role", "tablist");
   toolbox.insertBefore(strip, info.toolbar);
 
-  const reload = webButton(document, { className: "mw-web-reload", title: "Reload (F5)", icon: "refresh", onclick: () => (info.browser.webProgress?.isLoadingDocument ? info.browser.stop() : info.browser.reload()) });
+  const reload = webButton(document, { className: "mw-web-reload", title: "Reload (Ctrl+R)", icon: "refresh", onclick: () => (info.browser.webProgress?.isLoadingDocument ? info.browser.stop() : info.browser.reload()) });
   info.forwardButton.after(reload);
 
   const urlbar = info.urlbar;
@@ -175,7 +190,12 @@ function enhanceWebTab(window, info) {
   const onUrlKey = async (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      const url = await resolveAddress(urlbar.value);
+      // As in Firefox: Ctrl+Enter completes a bare word to www.….com, Shift+Enter to .net; Alt+Enter opens a new tab.
+      const word = urlbar.value.trim();
+      const tld = /^[\p{L}\p{N}-]+$/u.test(word) && !event.altKey ? (event.ctrlKey ? ".com" : event.shiftKey ? ".net" : "") : "";
+      const input = tld ? `www.${word}${tld}` : urlbar.value;
+      if (event.altKey) { void openWeb(window, input, { newTab: true }); return; }
+      const url = await resolveAddress(input);
       if (url) { loadInTab(info, url); info.browser.focus(); }
     } else if (event.key === "Escape") {
       urlbar.value = info.browser.currentURI?.spec === "about:blank" ? "" : info.browser.currentURI?.spec ?? "";
@@ -204,6 +224,7 @@ function enhanceWebTab(window, info) {
 
   info.mwWebUndo = () => {
     try { info.browser.removeProgressListener(listener); } catch { /* browser gone */ }
+    try { info.browser.browsingContext.customUserAgent = ""; } catch { /* browser gone */ }
     urlbar.removeEventListener("keydown", onUrlKey);
     urlbar.removeEventListener("focus", onUrlFocus);
     urlbar.setAttribute("readonly", "readonly");
@@ -256,7 +277,7 @@ function renderWebChrome(window) {
       if (reload) {
         const loading = Boolean(info.browser?.webProgress?.isLoadingDocument);
         reload.replaceChildren(webIcon(document, loading ? "close" : "refresh"));
-        reload.title = loading ? "Stop" : "Reload (F5)";
+        reload.title = loading ? "Stop (Esc)" : "Reload (Ctrl+R)";
       }
     }
     document.getElementById(WEB_BUTTON)?.classList.toggle("current", isWebTab(tabmail?.currentTabInfo));
@@ -264,6 +285,43 @@ function renderWebChrome(window) {
 }
 
 /** The Web group's tool button, the tab monitor and the keys; returns the undo. */
+/** Carry out a Firefox shortcut in a web tab; false leaves the key to the page (Escape while nothing loads). */
+function runWebShortcut(window, info, { command, index }) {
+  const tabmail = window.gTabmail;
+  const browser = info.browser;
+  const tabs = webTabs(window);
+  const step = (by) => tabmail.switchToTab(tabs[(tabs.indexOf(info) + by + tabs.length) % tabs.length]);
+  switch (command) {
+    case "address": info.urlbar?.focus(); info.urlbar?.select(); break;
+    case "new-tab": void openWeb(window, "", { newTab: true }); break;
+    case "close-tab": tabmail.closeTab(info); break;
+    case "reopen-tab": {
+      const url = window.mwClosedWebTabs?.pop();
+      if (url) void openWeb(window, url, { newTab: true });
+      break;
+    }
+    case "next-tab": step(1); break;
+    case "previous-tab": step(-1); break;
+    case "tab": { const tab = tabs.at(index); if (tab) tabmail.switchToTab(tab); break; }
+    case "back": if (browser.canGoBack) browser.goBack(); break;
+    case "forward": if (browser.canGoForward) browser.goForward(); break;
+    case "home": loadInTab(info, WEB_START); break;
+    case "reload": browser.reload(); break;
+    case "hard-reload": browser.reloadWithFlags(Ci.nsIWebNavigation.LOAD_FLAGS_BYPASS_CACHE | Ci.nsIWebNavigation.LOAD_FLAGS_BYPASS_PROXY); break;
+    case "stop":
+      if (!browser.webProgress?.isLoadingDocument || window.document.activeElement === info.urlbar) return false;
+      browser.stop();
+      break;
+    case "find": info.findbar?.onFindCommand(); break;
+    case "find-next": info.findbar?.onFindAgainCommand(false); break;
+    case "find-previous": info.findbar?.onFindAgainCommand(true); break;
+    case "print": window.PrintUtils?.startPrintWindow(browser.browsingContext); break;
+    case "view-source": if (browser.currentURI?.schemeIs("http") || browser.currentURI?.schemeIs("https")) void openWeb(window, `view-source:${browser.currentURI.spec}`, { newTab: true }); break;
+    default: return false;
+  }
+  return true;
+}
+
 function installWeb(window) {
   const document = window.document;
   const tabmail = window.gTabmail;
@@ -276,24 +334,27 @@ function installWeb(window) {
     monitorName: "mailWorkspaceWeb",
     onTabTitleChanged: () => renderWebChrome(window),
     onTabSwitched(tab) { if (isWebTab(tab)) window.mwLastWebTab = tab; renderWebChrome(window); },
-    onTabOpened: () => renderWebChrome(window),
-    onTabClosing(tab) { if (window.mwLastWebTab === tab) window.mwLastWebTab = null; window.setTimeout(() => renderWebChrome(window), 0); },
+    // Tabs a page opens (target=_blank, window.open) arrive here before their first load.
+    onTabOpened(tab) { if (isWebTab(tab)) presentAsFirefox(tab); renderWebChrome(window); },
+    onTabClosing(tab) {
+      if (window.mwLastWebTab === tab) window.mwLastWebTab = null;
+      // For Ctrl+Shift+T.
+      const url = isWebTab(tab) ? tab.browser?.currentURI?.spec : null;
+      if (url && url !== "about:blank") window.mwClosedWebTabs = [...(window.mwClosedWebTabs ?? []), url].slice(-20);
+      window.setTimeout(() => renderWebChrome(window), 0);
+    },
     onTabPersist() {},
     onTabRestored: () => renderWebChrome(window),
   };
   tabmail.registerTabMonitor(monitor);
 
-  // Ctrl+Shift+9 opens the Browser; in a web tab, Ctrl+L / F6 go to the address bar, Ctrl+T opens a tab,
-  // F5 reloads (Ctrl+R stays Thunderbird's Reply).
+  // Ctrl+Shift+9 opens the Browser; in a web tab, Firefox's shortcuts (shortcuts.js) win over Thunderbird's.
   const onKey = (event) => {
-    const plainCtrl = event.ctrlKey && !event.altKey && !event.metaKey;
-    if (plainCtrl && event.shiftKey && event.code === "Digit9") { event.preventDefault(); event.stopPropagation(); void showBrowser(window); return; }
+    if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && event.code === "Digit9") { event.preventDefault(); event.stopPropagation(); void showBrowser(window); return; }
     const info = tabmail.currentTabInfo;
     if (!isWebTab(info)) return;
-    const done = () => { event.preventDefault(); event.stopPropagation(); };
-    if ((plainCtrl && !event.shiftKey && event.code === "KeyL") || (event.key === "F6" && !event.ctrlKey)) { done(); info.urlbar?.focus(); info.urlbar?.select(); }
-    else if (plainCtrl && !event.shiftKey && event.code === "KeyT") { done(); void openWeb(window, "", { newTab: true }); }
-    else if (event.key === "F5" && !event.altKey) { done(); info.browser.reload(); }
+    const shortcut = webShortcut(event);
+    if (shortcut && runWebShortcut(window, info, shortcut)) { event.preventDefault(); event.stopPropagation(); }
   };
   window.addEventListener("keydown", onKey, true);
   renderWebChrome(window);
@@ -305,6 +366,7 @@ function installWeb(window) {
     if (window.mwWebQueued) window.cancelAnimationFrame(window.mwWebQueued);
     delete window.mwWebQueued;
     delete window.mwLastWebTab;
+    delete window.mwClosedWebTabs;
     button.remove();
   };
 }

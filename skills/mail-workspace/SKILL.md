@@ -60,8 +60,10 @@ The terminal is shared with the user: whatever you type there, they see.
 ## Browser (web pages)
 
 The Web group's Browser opens web pages in Thunderbird's own tabs, with a
-strip of the open web tabs and an address bar (Ctrl+Shift+9). The user browses
-there too, and sees everything you do in it.
+strip of the open web tabs and an address bar (Ctrl+Shift+9). It starts on
+Google, presents itself to sites as Firefox, and takes Firefox's (Linux)
+shortcuts: Ctrl+T/W, Ctrl+Shift+T, Ctrl+Tab, Alt+1…9, Alt+←/→, Ctrl+L, Ctrl+F,
+Ctrl+R, Ctrl+U. The user browses there too, and sees everything you do in it.
 
 - `web_open` loads an address or searches for words, in the web tab shown last
   (`new_tab` for another). `web_state` lists the web tabs.
