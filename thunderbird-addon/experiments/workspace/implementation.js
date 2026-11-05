@@ -1,5 +1,5 @@
 /* Mail Workspace Experiment: the privileged half of the add-on. Layout lives in
-   layout.js (the space bar's tool groups in groups.js, the Browser in web.js), GUI state and automation in automation.js; all are loaded into
+   layout.js (the space bar's tool groups in groups.js, the Browser and its sessions in web.js), GUI state and automation in automation.js; all are loaded into
    this scope so they share helpers without globals leaking into Thunderbird. */
 /* global ExtensionAPI */
 var { ExtensionCommon } = ChromeUtils.importESModule("resource://gre/modules/ExtensionCommon.sys.mjs");
@@ -14,7 +14,7 @@ var workspace = class extends ExtensionAPI {
     const resProto = Services.io.getProtocolHandler("resource").QueryInterface(Ci.nsIResProtocolHandler);
     resProto.setSubstitutionWithFlags(RESOURCE_HOST, this.extension.rootURI, resProto.ALLOW_CONTENT_ACCESS);
     this.scope = { Services, ChromeUtils, Ci, Cc, Cu, ExtensionParent, console };
-    for (const file of ["address.js", "shortcuts.js", "layout.js", "shell.js", "groups.js", "web.js", "automation.js"]) {
+    for (const file of ["address.js", "shortcuts.js", "websessions.js", "layout.js", "shell.js", "groups.js", "web.js", "automation.js"]) {
       // Through resource://, which is trusted also when the add-on runs from a folder.
       Services.scriptloader.loadSubScript(`resource://${RESOURCE_HOST}/experiments/workspace/${file}?${Date.now()}`, this.scope);
     }
@@ -142,6 +142,7 @@ var workspace = class extends ExtensionAPI {
         async getTerminal() { return scope.terminalState(self.mainWindow()); },
         async openWeb(input, options) { return scope.openWeb(self.mainWindow(), input ?? "", options ?? {}); },
         async webState() { return scope.webState(self.mainWindow()); },
+        async webSession(action, name, newName) { return scope.webSession(self.mainWindow(), action, name ?? "", newName ?? ""); },
         async webNavigate(action) { return scope.webNavigate(self.mainWindow(), action); },
         async webClick(x, y) { return scope.webClick(self.mainWindow(), x, y); },
         async setAppearance(mode) { return scope.setAppearance(mode, self.messengerWindows()); },

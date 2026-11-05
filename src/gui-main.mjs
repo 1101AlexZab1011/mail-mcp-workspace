@@ -142,12 +142,19 @@ function formatWebSnapshot({ tab, url, title, items, truncated }) {
   return lines.join("\n");
 }
 
-register("web_open", `Open a web address (or search words, through the default search engine) in the Browser: in the web tab shown last, or a new tab. The user sees it in Thunderbird. ${WEB_RULES}`, {
+register("web_open", `Open a web address (or search words, through the default search engine) in the Browser: in the session's web tab shown last, or a new tab. Sessions are separate browser profiles (own tabs, cookies and logins); the current one unless \`session\` names another, and an unknown name creates it. The user sees it in Thunderbird. ${WEB_RULES}`, {
   url: z.string().describe("An address (elster.de, https://…) or words to search for"),
   new_tab: z.boolean().optional(),
-}, async ({ url, new_tab }) => text(await gui("web.open", { url, newTab: new_tab })));
+  session: z.string().optional().describe("A session's name or id"),
+}, async ({ url, new_tab, session }) => text(await gui("web.open", { url, newTab: new_tab, session })));
 
-register("web_state", "The Browser's web tabs: id, url, title, whether loading, which is current (shown) and active (the one web_* tools act on).", {}, async () => text(await gui("web.state")), { readOnlyHint: true });
+register("web_state", "The Browser's sessions (name, tab count, which is current) and web tabs: id, url, title, session, whether loading, which is current (shown) and active (the one web_* tools act on).", {}, async () => text(await gui("web.state")), { readOnlyHint: true });
+
+register("web_session", "Switch to a Browser session, create one (it opens a tab on Google), or rename one. Each session has its own tabs, cookies and logins. Deleting a session wipes its logins and is the user's alone: ask them to do it from the Web group.", {
+  action: z.enum(["switch", "create", "rename"]),
+  name: z.string().describe("The session's name or id (for create: the new name)"),
+  new_name: z.string().optional(),
+}, async ({ action, name, new_name }) => text(await gui("web.session", { action, name, newName: new_name })));
 
 register("web_snapshot", `The controls of the active web page (links, buttons, fields, dropdowns with their options, checkboxes) with refs for web_act, each with its label, value and state (required, invalid, checked, submits form). Pass query to filter by label. Refs expire with the next snapshot or when the page changes. ${WEB_RULES}`, {
   query: z.string().optional(),

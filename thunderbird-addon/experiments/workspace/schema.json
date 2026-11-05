@@ -290,14 +290,14 @@
         "name": "openWeb",
         "type": "function",
         "async": true,
-        "description": "Open an address or search words in the Browser's active web tab, or in a new one.",
+        "description": "Open an address or search words in a session's web tab shown last, or in a new one (the current session unless named; an unknown name makes one).",
         "parameters": [
           { "name": "input", "type": "string", "optional": true },
           {
             "name": "options",
             "type": "object",
             "optional": true,
-            "properties": { "newTab": { "type": "boolean", "optional": true } }
+            "properties": { "newTab": { "type": "boolean", "optional": true }, "session": { "type": "string", "optional": true } }
           }
         ]
       },
@@ -305,8 +305,19 @@
         "name": "webState",
         "type": "function",
         "async": true,
-        "description": "The Browser's web tabs: id, url, title, loading, current, active.",
+        "description": "The Browser's sessions and web tabs: id, url, title, session, loading, current, active.",
         "parameters": []
+      },
+      {
+        "name": "webSession",
+        "type": "function",
+        "async": true,
+        "description": "Switch to, create or rename a Browser session (deleting one is the user's alone).",
+        "parameters": [
+          { "name": "action", "type": "string", "enum": ["switch", "create", "rename"] },
+          { "name": "name", "type": "string", "optional": true },
+          { "name": "newName", "type": "string", "optional": true }
+        ]
       },
       {
         "name": "webNavigate",

@@ -1,5 +1,11 @@
-/* Mail Workspace Browser: web pages in Thunderbird's own content tabs, one tool in the space bar's Web
-   group. Loaded into the Experiment's scope (with address.js); `installWeb` returns the undo.
+/* Mail Workspace Browser: web pages in Thunderbird's own content tabs, in sessions: the space bar's Web
+   group lists them. Loaded into the Experiment's scope (with address.js, shortcuts.js and websessions.js);
+   `installWeb` returns the undo.
+
+   A session is a named browser profile: its tabs live in a container of their own (userContextId), so
+   each has its own cookies, logins and storage, and none shares Thunderbird's (container 0, where mail
+   accounts sign in). The list is in a pref (websessions.js); the containers are
+   ContextualIdentityService's. Tabs keep their container across restarts (content tabs persist it).
 
    A web tab is a contentTab opened with linkHandler null: its browser is in the "browsers" message
    manager group, which Thunderbird does not restrict (links stay inside, target=_blank and
@@ -7,7 +13,8 @@
    each web tab's toolbox gets a strip of the open web tabs, and its toolbar an editable address bar,
    reload/stop and a new-tab button. The agent reads and fills pages through the add-on's content
    script (background/web.js); clicks are sent from here, as real mouse input. */
-/* global Services, ChromeUtils, Cc, Ci, ExtensionParent, parseAddress, webShortcut, makeSpaceButton */
+/* global Services, ChromeUtils, Cc, Ci, ExtensionParent, parseAddress, webShortcut, makeSpaceButton, GROUP_FLYOUTS,
+   WEB_SESSIONS_PREF, parseWebSessions, serializeWebSessions, findWebSession, webSessionName, newWebSessionId */
 
 var WEB_GROUP = "browsers";
 var WEB_START = "https://www.google.com/";
@@ -18,8 +25,108 @@ function isWebTab(info) {
   return info?.mode?.name === "contentTab" && info.browser?.getAttribute("messagemanagergroup") === WEB_GROUP && !info.panel?.hasAttribute("mw-own");
 }
 
-function webTabs(window) {
-  return (window.gTabmail?.tabInfo ?? []).filter(isWebTab);
+// ------------------------------------------------------------- sessions --
+
+function containers() {
+  const { ContextualIdentityService } = ChromeUtils.importESModule("moz-src:///toolkit/components/contextualidentity/ContextualIdentityService.sys.mjs");
+  ContextualIdentityService.ensureDataReady();
+  return ContextualIdentityService;
+}
+
+function readSessions() { return parseWebSessions(Services.prefs.getStringPref(WEB_SESSIONS_PREF, "")); }
+function writeSessions(state) { Services.prefs.setStringPref(WEB_SESSIONS_PREF, serializeWebSessions(state)); }
+
+/** The container a tab's page lives in (the attribute, else what its browsing context says). */
+function containerOf(info) {
+  const attribute = Number(info?.browser?.getAttribute("usercontextid"));
+  if (attribute) return attribute;
+  try { return info?.browser?.browsingContext?.originAttributes?.userContextId ?? 0; } catch { return 0; }
+}
+
+/** Write a tab's container into its attribute, which is what Thunderbird persists: tabs a page opens
+    (window.open) get their opener's container without it. */
+function pinContainer(info) {
+  if (!info?.browser || info.browser.getAttribute("usercontextid")) return;
+  const container = containerOf(info);
+  if (container) info.browser.setAttribute("usercontextid", String(container));
+}
+
+function sessionOfTab(info, state = readSessions()) {
+  const container = containerOf(info);
+  return state.sessions.find((s) => s.userContextId === container) ?? null;
+}
+
+/** A new session with a container of its own; it becomes the last used one. */
+function createSession(name) {
+  const state = readSessions();
+  const identity = containers().create(`Mail Workspace · ${name}`, "fingerprint", "blue");
+  const session = { id: newWebSessionId(state.sessions), name, userContextId: identity.userContextId };
+  state.sessions.push(session);
+  state.last = session.id;
+  writeSessions(state);
+  return session;
+}
+
+/** By id or name; with `create`, an unknown name makes a new session. */
+function resolveSession(key, { create = false } = {}) {
+  const found = findWebSession(readSessions().sessions, key);
+  if (found || !create || !String(key ?? "").trim()) return found;
+  return createSession(String(key).trim());
+}
+
+function renameSession(id, name) {
+  const text = String(name ?? "").trim();
+  const state = readSessions();
+  const session = state.sessions.find((s) => s.id === id);
+  if (!session) throw new Error("No such session");
+  if (!text) throw new Error("A session needs a name");
+  if (state.sessions.some((s) => s !== session && s.name.toLowerCase() === text.toLowerCase())) throw new Error(`There is already a session "${text}"`);
+  session.name = text;
+  writeSessions(state);
+  try { containers().update(session.userContextId, `Mail Workspace · ${text}`, "fingerprint", "blue"); } catch { /* the name is ours */ }
+  return session;
+}
+
+/** The user's alone (the flyout's delete): closes the session's tabs and wipes its cookies, logins and storage. */
+function deleteSession(window, id) {
+  const state = readSessions();
+  const session = state.sessions.find((s) => s.id === id);
+  if (!session) return;
+  for (const info of webTabs(window, session)) window.gTabmail.closeTab(info);
+  // Removing the container clears its data; one that is already gone is cleared all the same.
+  if (!containers().remove(session.userContextId)) Services.clearData.deleteDataFromOriginAttributesPattern({ userContextId: session.userContextId });
+  state.sessions = state.sessions.filter((s) => s !== session);
+  if (state.last === id) state.last = state.sessions[0]?.id ?? null;
+  writeSessions(state);
+  window.mwClosedWebTabs?.delete(id);
+  window.mwLastWebTabs?.delete(id);
+}
+
+/** The session there always is: the first run makes "Main". */
+function ensureSession(state = readSessions()) {
+  return findWebSession(state.sessions, state.last) ?? state.sessions[0] ?? createSession("Main");
+}
+
+/**
+ * Web tabs outside any session (from before sessions, or Thunderbird's container 0) are reopened in the
+ * last used session, at the same address, and closed.
+ */
+function adoptStrayTabs(window) {
+  const state = readSessions();
+  const strays = (window.gTabmail?.tabInfo ?? []).filter((info) => isWebTab(info) && !sessionOfTab(info, state));
+  if (!strays.length) return;
+  const session = ensureSession(state);
+  for (const info of strays) {
+    const url = info.browser?.currentURI?.spec;
+    if (url && url !== "about:blank") openTabIn(window, session, url, { background: true });
+    window.gTabmail.closeTab(info);
+  }
+}
+
+/** The web tabs, or one session's. */
+function webTabs(window, session = null) {
+  const tabs = (window.gTabmail?.tabInfo ?? []).filter(isWebTab);
+  return session ? tabs.filter((info) => containerOf(info) === session.userContextId) : tabs;
 }
 
 /** The web tab the agent and the Web button mean: the current one, else the one shown last. */
@@ -28,6 +135,22 @@ function activeWebTab(window) {
   if (isWebTab(current)) return current;
   const tabs = webTabs(window);
   return tabs.find((info) => info === window.mwLastWebTab) ?? tabs.at(-1) ?? null;
+}
+
+/** The session in front: the active web tab's, else the last used one. */
+function currentSession(window) {
+  const state = readSessions();
+  const info = activeWebTab(window);
+  return (info && sessionOfTab(info, state)) ?? findWebSession(state.sessions, state.last) ?? state.sessions[0] ?? null;
+}
+
+/** A session's tab to show: the current one if it is the session's, else the one shown last, else its newest. */
+function lastTabOf(window, session) {
+  const tabs = webTabs(window, session);
+  const current = window.gTabmail?.currentTabInfo;
+  if (tabs.includes(current)) return current;
+  const last = window.mwLastWebTabs?.get(session.id);
+  return tabs.includes(last) ? last : tabs.at(-1) ?? null;
 }
 
 /** Typed text → the URL to load: an address as it is, anything else through the default search engine. */
@@ -60,35 +183,43 @@ function loadInTab(info, url) {
   info.browser.fixupAndLoadURIString(url, { triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
 }
 
-/** Open `input` (an address or search words) in the active web tab, or in a new one. Without input:
-    show the active web tab, or open one on the start page (Google). */
-async function openWeb(window, input, { newTab = false } = {}) {
-  const tabmail = window.gTabmail;
-  if (!input && !newTab) return showBrowser(window);
+/** A new web tab in a session's container. Opened blank and loaded after, so the first request already
+    carries the Firefox user agent. */
+function openTabIn(window, session, url, { background = false } = {}) {
+  const info = window.gTabmail.openTab("contentTab", { url: "about:blank", linkHandler: null, background, userContextId: session.userContextId });
+  enhanceWebTab(window, info);
+  presentAsFirefox(info);
+  loadInTab(info, url);
+  return info;
+}
+
+/** Open `input` (an address or search words) in the session's tab shown last, or in a new one. Without
+    input: show the session, or open a tab on the start page (Google). The session is the current one
+    unless named; an unknown name makes a new session. */
+async function openWeb(window, input, { newTab = false, session: key = null } = {}) {
+  const session = key ? resolveSession(key, { create: true }) : currentSession(window) ?? ensureSession();
+  if (!input && !newTab) return showBrowser(window, session.id);
   const url = input ? await resolveAddress(input) : WEB_START;
   if (!url) throw new Error("Nothing to open");
-  const target = newTab ? null : activeWebTab(window);
+  const target = newTab ? null : lastTabOf(window, session);
   let info = target;
   if (target) {
-    tabmail.switchToTab(target);
+    window.gTabmail.switchToTab(target);
     loadInTab(target, url);
   } else {
-    // Opened blank and loaded after, so the first request already carries the Firefox user agent.
-    info = tabmail.openTab("contentTab", { url: "about:blank", linkHandler: null, background: false });
-    enhanceWebTab(window, info);
-    presentAsFirefox(info);
-    loadInTab(info, url);
+    info = openTabIn(window, session, url);
   }
   renderWebChrome(window);
   // Loading has only begun: report where the tab is going.
   return { ...describeWebTab(window, info), url, loading: true };
 }
 
-/** The Web button: back to the web tab shown last, or a new one. */
-function showBrowser(window) {
-  const info = activeWebTab(window);
+/** The Web button, a session in the flyout: back to the session's tab shown last, or a new one. */
+function showBrowser(window, key = null) {
+  const session = (key && resolveSession(key)) || currentSession(window) || ensureSession();
+  const info = lastTabOf(window, session);
   if (info) { window.gTabmail.switchToTab(info); return describeWebTab(window, info); }
-  return openWeb(window, "", { newTab: true });
+  return openWeb(window, "", { newTab: true, session: session.id });
 }
 
 function tabIdOf(info) {
@@ -102,6 +233,7 @@ function describeWebTab(window, info) {
     id: tabIdOf(info),
     url,
     title: info.title ?? "",
+    session: sessionOfTab(info)?.name ?? null,
     loading: Boolean(info.browser?.webProgress?.isLoadingDocument),
     current: window.gTabmail?.currentTabInfo === info,
   };
@@ -109,7 +241,30 @@ function describeWebTab(window, info) {
 
 function webState(window) {
   const active = activeWebTab(window);
-  return { tabs: webTabs(window).map((info) => ({ ...describeWebTab(window, info), active: info === active })) };
+  const current = currentSession(window);
+  return {
+    sessions: readSessions().sessions.map((s) => ({ id: s.id, name: s.name, tabs: webTabs(window, s).length, current: s.id === current?.id })),
+    tabs: webTabs(window).map((info) => ({ ...describeWebTab(window, info), active: info === active })),
+  };
+}
+
+/** The agent's session commands: switch to one, create one, rename one. Deleting is the user's alone. */
+async function webSession(window, action, name, newName) {
+  if (action === "switch") {
+    const session = resolveSession(name);
+    if (!session) throw new Error(`No session "${name}"; web_state lists them`);
+    await showBrowser(window, session.id);
+  } else if (action === "create") {
+    if (resolveSession(name)) throw new Error(`There is already a session "${name}"`);
+    const session = createSession(String(name ?? "").trim() || webSessionName(readSessions().sessions));
+    await openWeb(window, "", { newTab: true, session: session.id });
+  } else if (action === "rename") {
+    const session = resolveSession(name);
+    if (!session) throw new Error(`No session "${name}"; web_state lists them`);
+    renameSession(session.id, newName);
+    renderWebChrome(window);
+  } else throw new Error(`Unknown session action ${action}`);
+  return webState(window);
 }
 
 function webNavigate(window, action) {
@@ -194,7 +349,7 @@ function enhanceWebTab(window, info) {
       const word = urlbar.value.trim();
       const tld = /^[\p{L}\p{N}-]+$/u.test(word) && !event.altKey ? (event.ctrlKey ? ".com" : event.shiftKey ? ".net" : "") : "";
       const input = tld ? `www.${word}${tld}` : urlbar.value;
-      if (event.altKey) { void openWeb(window, input, { newTab: true }); return; }
+      if (event.altKey) { void openWeb(window, input, { newTab: true, session: sessionOfTab(info)?.id }); return; }
       const url = await resolveAddress(input);
       if (url) { loadInTab(info, url); info.browser.focus(); }
     } else if (event.key === "Escape") {
@@ -240,19 +395,28 @@ function faviconOf(info) {
   return info.favIconUrl || null;
 }
 
-/** Redraw every web tab's strip and reload button, and the Web button's state. */
+/** Redraw every web tab's strip (its session's tabs) and reload button, and the Web button's state. */
 function renderWebChrome(window) {
   if (window.mwWebQueued) return;
   window.mwWebQueued = window.requestAnimationFrame(() => {
     window.mwWebQueued = 0;
     const document = window.document;
     const tabmail = window.gTabmail;
-    const tabs = webTabs(window);
-    for (const info of tabs) {
+    const state = readSessions();
+    for (const info of webTabs(window)) {
       enhanceWebTab(window, info);
+      pinContainer(info);
+      const session = sessionOfTab(info, state);
+      const tabs = session ? webTabs(window, session) : [info];
       const strip = info.toolbar?.parentNode?.querySelector(".mw-web-tabs");
       if (strip) {
-        strip.replaceChildren(...tabs.map((tab) => {
+        // The session's name leads the strip and opens the session list.
+        const name = document.createElementNS(MW_XHTML, "button");
+        name.className = "mw-web-session";
+        name.title = "Browser sessions";
+        name.textContent = session?.name ?? "No session";
+        name.addEventListener("click", () => window.mwOpenToolGroup?.("web", name));
+        strip.replaceChildren(name, ...tabs.map((tab) => {
           const chip = document.createElementNS(MW_XHTML, "div");
           chip.className = "mw-web-tab";
           chip.setAttribute("role", "tab");
@@ -271,7 +435,7 @@ function renderWebChrome(window) {
           chip.addEventListener("click", () => tabmail.switchToTab(tab));
           chip.addEventListener("auxclick", (event) => { if (event.button === 1) tabmail.closeTab(tab); });
           return chip;
-        }), webButton(document, { className: "mw-web-new", title: "New tab (Ctrl+T)", icon: "add", onclick: () => void openWeb(window, "", { newTab: true }) }));
+        }), webButton(document, { className: "mw-web-new", title: "New tab (Ctrl+T)", icon: "add", onclick: () => void openWeb(window, "", { newTab: true, session: session?.id }) }));
       }
       const reload = info.toolbar?.querySelector(".mw-web-reload");
       if (reload) {
@@ -284,20 +448,22 @@ function renderWebChrome(window) {
   });
 }
 
-/** The Web group's tool button, the tab monitor and the keys; returns the undo. */
-/** Carry out a Firefox shortcut in a web tab; false leaves the key to the page (Escape while nothing loads). */
+/** Carry out a Firefox shortcut in a web tab, within its session; false leaves the key to the page
+    (Escape while nothing loads). */
 function runWebShortcut(window, info, { command, index }) {
   const tabmail = window.gTabmail;
   const browser = info.browser;
-  const tabs = webTabs(window);
+  const session = sessionOfTab(info);
+  const tabs = session ? webTabs(window, session) : [info];
   const step = (by) => tabmail.switchToTab(tabs[(tabs.indexOf(info) + by + tabs.length) % tabs.length]);
+  const inSession = { newTab: true, session: session?.id };
   switch (command) {
     case "address": info.urlbar?.focus(); info.urlbar?.select(); break;
-    case "new-tab": void openWeb(window, "", { newTab: true }); break;
+    case "new-tab": void openWeb(window, "", inSession); break;
     case "close-tab": tabmail.closeTab(info); break;
     case "reopen-tab": {
-      const url = window.mwClosedWebTabs?.pop();
-      if (url) void openWeb(window, url, { newTab: true });
+      const url = window.mwClosedWebTabs?.get(session?.id)?.pop();
+      if (url) void openWeb(window, url, inSession);
       break;
     }
     case "next-tab": step(1); break;
@@ -316,12 +482,128 @@ function runWebShortcut(window, info, { command, index }) {
     case "find-next": info.findbar?.onFindAgainCommand(false); break;
     case "find-previous": info.findbar?.onFindAgainCommand(true); break;
     case "print": window.PrintUtils?.startPrintWindow(browser.browsingContext); break;
-    case "view-source": if (browser.currentURI?.schemeIs("http") || browser.currentURI?.schemeIs("https")) void openWeb(window, `view-source:${browser.currentURI.spec}`, { newTab: true }); break;
+    case "view-source": if (browser.currentURI?.schemeIs("http") || browser.currentURI?.schemeIs("https")) void openWeb(window, `view-source:${browser.currentURI.spec}`, inSession); break;
     default: return false;
   }
   return true;
 }
 
+// ------------------------------------------------- the sessions flyout --
+// The Web group's flyout (groups.js) lists the sessions instead of tools: click one to go to it, double-
+// click or F2 to rename it, × to delete it (the user's alone: it wipes the session's logins).
+
+/** True while the agent sends input to the window (automation.js): user-only controls ignore it. */
+function agentActing(window) {
+  return Date.now() < (window.mwAgentInputUntil ?? 0);
+}
+
+function webSessionsFlyout(window, { rerender, close }) {
+  const document = window.document;
+  const html = (tag, className, text) => {
+    const el = document.createElementNS(MW_XHTML, tag);
+    if (className) el.className = className;
+    if (text !== undefined) el.textContent = text;
+    return el;
+  };
+  const state = readSessions();
+  const current = currentSession(window);
+
+  function startRename(row, session) {
+    if (row.hasAttribute("mw-busy")) return;
+    row.setAttribute("mw-busy", "");
+    const input = html("input", "mw-web-session-rename");
+    input.value = session.name;
+    input.setAttribute("aria-label", "Session name");
+    row.querySelector(".mw-group-item-label").replaceWith(input);
+    let done = false;
+    const finish = (save) => {
+      if (done) return;
+      done = true;
+      if (save && input.value.trim() && input.value.trim() !== session.name) {
+        try { renameSession(session.id, input.value); renderWebChrome(window); } catch (error) { console.warn("Mail Workspace:", error.message); }
+      }
+      rerender();
+    };
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); finish(true); }
+      else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); finish(false); }
+    });
+    input.addEventListener("blur", () => finish(true));
+    input.addEventListener("click", (event) => event.stopPropagation());
+    input.focus();
+    input.select();
+  }
+
+  function askDelete(row, session) {
+    if (agentActing(window) || row.hasAttribute("mw-busy")) return;
+    row.setAttribute("mw-busy", "");
+    row.classList.add("mw-web-session-confirm");
+    const yes = html("button", "mw-web-session-yes", "Delete");
+    const no = html("button", "mw-web-session-no", "Cancel");
+    for (const button of [yes, no]) { button.type = "button"; button.setAttribute("data-user-only", ""); }
+    yes.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (agentActing(window)) return;
+      deleteSession(window, session.id);
+      renderWebChrome(window);
+      rerender();
+    });
+    no.addEventListener("click", (event) => { event.stopPropagation(); rerender(); });
+    row.replaceChildren(html("span", "mw-group-item-label", `Delete “${session.name}” and its logins?`), yes, no);
+    no.focus();
+  }
+
+  const rows = state.sessions.map((session) => {
+    const row = html("div", "mw-group-item mw-web-session-item");
+    row.setAttribute("role", "menuitem");
+    row.dataset.session = session.id;
+    if (session.id === current?.id) row.classList.add("current");
+    const img = html("img");
+    img.alt = "";
+    img.src = "resource://mailworkspace/icons/public.svg";
+    const count = webTabs(window, session).length;
+    const remove = html("button", "mw-web-session-delete");
+    remove.type = "button";
+    remove.title = "Delete session…";
+    remove.setAttribute("aria-label", `Delete session ${session.name}`);
+    remove.setAttribute("data-user-only", "");
+    remove.append(webIcon(document, "close"));
+    remove.addEventListener("click", (event) => { event.stopPropagation(); askDelete(row, session); });
+    row.append(img, html("span", "mw-group-item-label", session.name), html("span", "mw-group-item-key", `${count} ${count === 1 ? "tab" : "tabs"}`), remove);
+    // A click goes to the session, unless it was the first of a double-click (rename).
+    let pending = 0;
+    row.addEventListener("click", () => {
+      if (row.hasAttribute("mw-busy")) return;
+      window.clearTimeout(pending);
+      pending = window.setTimeout(() => { close(); void showBrowser(window, session.id); }, 220);
+    });
+    row.addEventListener("dblclick", () => { window.clearTimeout(pending); startRename(row, session); });
+    row.onFlyoutKey = (event) => {
+      if (event.key === "F2") { startRename(row, session); return true; }
+      if (event.key === "Delete") { askDelete(row, session); return true; }
+      return false;
+    };
+    return row;
+  });
+
+  const add = html("div", "mw-group-item mw-web-session-new");
+  add.setAttribute("role", "menuitem");
+  const plus = html("img");
+  plus.alt = "";
+  plus.src = "resource://mailworkspace/icons/add.svg";
+  add.append(plus, html("span", "mw-group-item-label", "New session"));
+  add.addEventListener("click", async () => {
+    const session = createSession(webSessionName(readSessions().sessions));
+    await openWeb(window, "", { newTab: true, session: session.id });
+    const flyout = rerender();
+    const row = flyout?.querySelector(`[data-session="${session.id}"]`);
+    if (row) startRename(row, session);
+  });
+  return [...rows, add];
+}
+GROUP_FLYOUTS.web = webSessionsFlyout;
+
+/** The Web group's tool button, the tab monitor and the keys; returns the undo. */
 function installWeb(window) {
   const document = window.document;
   const tabmail = window.gTabmail;
@@ -329,24 +611,47 @@ function installWeb(window) {
   if (!top || !tabmail || document.getElementById(WEB_BUTTON)) return () => {};
   const button = makeSpaceButton(document, { id: WEB_BUTTON, title: "Browser (Ctrl+Shift+9)", icon: "public", onclick: () => void showBrowser(window) });
   top.insertBefore(button, document.getElementById("mw-files-dock-button")?.nextSibling ?? null);
+  window.mwLastWebTabs = new Map();
+  window.mwClosedWebTabs = new Map();
 
   const monitor = {
     monitorName: "mailWorkspaceWeb",
     onTabTitleChanged: () => renderWebChrome(window),
-    onTabSwitched(tab) { if (isWebTab(tab)) window.mwLastWebTab = tab; renderWebChrome(window); },
-    // Tabs a page opens (target=_blank, window.open) arrive here before their first load.
-    onTabOpened(tab) { if (isWebTab(tab)) presentAsFirefox(tab); renderWebChrome(window); },
+    onTabSwitched(tab) {
+      if (isWebTab(tab)) {
+        window.mwLastWebTab = tab;
+        const state = readSessions();
+        const session = sessionOfTab(tab, state);
+        if (session) {
+          window.mwLastWebTabs.set(session.id, tab);
+          if (state.last !== session.id) { state.last = session.id; writeSessions(state); }
+        }
+      }
+      renderWebChrome(window);
+    },
+    // Tabs a page opens (target=_blank, window.open) arrive here before their first load. Their page is
+    // in the opener's container; the attribute is made to say so, so the tab is persisted in its session.
+    onTabOpened(tab) {
+      if (isWebTab(tab)) {
+        presentAsFirefox(tab);
+        // Its page may not be set up yet: the container is read again once it is.
+        window.setTimeout(() => { pinContainer(tab); if (!sessionOfTab(tab)) adoptStrayTabs(window); }, 0);
+      }
+      renderWebChrome(window);
+    },
     onTabClosing(tab) {
       if (window.mwLastWebTab === tab) window.mwLastWebTab = null;
-      // For Ctrl+Shift+T.
-      const url = isWebTab(tab) ? tab.browser?.currentURI?.spec : null;
-      if (url && url !== "about:blank") window.mwClosedWebTabs = [...(window.mwClosedWebTabs ?? []), url].slice(-20);
+      // For Ctrl+Shift+T, per session.
+      const session = isWebTab(tab) ? sessionOfTab(tab) : null;
+      const url = session ? tab.browser?.currentURI?.spec : null;
+      if (url && url !== "about:blank") window.mwClosedWebTabs.set(session.id, [...(window.mwClosedWebTabs.get(session.id) ?? []), url].slice(-20));
       window.setTimeout(() => renderWebChrome(window), 0);
     },
     onTabPersist() {},
-    onTabRestored: () => renderWebChrome(window),
+    onTabRestored() { window.setTimeout(() => { adoptStrayTabs(window); renderWebChrome(window); }, 0); },
   };
   tabmail.registerTabMonitor(monitor);
+  adoptStrayTabs(window);
 
   // Ctrl+Shift+9 opens the Browser; in a web tab, Firefox's shortcuts (shortcuts.js) win over Thunderbird's.
   const onKey = (event) => {
@@ -366,6 +671,7 @@ function installWeb(window) {
     if (window.mwWebQueued) window.cancelAnimationFrame(window.mwWebQueued);
     delete window.mwWebQueued;
     delete window.mwLastWebTab;
+    delete window.mwLastWebTabs;
     delete window.mwClosedWebTabs;
     button.remove();
   };

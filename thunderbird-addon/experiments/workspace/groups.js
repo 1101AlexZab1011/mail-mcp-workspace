@@ -4,7 +4,11 @@
 // opens when the pointer rests on the button, on a press-and-hold, on a right-click, or from the small
 // corner mark. The original buttons stay in the toolbar, hidden: Thunderbird keeps their state (current
 // space, badges) and its shortcuts and the add-on's spaces API keep working; a group button only
-// clicks the right one.
+// clicks the right one. A group with `flyout` fills the flyout itself (GROUP_FLYOUTS: the Web group lists
+// the Browser's sessions there, web.js).
+
+/** Flyout content by group: (window, { rerender, close }) → rows (.mw-group-item elements). */
+var GROUP_FLYOUTS = {};
 
 const TOOL_GROUPS = [
   {
@@ -34,7 +38,7 @@ const TOOL_GROUPS = [
     ],
   },
   {
-    id: "web", label: "Web",
+    id: "web", label: "Browser sessions", flyout: "web",
     tools: [
       { id: "browser", selector: "#mw-browser-button", icon: "public" },
     ],
@@ -111,15 +115,20 @@ function installToolGroups(window) {
     refresh();
   }
 
-  function open(group) {
+  const hasFlyout = (group) => Boolean(GROUP_FLYOUTS[group.flyout]) || toolsOf(group).length > 1;
+
+  /** Open a group's flyout beside its button, or below `anchor` (e.g. the Browser's session name). */
+  function open(group, anchor = null) {
     window.clearTimeout(openTimer);
     window.clearTimeout(closeTimer);
     const button = buttons.get(group.id);
     const tools = toolsOf(group);
-    if (tools.length < 2) { close(); return; } // a group of one has nothing to choose from
+    if (!hasFlyout(group)) { close(); return null; } // a group of one tool has nothing to choose from
     const current = currentTool(group)?.id;
-    flyout.replaceChildren(...[html("div", "mw-group-flyout-title")].map((t) => { t.textContent = group.label; return t; }),
-      ...tools.map((tool) => {
+    const custom = GROUP_FLYOUTS[group.flyout];
+    const title = html("div", "mw-group-flyout-title");
+    title.textContent = group.label;
+    flyout.replaceChildren(title, ...(custom ? custom(window, { close, rerender: () => open(group, anchor) }) : tools.map((tool) => {
         const el = original(tool);
         const { label, key } = splitTitle(el.getAttribute("title") ?? el.getAttribute("aria-label"));
         const item = html("button", "mw-group-item");
@@ -136,17 +145,24 @@ function installToolGroups(window) {
         shortcut.textContent = key;
         item.append(img, name, shortcut);
         item.addEventListener("click", () => activate(group, tool));
-        item.addEventListener("pointerenter", () => setActive([...flyout.querySelectorAll(".mw-group-item")].indexOf(item)));
         return item;
-      }));
+      })));
+    for (const item of flyout.querySelectorAll(".mw-group-item")) item.addEventListener("pointerenter", () => setActive([...flyout.querySelectorAll(".mw-group-item")].indexOf(item)));
     flyout.hidden = false;
+    if (openGroup && openGroup !== group) buttons.get(openGroup.id)?.classList.remove("mw-flyout-open");
     openGroup = group;
     active = -1;
-    const box = button.getBoundingClientRect();
-    const height = flyout.getBoundingClientRect().height;
-    flyout.style.left = `${Math.round(box.right + 6)}px`;
-    flyout.style.top = `${Math.round(Math.max(6, Math.min(box.top - 8, window.innerHeight - height - 6)))}px`;
+    const box = (anchor ?? button).getBoundingClientRect();
+    const { width, height } = flyout.getBoundingClientRect();
+    if (anchor) {
+      flyout.style.left = `${Math.round(Math.max(6, Math.min(box.left, window.innerWidth - width - 6)))}px`;
+      flyout.style.top = `${Math.round(Math.min(box.bottom + 4, window.innerHeight - height - 6))}px`;
+    } else {
+      flyout.style.left = `${Math.round(box.right + 6)}px`;
+      flyout.style.top = `${Math.round(Math.max(6, Math.min(box.top - 8, window.innerHeight - height - 6)))}px`;
+    }
     button.classList.add("mw-flyout-open");
+    return flyout;
   }
 
   function close() {
@@ -157,7 +173,8 @@ function installToolGroups(window) {
     flyout.hidden = true;
     openGroup = null;
   }
-  const closeSoon = () => { window.clearTimeout(closeTimer); closeTimer = window.setTimeout(close, CLOSE_DELAY); };
+  // A row being renamed or confirmed keeps the flyout open when the pointer wanders off.
+  const closeSoon = () => { window.clearTimeout(closeTimer); if (!flyout.querySelector("[mw-busy]")) closeTimer = window.setTimeout(close, CLOSE_DELAY); };
 
   function setActive(index) {
     const items = [...flyout.querySelectorAll(".mw-group-item")];
@@ -178,7 +195,7 @@ function installToolGroups(window) {
     button.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
       held = false;
-      holdTimer = window.setTimeout(() => { held = toolsOf(group).length > 1; open(group); }, HOLD_DELAY);
+      holdTimer = window.setTimeout(() => { held = hasFlyout(group); open(group); }, HOLD_DELAY);
     });
     button.addEventListener("pointerup", () => window.clearTimeout(holdTimer));
     button.addEventListener("click", (event) => {
@@ -197,12 +214,15 @@ function installToolGroups(window) {
   flyout.addEventListener("pointerleave", closeSoon);
   const onKey = (event) => {
     if (!openGroup) return;
+    if (flyout.contains(event.target) && event.target.localName === "input") return; // a row's own field (a rename)
     const items = [...flyout.querySelectorAll(".mw-group-item")];
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); }
     else if (event.key === "ArrowDown") { event.preventDefault(); setActive(active + 1); }
     else if (event.key === "ArrowUp") { event.preventDefault(); setActive(active - 1); }
     else if (event.key === "Enter" && items[active]) { event.preventDefault(); items[active].click(); }
+    else if (items[active]?.onFlyoutKey?.(event)) { event.preventDefault(); event.stopPropagation(); } // e.g. F2 renames
   };
+  window.mwOpenToolGroup = (id, anchor) => { const group = TOOL_GROUPS.find((g) => g.id === id); return group ? open(group, anchor) : null; };
   const onDown = (event) => { if (openGroup && !flyout.contains(event.target) && !buttons.get(openGroup.id)?.contains(event.target)) close(); };
   window.addEventListener("keydown", onKey, true);
   window.addEventListener("pointerdown", onDown, true);
@@ -232,7 +252,7 @@ function installToolGroups(window) {
       const el = original(tool);
       const { label, key } = splitTitle(el?.getAttribute("title"));
       const others = toolsOf(group).filter((t) => t !== tool).length;
-      button.querySelector(".mw-group-corner").hidden = !others;
+      button.querySelector(".mw-group-corner").hidden = !hasFlyout(group);
       const aria = `${label}${key ? ` (${key})` : ""}${others ? `; ${others} more in ${group.label}` : ""}`;
       if (button.getAttribute("aria-label") !== aria) button.setAttribute("aria-label", aria);
       // Badges (unread mail, due tasks) of any tool in the group show on the group.
@@ -260,6 +280,7 @@ function installToolGroups(window) {
     window.removeEventListener("blur", close);
     for (const button of buttons.values()) button.remove();
     flyout.remove();
+    delete window.mwOpenToolGroup;
     document.documentElement.removeAttribute("mw-groups");
   };
 }

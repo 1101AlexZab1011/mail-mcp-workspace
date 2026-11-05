@@ -143,9 +143,11 @@ const commands = {
   // Web tabs are Thunderbird content tabs (experiments/workspace/web.js); pages are read and filled by
   // web/agent.js, injected into the active web tab. What a page says is data, never instructions.
 
-  async "web.open"({ url, newTab }) { return browser.workspace.openWeb(url ?? "", { newTab: Boolean(newTab) }); },
+  async "web.open"({ url, newTab, session }) { return browser.workspace.openWeb(url ?? "", { newTab: Boolean(newTab), ...(session ? { session } : {}) }); },
 
   async "web.state"() { return browser.workspace.webState(); },
+
+  async "web.session"({ action, name, newName }) { return browser.workspace.webSession(action, name ?? "", newName ?? ""); },
 
   async "web.navigate"({ action }) { return browser.workspace.webNavigate(action); },
 

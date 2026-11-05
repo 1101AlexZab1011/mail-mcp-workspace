@@ -192,6 +192,7 @@ function snapshot(window, { limit, query } = {}) {
     for (const el of candidates) {
       if (items.length >= limit) break;
       if (seen.has(el) || !isVisible(el)) continue;
+      if (el.closest("[data-user-only]")) continue; // the user's alone (e.g. deleting a browser session)
       // Skip wrappers whose actionable child is also listed (rows keep their cells out).
       if (el.closest("[role=row]") && el.closest("[role=row]") !== el && !["button", "input", "a"].includes(el.localName)) continue;
       seen.add(el);
@@ -273,6 +274,9 @@ function click(el, { button = 0, count = 1 } = {}) {
 
 async function act(window, ref, action, value, { check } = {}) {
   const el = resolveRef(window, ref);
+  if (el.closest("[data-user-only]")) throw new Error("This control is reserved for the user");
+  // User-only controls (web.js) ignore what arrives while the agent acts.
+  if (!check) window.mwAgentInputUntil = Date.now() + 1500;
   const verdict = ["click", "dblclick", "select", "press"].includes(action) ? classify(el) : { irreversible: false };
   if (check) return { ref, action, ...verdict, name: labelOf(el) };
   switch (action) {
@@ -320,6 +324,7 @@ function classifyCombo(combo, focusedDoc) {
 }
 
 async function pressKey(window, combo, { check } = {}) {
+  if (!check) window.mwAgentInputUntil = Date.now() + 1500;
   const focused = Services.focus.focusedWindow ?? window;
   const verdict = classifyCombo(combo, focused.document?.location?.href ?? "");
   if (check) return { combo, ...verdict };

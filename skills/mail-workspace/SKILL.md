@@ -65,8 +65,12 @@ Google, presents itself to sites as Firefox, and takes Firefox's (Linux)
 shortcuts: Ctrl+T/W, Ctrl+Shift+T, Ctrl+Tab, Alt+1…9, Alt+←/→, Ctrl+L, Ctrl+F,
 Ctrl+R, Ctrl+U. The user browses there too, and sees everything you do in it.
 
-- `web_open` loads an address or searches for words, in the web tab shown last
-  (`new_tab` for another). `web_state` lists the web tabs.
+- **Sessions** are separate browser profiles: each has its own tabs, cookies
+  and logins (the Web group lists them). Work in the session the user is in;
+  for a separate login, `web_session` creates or switches one (`web_open`
+  takes `session` too). Deleting a session is the user's alone.
+- `web_open` loads an address or searches for words, in the session's web tab
+  shown last (`new_tab` for another). `web_state` lists sessions and web tabs.
 - `web_snapshot` lists the page's controls with refs: label, value, options,
   required, invalid, checked, "submits form". Act with `web_act` (`click` is a
   real mouse click; `type`, `select`, `check`, `press`), then snapshot again:
