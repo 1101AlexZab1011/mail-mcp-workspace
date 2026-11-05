@@ -153,7 +153,8 @@ if (command === "eval") {
     console.log("started");
     process.exit(0);
   }
-  spawn(THUNDERBIRD, [...wmClass, "--marionette", "-remote-allow-system-access"], { detached: true, stdio: "ignore", env: { ...process.env, DISPLAY: process.env.DISPLAY ?? ":0" } }).unref();
+  // Newer releases also want the environment variable before chrome scripts (eval, install) are allowed.
+  spawn(THUNDERBIRD, [...wmClass, "--marionette", "-remote-allow-system-access"], { detached: true, stdio: "ignore", env: { ...process.env, DISPLAY: process.env.DISPLAY ?? ":0", MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: "1" } }).unref();
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 500));
     try { const m = new Marionette(); await m.open(); m.close(); await verifyClass(wmClassName); console.log("ready"); process.exit(0); } catch (error) { if (error.message?.startsWith("wrong window class")) throw error; }
