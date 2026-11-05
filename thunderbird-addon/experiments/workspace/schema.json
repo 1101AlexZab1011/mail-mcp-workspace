@@ -287,6 +287,42 @@
         "parameters": []
       },
       {
+        "name": "openWeb",
+        "type": "function",
+        "async": true,
+        "description": "Open an address or search words in the Browser's active web tab, or in a new one.",
+        "parameters": [
+          { "name": "input", "type": "string", "optional": true },
+          {
+            "name": "options",
+            "type": "object",
+            "optional": true,
+            "properties": { "newTab": { "type": "boolean", "optional": true } }
+          }
+        ]
+      },
+      {
+        "name": "webState",
+        "type": "function",
+        "async": true,
+        "description": "The Browser's web tabs: id, url, title, loading, current, active.",
+        "parameters": []
+      },
+      {
+        "name": "webNavigate",
+        "type": "function",
+        "async": true,
+        "description": "Back, forward, reload, stop or close in the active web tab.",
+        "parameters": [{ "name": "action", "type": "string", "enum": ["back", "forward", "reload", "stop", "close"] }]
+      },
+      {
+        "name": "webClick",
+        "type": "function",
+        "async": true,
+        "description": "A real mouse click at a point of the active web tab's page (content CSS pixels).",
+        "parameters": [{ "name": "x", "type": "number" }, { "name": "y", "type": "number" }]
+      },
+      {
         "name": "setAppearance",
         "type": "function",
         "async": true,

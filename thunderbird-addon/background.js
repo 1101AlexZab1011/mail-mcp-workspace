@@ -44,6 +44,7 @@ async function installSpaces() {
 }
 
 export async function openSpace(name, query = "") {
+  if (name === "browser" || name === "web") return browser.workspace.openWeb(query, {});
   const space = SPACES.find((candidate) => candidate.name === name);
   if (!space) return browser.workspace.openSpace(name);
   const [found] = await browser.spaces.query({ name: space.name });

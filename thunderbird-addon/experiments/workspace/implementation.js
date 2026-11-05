@@ -1,5 +1,5 @@
 /* Mail Workspace Experiment: the privileged half of the add-on. Layout lives in
-   layout.js (the space bar's tool groups in groups.js), GUI state and automation in automation.js; all are loaded into
+   layout.js (the space bar's tool groups in groups.js, the Browser in web.js), GUI state and automation in automation.js; all are loaded into
    this scope so they share helpers without globals leaking into Thunderbird. */
 /* global ExtensionAPI */
 var { ExtensionCommon } = ChromeUtils.importESModule("resource://gre/modules/ExtensionCommon.sys.mjs");
@@ -14,7 +14,7 @@ var workspace = class extends ExtensionAPI {
     const resProto = Services.io.getProtocolHandler("resource").QueryInterface(Ci.nsIResProtocolHandler);
     resProto.setSubstitutionWithFlags(RESOURCE_HOST, this.extension.rootURI, resProto.ALLOW_CONTENT_ACCESS);
     this.scope = { Services, ChromeUtils, Ci, Cc, Cu, ExtensionParent, console };
-    for (const file of ["layout.js", "shell.js", "groups.js", "automation.js"]) {
+    for (const file of ["address.js", "layout.js", "shell.js", "groups.js", "web.js", "automation.js"]) {
       // Through resource://, which is trusted also when the add-on runs from a folder.
       Services.scriptloader.loadSubScript(`resource://${RESOURCE_HOST}/experiments/workspace/${file}?${Date.now()}`, this.scope);
     }
@@ -140,6 +140,10 @@ var workspace = class extends ExtensionAPI {
         async calendarGoto(date, view) { return scope.calendarGoto(self.mainWindow(), date, view); },
         async setTerminal(change) { const window = self.mainWindow(); return scope.setTerminal(window, window.mwCtx, change); },
         async getTerminal() { return scope.terminalState(self.mainWindow()); },
+        async openWeb(input, options) { return scope.openWeb(self.mainWindow(), input ?? "", options ?? {}); },
+        async webState() { return scope.webState(self.mainWindow()); },
+        async webNavigate(action) { return scope.webNavigate(self.mainWindow(), action); },
+        async webClick(x, y) { return scope.webClick(self.mainWindow(), x, y); },
         async setAppearance(mode) { return scope.setAppearance(mode, self.messengerWindows()); },
         async focusOwnTab() { for (const window of self.messengerWindows()) scope.markTabs(window, self.extension); return true; },
         onDockChanged: new ExtensionCommon.EventManager({

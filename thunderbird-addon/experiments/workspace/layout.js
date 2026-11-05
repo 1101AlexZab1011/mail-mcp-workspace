@@ -179,6 +179,7 @@ function applyLayout(window, ctx) {
   window.mwCtx = ctx;
   installSidebarButtons(window, ctx);
   markSidebar(window, ctx.filesSide);
+  const stopWeb = installWeb(window);
   const stopGroups = installToolGroups(window);
   const stopSearch = installSearch(window);
   dropEchoTooltips(window);
@@ -228,6 +229,7 @@ function applyLayout(window, ctx) {
     observer.disconnect();
     stopSearch();
     stopGroups();
+    stopWeb();
     document.getElementById("mw-files-dock-button")?.remove();
     document.getElementById("mw-appmenu-button")?.remove();
     document.getElementById("mw-terminal")?.remove();

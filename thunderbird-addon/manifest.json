@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "name": "Mail Workspace",
   "description": "Agent-first workspace for Thunderbird: chat and file docks, file viewer, artifacts, paint, and GUI control for your agent.",
-  "version": "2.2.5",
+  "version": "2.2.6",
   "icons": {
     "16": "app-icon.svg",
     "32": "app-icon.svg",
@@ -48,7 +48,8 @@
     "menus",
     "http://127.0.0.1/*",
     "clipboardRead",
-    "clipboardWrite"
+    "clipboardWrite",
+    "<all_urls>"
   ],
   "web_accessible_resources": [
     "icons/*",

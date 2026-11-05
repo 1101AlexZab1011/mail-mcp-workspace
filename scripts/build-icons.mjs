@@ -41,6 +41,8 @@ export const NAMES = [
   "upload", "slideshow",
   // notes
   "star", "view_kanban", "mood", "wallpaper", "restore_from_trash", "drag_indicator", "database", "checklist", "subdirectory_arrow_right", "add_notes",
+  // browser
+  "public", "tab",
 ];
 
 // Glyphs Material Symbols lacks, drawn on the same 960 grid (viewBox 0 -960 960 960).

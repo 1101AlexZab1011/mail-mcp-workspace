@@ -110,7 +110,7 @@
    own buttons stay in the toolbar, hidden, and keep their state. */
 :root[mw-groups] #spacesToolbar :is(#mailButton, #addressBookButton, #calendarButton, #tasksButton, #mw-files-dock-button,
   [id$="spacesButton-viewer"], [id$="spacesButton-artifacts"], [id$="spacesButton-notes"], [id$="spacesButton-paint"],
-  [id$="spacesButton-writer"], [id$="spacesButton-slides"]) { display: none !important; }
+  [id$="spacesButton-writer"], [id$="spacesButton-slides"], #mw-browser-button) { display: none !important; }
 :root[mw-workspace] #spacesToolbar .mw-group-button { position: relative; }
 :root[mw-workspace] #spacesToolbar .mw-group-button + .mw-group-button { margin-top: 2px; }
 :root[mw-workspace] #spacesToolbar .mw-group-button.mw-active { background: var(--mw-hover) !important; color: var(--mw-text) !important; }
@@ -245,3 +245,44 @@
 .mw-terminal-grip:hover { background: var(--mw-primary); }
 #messengerBody { position: relative; }
 @keyframes mw-terminal-in { from { transform: translateY(16px); } }
+
+/* ---- Browser (experiments/workspace/web.js): web tabs in content tabs ---------------------------
+   A strip of the open web tabs above Thunderbird's content-tab toolbar, whose address bar becomes
+   editable; icons are drawn with the toolbar's text colour. */
+/* Thunderbird hides the toolbar on about: pages; a web tab keeps it (an empty tab starts at about:blank). */
+:root[mw-workspace] [mw-web] .contentTabToolbox {
+  display: flex !important; flex-direction: column; background: var(--mw-bg) !important; border-bottom: 1px solid var(--mw-border); padding: 0 !important;
+}
+:root[mw-workspace] [mw-web] .contentTabToolbar { padding: 5px 8px 6px !important; gap: 2px; align-items: center; background: var(--mw-surface) !important; }
+:root[mw-workspace] [mw-web] .contentTabToolbar > .nav-button { margin: 0 !important; padding: 5px !important; }
+:root[mw-workspace] [mw-web] .contentTabUrlInput {
+  height: 30px; border-radius: var(--mw-radius-pill) !important; padding-inline: 34px 12px !important;
+  background: var(--mw-surface-2) !important; color: var(--mw-text) !important; border: 1px solid transparent !important;
+  font: 13px var(--mw-font) !important;
+}
+:root[mw-workspace] [mw-web] .contentTabUrlInput:focus { background: var(--mw-surface) !important; border-color: var(--mw-primary) !important; box-shadow: var(--mw-focus); outline: none; }
+:root[mw-workspace] [mw-web] .contentTabAddress { margin-inline-start: 4px; position: relative; }
+:root[mw-workspace] [mw-web] .contentTabSecurity { position: absolute; inset-inline-start: 12px; top: 50%; transform: translateY(-50%); margin: 0 !important; }
+.mw-web-tabs { display: flex; align-items: flex-end; gap: 2px; padding: 6px 8px 0; min-width: 0; overflow: hidden; }
+.mw-web-tab {
+  display: flex; align-items: center; gap: 6px; min-width: 60px; max-width: 200px; flex: 0 1 200px; height: 30px; box-sizing: border-box;
+  padding: 0 4px 0 10px; border-radius: var(--mw-radius-s) var(--mw-radius-s) 0 0; cursor: default;
+  color: var(--mw-text-2); font: 12.5px var(--mw-font); user-select: none;
+}
+.mw-web-tab:hover { background: var(--mw-hover); color: var(--mw-text); }
+.mw-web-tab[aria-selected="true"] { background: var(--mw-surface); color: var(--mw-text); }
+.mw-web-tab[loading] .mw-web-tab-icon { animation: mw-web-pulse 1s ease-in-out infinite alternate; }
+.mw-web-tab-icon { width: 16px; height: 16px; flex: none; -moz-context-properties: fill; fill: currentColor; }
+.mw-web-tab-label { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.mw-web-btn {
+  display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; padding: 0 !important; margin: 0 !important;
+  min-width: 0 !important; min-height: 0 !important; box-sizing: border-box;
+  border: 0 !important; border-radius: var(--mw-radius-s) !important; background: transparent !important; color: var(--mw-text-2); appearance: none !important;
+}
+.mw-web-btn:hover { background: var(--mw-hover) !important; color: var(--mw-text); }
+.mw-web-btn > img { width: 18px; height: 18px; -moz-context-properties: fill; fill: currentColor; }
+.mw-web-tab-close { width: 20px !important; height: 20px !important; opacity: 0; }
+.mw-web-tab-close > img { width: 14px; height: 14px; }
+.mw-web-tab:hover .mw-web-tab-close, .mw-web-tab[aria-selected="true"] .mw-web-tab-close { opacity: 1; }
+.mw-web-new { margin-bottom: 1px; margin-inline-start: 2px; }
+@keyframes mw-web-pulse { from { opacity: 1; } to { opacity: 0.35; } }

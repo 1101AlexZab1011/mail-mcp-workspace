@@ -33,6 +33,12 @@ const TOOL_GROUPS = [
       { id: "slides", selector: '[id$="spacesButton-slides"]', icon: "slides" },
     ],
   },
+  {
+    id: "web", label: "Web",
+    tools: [
+      { id: "browser", selector: "#mw-browser-button", icon: "public" },
+    ],
+  },
 ];
 
 const GROUPS_PREF = "extensions.mailworkspace.toolGroups";
@@ -58,7 +64,7 @@ function installToolGroups(window) {
   const html = (tag, className) => { const el = document.createElementNS("http://www.w3.org/1999/xhtml", tag); if (className) el.className = className; return el; };
   const iconUrl = (name) => `resource://mailworkspace/icons/${name}.svg`;
   const original = (tool) => document.querySelector(`#spacesToolbar ${tool.selector}`);
-  const last = { communicate: "mail", files: "files", create: "notes", ...readLastTools() };
+  const last = { communicate: "mail", files: "files", create: "notes", web: "browser", ...readLastTools() };
 
   // --- the group buttons ---------------------------------------------------------------------------
   const buttons = new Map();
