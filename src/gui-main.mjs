@@ -251,7 +251,26 @@ register("writer_replace_selection", "Replace the text the user selected in the 
   markdown: z.string(),
 }, async ({ markdown }) => text(await gui("page", { page: "writer", type: "replace-selection", markdown })));
 
-register("writer_reveal", "Scroll the Writer to a heading or to the first block containing some text, and put the cursor there.", {
+register("writer_read", "The document open in the Writer exactly as the user sees it, unsaved edits included (the file on disk may be older: the Writer saves only on Ctrl+S). Use it to read or review what the user is writing. `path` picks another open tab.", {
+  path: z.string().optional(),
+}, async ({ path }) => text(await gui("page", { page: "writer", type: "read", path })), { readOnlyHint: true });
+
+register("writer_annotate", "Put your review into the Writer as highlights, the way \"Review with agent\" shows its own: each review frames one passage (an exact substring of a single paragraph, as writer_read shows it) with a verdict, and each comment underlines its `quote` (an exact substring of that passage) with a hover card. `kind`: error (plainly wrong), correction (must change), style (could be said better), sense (logic, facts or sense). `replacement` adds an Accept button; leave it out when the user writes the text themselves. `clear` removes earlier reviews first.", {
+  reviews: z.array(z.object({
+    text: z.string(),
+    verdict: z.enum(["good", "minor", "needs-work"]).optional(),
+    summary: z.string().optional(),
+    comments: z.array(z.object({
+      quote: z.string(),
+      kind: z.enum(["error", "correction", "style", "sense"]),
+      comment: z.string(),
+      replacement: z.string().optional(),
+    })).optional(),
+  })),
+  clear: z.boolean().optional(),
+}, async ({ reviews, clear }) => text(await gui("page", { page: "writer", type: "annotate", reviews, clear })));
+
+register("writer_reveal","Scroll the Writer to a heading or to the first block containing some text, and put the cursor there.", {
   heading: z.string().optional(),
   text: z.string().optional(),
 }, async ({ heading, text: needle }) => text(await gui("page", { page: "writer", type: "reveal", heading, text: needle })));

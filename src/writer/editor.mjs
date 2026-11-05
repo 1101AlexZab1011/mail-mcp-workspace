@@ -405,7 +405,7 @@ export async function createWriter(root, hooks = {}, options = {}) {
       ctx.set(rootCtx, root);
       // Edited blocks are written the way people (and GitHub, Obsidian) write Markdown: - bullets, --- rules.
       ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: "-", rule: "-" }));
-      ctx.update(editorViewOptionsCtx, (prev) => ({ ...prev, attributes: { class: notes ? "wr-doc nt-doc" : "wr-doc", spellcheck: notes ? "true" : "false" } }));
+      ctx.update(editorViewOptionsCtx, (prev) => ({ ...prev, attributes: { class: notes ? "wr-doc nt-doc" : "wr-doc", spellcheck: "true" } }));
       ctx.get(listenerCtx).updated(() => hooks.onChange?.());
       ctx.get(listenerCtx).selectionUpdated(() => hooks.onSelection?.());
     })
@@ -685,9 +685,35 @@ export async function createWriter(root, hooks = {}, options = {}) {
       view.dispatch(view.state.tr.setMeta(reviewKey, { update: { id, state: "error", summary: message } }).setMeta("addToHistory", false));
     },
 
-    /** Select the first occurrence of `needle` in the document's text. */
-    selectText(needle) {
+    /**
+     * A review written by the chat agent: the same frame and underlines, on the first occurrence of
+     * `passage` (within one block), without touching the user's selection. Comments are placed by
+     * their `quote`. Returns { placed, missing } (quotes not found), or null if the passage is not.
+     */
+    annotate(passage, { verdict = "minor", summary = "", comments = [] } = {}) {
+      const range = this.findText(passage);
+      if (!range) return null;
+      const [from, to] = range;
+      const { text } = rangeText(view.state.doc, from, to);
+      const id = ++reviewIds;
+      let heading = "";
+      view.state.doc.forEach((node, pos) => { if (node.type.name === "heading" && pos < from) heading = node.textContent.replace(/\s*\{[#.][^}]*\}\s*$/, "").trim(); });
+      view.dispatch(view.state.tr.setMeta(reviewKey, { add: { id, from, to, state: "pending", text, heading } }).setMeta("addToHistory", false));
+      const missing = [];
+      const placed = [];
+      for (const c of comments) {
+        const start = c.quote ? text.indexOf(c.quote) : -1;
+        if (start < 0) missing.push(c.quote);
+        else placed.push({ ...c, start, end: start + c.quote.length });
+      }
+      this.finishReview(id, { verdict, summary, comments: placed });
+      return { placed: placed.length, missing };
+    },
+
+    /** [from, to] of the first occurrence of `needle` within one block's text, or null. */
+    findText(needle) {
       let found = null;
+      if (!needle) return null;
       view.state.doc.descendants((node, pos) => {
         if (found || !node.isTextblock) return !found;
         const { text, starts, ends } = rangeText(view.state.doc, pos, pos + node.nodeSize);
@@ -695,6 +721,12 @@ export async function createWriter(root, hooks = {}, options = {}) {
         if (at >= 0) found = [starts[at], ends[at + needle.length - 1]];
         return false;
       });
+      return found;
+    },
+
+    /** Select the first occurrence of `needle` in the document's text. */
+    selectText(needle) {
+      const found = this.findText(needle);
       return found ? this.selectRange(found[0], found[1]) : false;
     },
 

@@ -382,6 +382,8 @@ async function remember(path) {
 async function open_(path, { heading } = {}) {
   if (!path) return null;
   if (!/\.md$/i.test(path)) { await background("open-file", { path }); return { opened: "viewer", path }; }
+  // A page made or moved outside Notes (the agent, another program) joins the tree first.
+  if (!byPath.has(path) && !byPath.has(path.replace(/^~/, "")) ) await refreshTree();
   let tab;
   try { tab = await tabs.open(path); }
   catch (error) { toast(error.message); return null; }
@@ -550,13 +552,13 @@ function renderHeaderTools() {
   const data = props();
   const fav = favourites.includes(doc.path);
   const tool = (glyph, label, run) => h("button.header-tool", { type: "button", onclick: run }, icon(glyph, { size: 17 }), label);
-  ui.headerTools.replaceChildren(
+  ui.headerTools.replaceChildren(...[
     data.icon ? null : tool("mood", "Add icon", (e) => emojiPicker(e.currentTarget)),
     data.cover ? null : tool("wallpaper", "Add cover", () => changeProperties({ cover: `gradient:${Math.floor(Math.random() * COVERS.length)}` })),
     tool("tune", "Add property", () => void addProperty()),
     h("span.spacer"),
     h("button.header-tool", { type: "button", title: fav ? "Remove from favourites" : "Add to favourites", onclick: () => toggleFavourite(doc.path) }, icon("star", { size: 17, fill: fav })),
-  );
+  ].filter(Boolean)); // replaceChildren would write a null as the text "null"
 }
 
 function emojiPicker(anchor) {
@@ -1223,6 +1225,12 @@ registerPage("notes", {
       return { revealed: true };
     },
     select: ({ text }) => { if (!editor?.selectText(String(text ?? ""))) throw new Error("Text not found on the page"); return { selected: text }; },
+    /** The page as it is in the editor (Notes saves as you type, so this is at most a moment ahead of the file). */
+    read: ({ path } = {}) => {
+      const tab = path ? tabs.find(path) : doc;
+      if (!tab?.path || !tab.editor) throw new Error("No such page is open");
+      return { path: tab.path, unsavedChanges: Boolean(tab.dirty), text: fullText(tab) };
+    },
     review: async ({ text }) => {
       if (text && !editor?.selectText(String(text))) throw new Error("Text not found on the page");
       const result = await reviewSelection();

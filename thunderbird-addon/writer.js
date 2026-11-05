@@ -931,12 +931,27 @@ registerPage("writer", {
       return { revealed: true };
     },
     select: ({ text }) => { if (!editor?.selectText(String(text ?? ""))) throw new Error("Text not found in the document"); return { selected: text }; },
+    /** The document as it is in the editor, unsaved edits included (what the user sees, not the file). */
+    read: ({ path } = {}) => {
+      const tab = path ? tabs.tabs.find((t) => t.path === path) : doc;
+      if (!tab?.path || !tab.editor) throw new Error(path ? "That document is not open in the Writer" : "No document is open");
+      return { path: tab.path, unsavedChanges: Boolean(tab.dirty), text: tab.editor.markdown() };
+    },
     review: async ({ text }) => {
       if (text && !editor?.selectText(String(text))) throw new Error("Text not found in the document");
       await reviewSelection();
       const { regions, comments } = editor.reviews();
       const region = regions.at(-1);
       return region ? { verdict: region.state, summary: region.summary, comments: comments.filter((c) => c.region === region.id).map((c) => ({ kind: c.kind, quote: c.quote, comment: c.comment, replacement: c.replacement })) } : null;
+    },
+    /** The chat agent's own review, drawn like "Review with agent": one frame per passage, comments by quote. */
+    annotate: ({ reviews = [], clear = false }) => {
+      if (!editor || !doc.path) throw new Error("No document is open");
+      if (clear) editor.clearReviews();
+      const results = reviews.map((r) => ({ passage: String(r.text ?? "").slice(0, 60), ...(editor.annotate(String(r.text ?? ""), r) ?? { error: "Passage not found (it must lie within one paragraph)" }) }));
+      hideCard();
+      drawFrames();
+      return { results };
     },
     /** Point the user at a comment: scroll to it and open its card. */
     "show-comment": ({ index = 0 }) => {

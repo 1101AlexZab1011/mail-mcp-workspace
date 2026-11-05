@@ -120,6 +120,8 @@ a reload as drafts.
 The Writer space edits `.qmd` and `.md` files. The user writes there; you add
 content when asked.
 
+- **Read what the user wrote with `writer_read`,** not from the file: the Writer
+  saves only on Ctrl+S, so the file may be hours older than the editor.
 - **Start with `writer_state`.** It tells you the open document, its unsaved
   state, the heading the cursor is under and the selected text ("this
   paragraph", "here").
@@ -142,6 +144,9 @@ content when asked.
   Its comments appear in the Writer. "Discuss in chat" sends you the passage
   and the comment. Answer as a demanding but fair reviewer would. Change the text only when
   the user asks, and then use `files_edit` or `writer_replace_selection`.
+- **Your own review goes in the text** with `writer_annotate`, not as a list in
+  the chat: one review per paragraph, a comment on each exact quote. Keep the
+  chat message to a one-line summary.
 
 
 ## Slides (presentations)
