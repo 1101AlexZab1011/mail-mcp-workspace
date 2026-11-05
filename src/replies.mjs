@@ -88,9 +88,13 @@ export async function announceReplies({ accountName, account, subscriptionsPath,
   const { queue = [] } = await update(subscriptionsPath, (state) => ({ queue: [...(state.queue ?? [])] }));
   const events = queue.filter((event) => event.data.account === accountName).map(({ error, ...event }) => event);
   const seen = new Set(events.map((event) => event.data.message_id));
+  // Routing copies a message into a Pending folder, so it arrives again a poll later; by
+  // then a second subscription in the same thread (a follow-up's) has not seen it yet.
+  // A message is announced once per account, whichever subscription or watch caught it.
+  const announced = new Set([...subscriptions, ...watches].flatMap((item) => item.notified ?? []));
   for (const { mailbox, message } of arrivals) {
     const id = normalizeId(message.messageId);
-    if (!id || seen.has(id)) continue;
+    if (!id || seen.has(id) || announced.has(id)) continue;
     const options = { account: accountName, self: account.email, now };
     const subscription = matchReply(subscriptions, { ...message, autoReply: isAutoReply(message.headers ?? {}) }, options);
     const watched = subscription ? null : matchWatch(watches, message, options);

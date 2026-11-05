@@ -201,3 +201,15 @@ test("the watcher reads the newest event of a channel", async () => {
   assert.equal(url.searchParams.get("channel"), "mail/chat/sessions");
   assert.equal(url.searchParams.get("limit"), "1");
 });
+
+test("a message announced through one subscription is not announced again through another in the same thread", async () => {
+  const path = await store();
+  await subscribe(path, { account: "work", messageId: "<first@example.org>" });
+  await subscribe(path, { account: "work", messageId: "<followup@example.org>" });
+  const events = [];
+  const send = async (event) => { events.push(event); };
+  const answer = reply({ messageId: "<hr@example.org>", inReplyTo: "<followup@example.org>", references: "<first@example.org> <followup@example.org>" });
+  await announceReplies({ accountName: "work", account, subscriptionsPath: path, arrivals: [{ mailbox: "Important", message: answer }], publish: send, sessions: async () => null });
+  await announceReplies({ accountName: "work", account, subscriptionsPath: path, arrivals: [{ mailbox: "Pending/General", message: answer }], publish: send, sessions: async () => null });
+  assert.equal(events.length, 1);
+});
