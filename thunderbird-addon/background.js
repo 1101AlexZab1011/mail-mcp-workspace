@@ -103,6 +103,12 @@ const pageRequests = {
     viewerLeft = null;
     return { path: left.path };
   },
+  // A login form was sent in a web page (web/logins.js): the Browser offers to save the password. The
+  // password goes from here to Thunderbird's password manager only.
+  "login-submitted": ({ origin, formActionOrigin, username, password }, sender) => {
+    if (sender?.tab?.id === undefined) return { ignored: true };
+    return browser.workspace.offerLogin(sender.tab.id, { origin, formActionOrigin, username, password });
+  },
   "chat-draft": async ({ text }) => {
     await browser.workspace.setDock(CHAT_SIDE, { state: "open" });
     return deliver("chat", { type: "draft", text });
@@ -115,11 +121,11 @@ const pageRequests = {
     return deliver("files", { type: "select", paths: [path] });
   },
 };
-browser.runtime.onMessage.addListener((message) => {
+browser.runtime.onMessage.addListener((message, sender) => {
   if (message?.to !== "background") return undefined;
   const handler = pageRequests[message.type];
   if (!handler) return Promise.resolve({ error: `Unknown request ${message.type}` });
-  return Promise.resolve(handler(message)).then((value) => value ?? { ok: true }, (error) => ({ error: error.message }));
+  return Promise.resolve(handler(message, sender)).then((value) => value ?? { ok: true }, (error) => ({ error: error.message }));
 });
 
 // "Save to Notes" on messages: a page in the vault's Mail folder with the sender, date, text and a link back.

@@ -151,6 +151,8 @@ const commands = {
 
   async "web.navigate"({ action }) { return browser.workspace.webNavigate(action); },
 
+  async "web.downloads"() { return browser.workspace.webDownloads(); },
+
   async "web.snapshot"({ query, limit }) { return untrusted(await inPage("snapshot", { query, limit })); },
 
   async "web.read"({ maxChars }) { return untrusted(await inPage("read", { maxChars })); },

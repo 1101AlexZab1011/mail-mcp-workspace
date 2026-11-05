@@ -63,12 +63,20 @@ The Web group's Browser opens web pages in Thunderbird's own tabs, with a
 strip of the open web tabs and an address bar (Ctrl+Shift+9). It starts on
 Google, presents itself to sites as Firefox, and takes Firefox's (Linux)
 shortcuts: Ctrl+T/W, Ctrl+Shift+T, Ctrl+Tab, Alt+1…9, Alt+←/→, Ctrl+L, Ctrl+F,
-Ctrl+R, Ctrl+U. The user browses there too, and sees everything you do in it.
+Ctrl+R, Ctrl+U, Ctrl+S, Ctrl+H, Ctrl+Shift+Y. Its ☰ menu has the session's
+history, downloads, saved passwords, print, zoom and session settings. The
+user browses there too, and sees everything you do in it.
 
 - **Sessions** are separate browser profiles: each has its own tabs, cookies
   and logins (the Web group lists them). Work in the session the user is in;
   for a separate login, `web_session` creates or switches one (`web_open`
   takes `session` too). Deleting a session is the user's alone.
+- **Downloads** save to the Downloads folder without asking (the user's sorter
+  may move them into a subfolder). `web_downloads` lists them with their
+  current paths, so you can read or attach what a site gave the user.
+- **Passwords** are Thunderbird's, shared by every session: after a login the
+  tab offers to save it, and saved ones fill in. You never see them; the
+  offer, the password list and clearing a session's data are the user's.
 - `web_open` loads an address or searches for words, in the session's web tab
   shown last (`new_tab` for another). `web_state` lists sessions and web tabs.
 - `web_snapshot` lists the page's controls with refs: label, value, options,

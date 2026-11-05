@@ -14,7 +14,8 @@
    reload/stop and a new-tab button. The agent reads and fills pages through the add-on's content
    script (background/web.js); clicks are sent from here, as real mouse input. */
 /* global Services, ChromeUtils, Cc, Ci, ExtensionParent, parseAddress, webShortcut, makeSpaceButton, GROUP_FLYOUTS,
-   WEB_SESSIONS_PREF, parseWebSessions, serializeWebSessions, findWebSession, webSessionName, newWebSessionId */
+   WEB_SESSIONS_PREF, parseWebSessions, serializeWebSessions, findWebSession, webSessionName, newWebSessionId,
+   WEB_MENU, openWebMenu, closeWebMenu, recordVisit, recordTitle, dropSessionHistory, savePage, prepareWebPrefs */
 
 var WEB_GROUP = "browsers";
 var WEB_START = "https://www.google.com/";
@@ -100,6 +101,7 @@ function deleteSession(window, id) {
   writeSessions(state);
   window.mwClosedWebTabs?.delete(id);
   window.mwLastWebTabs?.delete(id);
+  dropSessionHistory(id);
 }
 
 /** The session there always is: the first run makes "Main". */
@@ -338,6 +340,15 @@ function enhanceWebTab(window, info) {
   const reload = webButton(document, { className: "mw-web-reload", title: "Reload (Ctrl+R)", icon: "refresh", onclick: () => (info.browser.webProgress?.isLoadingDocument ? info.browser.stop() : info.browser.reload()) });
   info.forwardButton.after(reload);
 
+  // ☰: the session's menu (webmenu.js), at the end of the toolbar as in Firefox.
+  const menu = webButton(document, { className: "mw-web-menu-btn", title: "Open menu", icon: "menu", onclick: () => {
+    if (menu.getAttribute("aria-expanded") === "true") closeWebMenu(window);
+    else openWebMenu(window, info);
+  } });
+  menu.setAttribute("aria-haspopup", "menu");
+  menu.setAttribute("aria-expanded", "false");
+  info.toolbar.append(menu);
+
   const urlbar = info.urlbar;
   urlbar.removeAttribute("readonly");
   urlbar.setAttribute("placeholder", "Search or enter address");
@@ -371,6 +382,7 @@ function enhanceWebTab(window, info) {
     onLocationChange(webProgress) {
       if (!webProgress?.isTopLevel) return;
       if (info.browser.currentURI?.spec === "about:blank" && document.activeElement !== urlbar) urlbar.value = "";
+      void recordVisit(info);
       renderWebChrome(window);
     },
     onProgressChange() {}, onStatusChange() {}, onSecurityChange() {}, onContentBlockingEvent() {},
@@ -385,6 +397,7 @@ function enhanceWebTab(window, info) {
     urlbar.setAttribute("readonly", "readonly");
     strip.remove();
     reload.remove();
+    menu.remove();
     info.panel?.removeAttribute("mw-web");
     delete info.mwWeb;
     delete info.mwWebUndo;
@@ -482,6 +495,9 @@ function runWebShortcut(window, info, { command, index }) {
     case "find-next": info.findbar?.onFindAgainCommand(false); break;
     case "find-previous": info.findbar?.onFindAgainCommand(true); break;
     case "print": window.PrintUtils?.startPrintWindow(browser.browsingContext); break;
+    case "save-page": void savePage(window, info).then(() => openWebMenu(window, info, "downloads"), (error) => console.warn("Mail Workspace:", error.message)); break;
+    case "history": openWebMenu(window, info, "history"); break;
+    case "downloads": openWebMenu(window, info, "downloads"); break;
     case "view-source": if (browser.currentURI?.schemeIs("http") || browser.currentURI?.schemeIs("https")) void openWeb(window, `view-source:${browser.currentURI.spec}`, inSession); break;
     default: return false;
   }
@@ -616,8 +632,9 @@ function installWeb(window) {
 
   const monitor = {
     monitorName: "mailWorkspaceWeb",
-    onTabTitleChanged: () => renderWebChrome(window),
+    onTabTitleChanged(tab) { if (isWebTab(tab)) void recordTitle(tab); renderWebChrome(window); },
     onTabSwitched(tab) {
+      closeWebMenu(window);
       if (isWebTab(tab)) {
         window.mwLastWebTab = tab;
         const state = readSessions();
@@ -651,6 +668,7 @@ function installWeb(window) {
     onTabRestored() { window.setTimeout(() => { adoptStrayTabs(window); renderWebChrome(window); }, 0); },
   };
   tabmail.registerTabMonitor(monitor);
+  prepareWebPrefs();
   adoptStrayTabs(window);
 
   // Ctrl+Shift+9 opens the Browser; in a web tab, Firefox's shortcuts (shortcuts.js) win over Thunderbird's.
@@ -667,6 +685,8 @@ function installWeb(window) {
   return () => {
     window.removeEventListener("keydown", onKey, true);
     tabmail.unregisterTabMonitor(monitor);
+    closeWebMenu(window);
+    document.getElementById(WEB_MENU)?.remove();
     for (const info of tabmail.tabInfo ?? []) info.mwWebUndo?.();
     if (window.mwWebQueued) window.cancelAnimationFrame(window.mwWebQueued);
     delete window.mwWebQueued;

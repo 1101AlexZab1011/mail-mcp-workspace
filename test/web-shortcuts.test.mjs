@@ -48,6 +48,12 @@ test("reload, find, print and view source", () => {
   assert.equal(command({ key: "Escape" }), "stop");
 });
 
+test("save page, history and downloads", () => {
+  assert.equal(command(letter("S", { ctrlKey: true })), "save-page");
+  assert.equal(command(letter("H", { ctrlKey: true })), "history");
+  assert.equal(command(letter("Y", { ctrlKey: true, shiftKey: true })), "downloads");
+});
+
 test("the keyboard layout does not matter: letters go by their key position", () => {
   assert.equal(command({ key: "е", code: "KeyT", ctrlKey: true }), "new-tab");
 });

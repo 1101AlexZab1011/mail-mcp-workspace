@@ -310,3 +310,62 @@
   background: var(--mw-surface); color: var(--mw-text); font: inherit; box-shadow: var(--mw-focus); outline: none;
 }
 :root[mw-workspace] .mw-web-session-new { color: var(--mw-text-2); border-top: 1px solid var(--mw-border); border-radius: 0 0 var(--mw-radius-s, 6px) var(--mw-radius-s, 6px); margin-top: 3px; }
+
+/* The Browser's ☰ menu (webmenu.js): a panel like the space bar's flyouts and Firefox's app menu. */
+.mw-web-menu-btn { margin-inline-start: 4px !important; }
+.mw-web-menu-btn[aria-expanded="true"] { background: var(--mw-hover) !important; color: var(--mw-text); }
+:root[mw-workspace] .mw-web-menu {
+  position: fixed; z-index: 2147483000; width: 340px; max-height: calc(100vh - 80px); padding: 6px; display: flex; flex-direction: column; gap: 1px; box-sizing: border-box;
+  background: var(--mw-surface); color: var(--mw-text); border: 1px solid var(--mw-border); border-radius: var(--mw-radius, 10px);
+  box-shadow: var(--mw-shadow-3, 0 8px 28px rgba(0, 0, 0, 0.18)); font: 13.5px var(--mw-font, sans-serif);
+}
+:root[mw-workspace] .mw-web-menu[hidden] { display: none; }
+:root[mw-workspace] :is(.mw-web-menu-item, .mw-web-menu-zoom, .mw-web-menu-download) {
+  display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 10px 0 8px; border: 0; border-radius: var(--mw-radius-s, 6px);
+  background: none; color: var(--mw-text); font: inherit; text-align: start; appearance: none; flex: none; margin: 0 !important;
+}
+:root[mw-workspace] .mw-web-menu-item { cursor: pointer; min-width: 0 !important; }
+:root[mw-workspace] .mw-web-menu-item:is(:hover, :focus-visible) { background: var(--mw-hover); outline: none; }
+:root[mw-workspace] .mw-web-menu-item.danger { color: var(--mw-danger); }
+:root[mw-workspace] .mw-web-menu img { width: 20px; height: 20px; flex: none; -moz-context-properties: fill; fill: currentColor; }
+:root[mw-workspace] .mw-web-menu-noicon { width: 20px; flex: none; }
+:root[mw-workspace] .mw-web-menu-label { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+:root[mw-workspace] :is(.mw-web-menu-key, .mw-web-menu-sub) { flex: none; font-size: 11.5px; color: var(--mw-text-3); }
+:root[mw-workspace] .mw-web-menu-sub { max-width: 120px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+:root[mw-workspace] .mw-web-menu-session { font-weight: 650; }
+:root[mw-workspace] .mw-web-menu-sep { height: 1px; margin: 4px 6px; background: var(--mw-border); flex: none; }
+:root[mw-workspace] .mw-web-menu-header { display: flex; align-items: center; gap: 6px; padding: 2px 4px 6px; margin-bottom: 2px; border-bottom: 1px solid var(--mw-border); flex: none; }
+:root[mw-workspace] .mw-web-menu-title { flex: 1; text-align: center; font-weight: 650; margin-inline-end: 30px; }
+:root[mw-workspace] :is(.mw-web-menu-back, .mw-web-menu-zoom-btn) {
+  display: inline-flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; padding: 0; border: 0;
+  min-width: 0 !important; min-height: 0 !important; margin: 0 !important; /* Thunderbird's chrome buttons are 6em wide */
+  border-radius: var(--mw-radius-s, 6px); background: transparent; color: var(--mw-text-2); appearance: none; cursor: pointer;
+}
+:root[mw-workspace] :is(.mw-web-menu-back, .mw-web-menu-zoom-btn):is(:hover, :focus-visible) { background: var(--mw-hover); color: var(--mw-text); outline: none; }
+:root[mw-workspace] .mw-web-menu-zoom-btn:disabled { opacity: 0.4; cursor: default; }
+:root[mw-workspace] .mw-web-menu-zoom-value { min-width: 48px; text-align: center; font-size: 12.5px; color: var(--mw-text-2); cursor: pointer; border-radius: var(--mw-radius-s, 6px); padding: 5px 0; }
+:root[mw-workspace] .mw-web-menu-zoom-value:hover { background: var(--mw-hover); }
+:root[mw-workspace] .mw-web-menu-download-text { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 4px 0; }
+:root[mw-workspace] .mw-web-menu-download-text .mw-web-menu-sub { max-width: none; }
+:root[mw-workspace] .mw-web-menu-empty { padding: 10px 12px; color: var(--mw-text-3); font-size: 12.5px; }
+:root[mw-workspace] .mw-web-menu-scroll { overflow-y: auto; min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; max-height: 420px; }
+:root[mw-workspace] .mw-web-menu-input {
+  height: 30px; margin: 2px 4px 6px; padding: 0 9px; border: 1px solid var(--mw-border); border-radius: var(--mw-radius-s, 6px); flex: none;
+  background: var(--mw-surface-2); color: var(--mw-text); font: inherit; outline: none;
+}
+:root[mw-workspace] .mw-web-menu-input:focus { border-color: var(--mw-primary); background: var(--mw-surface); box-shadow: var(--mw-focus); }
+:root[mw-workspace] .mw-web-menu-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border-radius: var(--mw-radius-s, 6px); background: var(--mw-hover); flex: none; }
+:root[mw-workspace] .mw-web-menu-question { flex-basis: 100%; font-size: 12.5px; }
+:root[mw-workspace] :is(.mw-web-menu-yes, .mw-web-menu-no, .mw-web-login-btn) {
+  height: 26px; padding: 0 10px; border: 1px solid var(--mw-border); border-radius: var(--mw-radius-s, 6px); background: var(--mw-surface);
+  color: var(--mw-text); font: inherit; font-size: 12.5px; cursor: pointer; appearance: none; min-width: 0 !important; margin: 0 !important;
+}
+:root[mw-workspace] .mw-web-menu-yes { background: var(--mw-danger); border-color: transparent; color: #fff; font-weight: 600; }
+/* After a login: "Save the password?" under the toolbar. */
+.mw-web-login {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--mw-border);
+  background: var(--mw-primary-soft); color: var(--mw-primary-soft-text); font: 13px var(--mw-font);
+}
+.mw-web-login > img { width: 18px; height: 18px; -moz-context-properties: fill; fill: currentColor; }
+.mw-web-login-text { flex: 1; min-width: 0; }
+:root[mw-workspace] .mw-web-login-btn.primary { background: var(--mw-primary); border-color: transparent; color: var(--mw-on-primary); font-weight: 600; }

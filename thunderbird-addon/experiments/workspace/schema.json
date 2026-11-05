@@ -309,6 +309,23 @@
         "parameters": []
       },
       {
+        "name": "webDownloads",
+        "type": "function",
+        "async": true,
+        "description": "The Downloads folder and the newest downloads: name, path, url, size, done, failed, running.",
+        "parameters": []
+      },
+      {
+        "name": "offerLogin",
+        "type": "function",
+        "async": true,
+        "description": "After a login form was sent in a web tab: offer the user to save or update the password.",
+        "parameters": [
+          { "name": "tabId", "type": "integer" },
+          { "name": "data", "type": "object", "additionalProperties": { "type": "any" } }
+        ]
+      },
+      {
         "name": "webSession",
         "type": "function",
         "async": true,

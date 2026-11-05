@@ -21,6 +21,14 @@ var __mwWeb = globalThis.__mwWeb ?? (() => {
 
   const clean = (text, max = 120) => (text ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 
+  // Password fields stay secret even when the page shows them as text ("show password"): every field seen
+  // as a password once is remembered, for as long as the page lives.
+  const secrets = new WeakSet();
+  const noteSecrets = () => { for (const el of document.querySelectorAll("input[type=password]")) secrets.add(el); };
+  const isSecret = (el) => el.localName === "input" && (secrets.has(el) || el.type === "password"
+    || /(current|new)-password|one-time-code/.test(el.autocomplete ?? "")
+    || /pass(wor[dt])?|pwd|kennwort|\bpin\b|\btan\b/i.test(`${el.name} ${el.id} ${labelText(el)}`));
+
   function labelText(el) {
     const by = el.getAttribute("aria-labelledby");
     if (by) {
@@ -75,9 +83,7 @@ var __mwWeb = globalThis.__mwWeb ?? (() => {
 
   function finalVerdict(el, action) {
     const name = labelText(el);
-    const secret = el.localName === "input" && (el.type === "password" || /(current|new)-password|one-time-code/.test(el.autocomplete ?? "")
-      || /pass(wor[dt])?|pwd|kennwort|\bpin\b|\btan\b/i.test(`${el.name} ${el.id} ${labelText(el)}`));
-    if (action === "type" && secret) {
+    if (action === "type" && isSecret(el)) {
       return { refused: true, reason: "Password fields are the user's: ask the user to log in themselves." };
     }
     const pressing = action === "click" || (action === "press" && el.form);
@@ -107,7 +113,7 @@ var __mwWeb = globalThis.__mwWeb ?? (() => {
     const item = { ref, role: roleOf(el), name: labelText(el) };
     if (el.localName === "input" && !["submit", "button", "reset", "image", "checkbox", "radio"].includes(el.type)) item.type = el.type;
     if ("value" in el && !["button", "submit", "reset", "image", "checkbox", "radio"].includes(el.type) && el.localName !== "button" && el.localName !== "select") {
-      if (el.type === "password") item.value = el.value ? "(filled)" : "";
+      if (isSecret(el)) item.value = el.value ? "(filled)" : "";
       else if (el.value) item.value = clean(el.value, 300);
     }
     if (el.isContentEditable && el.localName !== "input") item.value = clean(el.innerText, 300);
@@ -230,7 +236,7 @@ var __mwWeb = globalThis.__mwWeb ?? (() => {
     const done = { ...result, done: true };
     if ("checked" in el && ["checkbox", "radio"].includes(el.type)) done.checked = el.checked;
     else if (el.localName === "select") done.value = clean(el.selectedOptions?.[0]?.textContent);
-    else if ("value" in el && el.type !== "password" && el.localName !== "button") done.value = clean(el.value, 300);
+    else if ("value" in el && !isSecret(el) && el.localName !== "button") done.value = clean(el.value, 300);
     return done;
   }
 
@@ -245,6 +251,8 @@ var __mwWeb = globalThis.__mwWeb ?? (() => {
     return { url: location.href, title: document.title, text: text.slice(0, maxChars), truncated: text.length > maxChars ? text.length : undefined };
   }
 
-  return { snapshot, act, state, read };
+  // Every command first notes the page's password fields, so a field shown as text later is still known.
+  const noting = (command) => (args) => { noteSecrets(); return command(args); };
+  return { snapshot: noting(snapshot), act: noting(act), state: noting(state), read: noting(read) };
 })();
 globalThis.__mwWeb = __mwWeb;

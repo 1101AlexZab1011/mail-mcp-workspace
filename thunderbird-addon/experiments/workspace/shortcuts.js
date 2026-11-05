@@ -5,7 +5,7 @@
  * A key event in a web tab → the Firefox command it means, or null to leave the key to the page and
  * Thunderbird. Commands: address, new-tab, close-tab, reopen-tab, next-tab, previous-tab, tab (with
  * `index`, -1 for the last), back, forward, home, reload, hard-reload, stop, find, find-next,
- * find-previous, print, view-source.
+ * find-previous, print, view-source, save-page, history, downloads.
  */
 function webShortcut({ key, code, ctrlKey = false, shiftKey = false, altKey = false, metaKey = false }) {
   if (metaKey) return null;
@@ -23,6 +23,8 @@ function webShortcut({ key, code, ctrlKey = false, shiftKey = false, altKey = fa
       case "G": return { command: "find-next" };
       case "P": return { command: "print" };
       case "U": return { command: "view-source" };
+      case "S": return { command: "save-page" };
+      case "H": return { command: "history" };
     }
     if (key === "F4") return { command: "close-tab" };
     if (key === "F5") return { command: "hard-reload" };
@@ -33,6 +35,7 @@ function webShortcut({ key, code, ctrlKey = false, shiftKey = false, altKey = fa
     if (letter === "T") return { command: "reopen-tab" };
     if (letter === "R") return { command: "hard-reload" };
     if (letter === "G") return { command: "find-previous" };
+    if (letter === "Y") return { command: "downloads" };
     if (key === "Tab") return { command: "previous-tab" };
   }
   if (alt && !shiftKey) {

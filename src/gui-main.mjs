@@ -174,6 +174,8 @@ register("web_read", "The readable text of the active web page (what the user se
   return text(`${UNTRUSTED}\nPage: ${page.title || "(untitled)"} <${page.url}>${page.truncated ? ` (first ${max_chars ?? 20000} of ${page.truncated} characters)` : ""}\n\n${page.text}`);
 }, { readOnlyHint: true });
 
+register("web_downloads", "What the Browser downloaded, newest first: file name, path (in the Downloads folder), source address, size, and whether it is done, failed or still running. Files save to the Downloads folder without asking; read one with files_read or open it in the File viewer.", {}, async () => text(await gui("web.downloads")), { readOnlyHint: true });
+
 register("web_navigate", "In the active web tab: back, forward, reload, stop, or close the tab.", {
   action: z.enum(["back", "forward", "reload", "stop", "close"]),
 }, async ({ action }) => text(await gui("web.navigate", { action })));
