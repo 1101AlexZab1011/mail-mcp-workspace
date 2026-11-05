@@ -57,6 +57,8 @@ How to comment:
 - Keep the author's spelling variant (British or American) as in the text.`;
 const LANGUAGETOOL_URL = process.env.LANGUAGETOOL_URL ?? "http://127.0.0.1:8081";
 const LANGUAGETOOL_JARS = ["/usr/share/java/languagetool", "/usr/share/languagetool", "/opt/languagetool"];
+const LANGUAGETOOL_LAUNCHERS = ["/usr/bin/languagetool", "/usr/local/bin/languagetool"];
+const LANGUAGETOOL_DATA = ["/usr/share/languagetool"];
 const WRITABLE_DOCUMENTS = new Set([".qmd", ".md", ".markdown", ".rmd"]);
 
 /**
@@ -183,11 +185,23 @@ export class Writer {
   async #ensureLanguageTool() {
     if (await reachable(`${LANGUAGETOOL_URL}/v2/languages`)) return;
     this.starting ??= (async () => {
-      const jar = await findLanguageToolJar();
-      if (!jar) throw new FsError(503, "grammar_unavailable", "LanguageTool is not installed. Install it with: sudo pacman -S languagetool");
       const port = new URL(LANGUAGETOOL_URL).port || "8081";
+      // The package's launcher knows its own class path (the server jar alone is not enough: Arch splits
+      // LanguageTool over several jars and a data folder); without it, build the path the same way.
+      const launcher = LANGUAGETOOL_LAUNCHERS.find((path) => existsSync(path));
+      let command;
+      let args;
+      if (launcher) [command, args] = [launcher, ["--http", "--port", port]];
+      else {
+        const jar = await findLanguageToolJar();
+        if (!jar) throw new FsError(503, "grammar_unavailable", "LanguageTool is not installed. Install it with: sudo pacman -S languagetool");
+        const dir = dirname(jar);
+        const jars = (await readdir(dir).catch(() => [])).filter((n) => n.endsWith(".jar")).map((n) => join(dir, n));
+        const classPath = [...LANGUAGETOOL_DATA.filter((d) => existsSync(d)), ...jars, join(dir, "libs", "*")].join(":");
+        [command, args] = ["java", ["-cp", classPath, "org.languagetool.server.HTTPServer", "--port", port]];
+      }
       this.log(`starting LanguageTool server on port ${port}`);
-      this.languagetool = spawn("java", ["-cp", jar, "org.languagetool.server.HTTPServer", "--port", port], { stdio: "ignore" });
+      this.languagetool = spawn(command, args, { stdio: "ignore" });
       this.languagetool.on("exit", () => { this.languagetool = null; });
       for (let i = 0; i < 60; i++) {
         await new Promise((r) => setTimeout(r, 500));
