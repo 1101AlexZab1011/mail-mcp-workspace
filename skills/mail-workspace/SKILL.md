@@ -75,8 +75,11 @@ user browses there too, and sees everything you do in it.
   may move them into a subfolder). `web_downloads` lists them with their
   current paths, so you can read or attach what a site gave the user.
 - **Passwords** are Thunderbird's, shared by every session: after a login the
-  tab offers to save it, and saved ones fill in. You never see them; the
-  offer, the password list and clearing a session's data are the user's.
+  tab offers to save it, and saved ones fill in. The ☰ menu's Passwords opens
+  `about:logins` in a tab, as in Firefox. You never see them: that page is
+  absent from snapshots, refuses your clicks and keys, and hides a shown
+  password before your screenshots. The offer, the password list and clearing
+  a session's data are the user's.
 - `web_open` loads an address or searches for words, in the session's web tab
   shown last (`new_tab` for another). `web_state` lists sessions and web tabs.
 - `web_snapshot` lists the page's controls with refs: label, value, options,

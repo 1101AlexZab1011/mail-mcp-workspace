@@ -5,6 +5,7 @@
 var { ExtensionCommon } = ChromeUtils.importESModule("resource://gre/modules/ExtensionCommon.sys.mjs");
 var { ExtensionSupport } = ChromeUtils.importESModule("resource:///modules/ExtensionSupport.sys.mjs");
 var { ExtensionParent } = ChromeUtils.importESModule("resource://gre/modules/ExtensionParent.sys.mjs");
+var { ExtensionUtils } = ChromeUtils.importESModule("resource://gre/modules/ExtensionUtils.sys.mjs");
 
 const MESSENGER = "chrome://messenger/content/messenger.xhtml";
 const RESOURCE_HOST = "mailworkspace";
@@ -14,10 +15,12 @@ var workspace = class extends ExtensionAPI {
     const resProto = Services.io.getProtocolHandler("resource").QueryInterface(Ci.nsIResProtocolHandler);
     resProto.setSubstitutionWithFlags(RESOURCE_HOST, this.extension.rootURI, resProto.ALLOW_CONTENT_ACCESS);
     this.scope = { Services, ChromeUtils, Ci, Cc, Cu, ExtensionParent, IOUtils, PathUtils, console };
-    for (const file of ["address.js", "shortcuts.js", "websessions.js", "webhistory.js", "layout.js", "shell.js", "groups.js", "web.js", "webmenu.js", "automation.js"]) {
+    for (const file of ["address.js", "shortcuts.js", "websessions.js", "webhistory.js", "layout.js", "shell.js", "groups.js", "web.js", "webmenu.js", "aboutlogins.js", "automation.js"]) {
       // Through resource://, which is trusted also when the add-on runs from a folder.
       Services.scriptloader.loadSubScript(`resource://${RESOURCE_HOST}/experiments/workspace/${file}?${Date.now()}`, this.scope);
     }
+    // The Browser's saved passwords page; registered before windows restore a tab showing it.
+    this.undoAboutLogins = this.scope.installAboutLogins(this.extension.rootURI, Components.manager);
     this.listeners = { dock: new Set(), shortcut: new Set() };
     this.sheetUrl = `resource://${RESOURCE_HOST}/theme/chrome.css`;
     this.paneSheetUrl = `resource://${RESOURCE_HOST}/theme/panes.css`;
@@ -25,6 +28,7 @@ var workspace = class extends ExtensionAPI {
 
   onShutdown(isAppShutdown) {
     if (isAppShutdown) return;
+    this.undoAboutLogins?.();
     ExtensionSupport.unregisterWindowListener(`${this.extension.id}-workspace`);
     this.scope?.removeTheme?.(this.paneSheetUrl);
     for (const window of ExtensionSupport.openWindows) {
@@ -74,7 +78,7 @@ var workspace = class extends ExtensionAPI {
 
     const spaceButtonPrefix = () => `${ExtensionCommon.makeWidgetId(self.extension.id)}-spacesButton-`;
 
-    return {
+    const api = {
       workspace: {
         async install({ leftUrl, rightUrl, filesSide = "left", terminalUrl }) {
           self.filesSide = filesSide;
@@ -169,5 +173,16 @@ var workspace = class extends ExtensionAPI {
         }).api(),
       },
     };
+    // A plain Error reaches the add-on's pages only as "An unexpected error occurred"; its message (why a
+    // control is the user's, a stale ref) is what the agent needs, so every method passes it on.
+    for (const [name, method] of Object.entries(api.workspace)) {
+      if (typeof method !== "function") continue;
+      api.workspace[name] = async (...args) => {
+        try { return await method(...args); } catch (error) {
+          throw error instanceof ExtensionUtils.ExtensionError ? error : new ExtensionUtils.ExtensionError(error?.message ?? String(error));
+        }
+      };
+    }
+    return api;
   }
 };

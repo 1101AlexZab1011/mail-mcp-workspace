@@ -9,7 +9,7 @@
    it. The agent never sees a password: the offer, the password manager and anything that wipes data are
    the user's alone (data-user-only, and agent input is ignored). */
 /* global Services, ChromeUtils, Cc, Ci, IOUtils, PathUtils, ExtensionParent, MW_XHTML, isWebTab, webTabs, sessionOfTab, readSessions,
-   currentSession, openWeb, showBrowser, createSession, renameSession, deleteSession, webSessionName, agentActing,
+   currentSession, openWeb, openTabIn, webTabs, ABOUT_LOGINS, showBrowser, createSession, renameSession, deleteSession, webSessionName, agentActing,
    webIcon, renderWebChrome, isRecordable, addHistoryVisit, setHistoryTitle, searchHistory, parseHistory */
 
 var WEB_MENU = "mw-web-menu";
@@ -98,6 +98,41 @@ async function clearSessionHistory(id) {
 /** With its session: the list and its file go. */
 function dropSessionHistory(id) {
   void clearSessionHistory(id).then(() => { webHistory.delete(id); webHistoryQueue.delete(id); });
+}
+
+// ------------------------------------------------------------ site icons --
+// The icon each site showed last, by host, for about:logins' list (logins/logins.js reads the file).
+
+var SITE_ICONS_LIMIT = 1000;
+var siteIcons = null; // host → icon URL, oldest first, once read
+var siteIconsSave = 0;
+
+function siteIconsFile() {
+  return PathUtils.join(PathUtils.profileDir, "mail-workspace", "site-icons.json");
+}
+
+async function noteSiteIcon(info) {
+  const icon = info.favIconUrl;
+  let host;
+  try { host = new URL(info.browser?.currentURI?.spec).hostname; } catch { return; }
+  if (!host || !/^(https?|data):/.test(icon ?? "") || !/^https?:/.test(info.browser.currentURI.spec)) return;
+  if (!siteIcons) {
+    let read = {};
+    try { read = await IOUtils.readJSON(siteIconsFile()); } catch { /* none yet */ }
+    siteIcons ??= new Map(Object.entries(read));
+  }
+  if (siteIcons.get(host) === icon) return;
+  siteIcons.delete(host);
+  siteIcons.set(host, icon);
+  for (const old of siteIcons.keys()) { if (siteIcons.size <= SITE_ICONS_LIMIT) break; siteIcons.delete(old); }
+  clearHistoryTimeout(siteIconsSave);
+  siteIconsSave = historyTimeout(async () => {
+    const file = siteIconsFile();
+    try {
+      await IOUtils.makeDirectory(PathUtils.parent(file), { createAncestors: true, ignoreExisting: true });
+      await IOUtils.writeJSON(file, Object.fromEntries(siteIcons), { tmpPath: `${file}.tmp` });
+    } catch (error) { console.warn("Mail Workspace: could not save the site icons", error); }
+  }, 3000);
 }
 
 // ------------------------------------------------------------- downloads --
@@ -191,18 +226,14 @@ async function savePage(window, info) {
 
 // ------------------------------------------------------------- passwords --
 
-/** Thunderbird's saved passwords (shared by every session), as Settings shows them: a dialog inside the
-    Settings tab, not a window of its own (that would open on whatever desktop is in view). */
-async function openPasswordManager(window) {
-  const tabmail = window.gTabmail;
-  const open = tabmail.tabInfo.find((tab) => tab.mode?.name === "preferencesTab");
-  let prefs;
-  if (open?.browser?.contentWindow?.gSubDialog) {
-    tabmail.switchToTab(open);
-    prefs = open.browser.contentWindow;
-    await prefs.selectPrefPane?.("panePrivacy");
-  } else prefs = await window.openPreferencesTab("panePrivacy");
-  prefs.gSubDialog.open("chrome://messenger/content/preferences/passwordManager.xhtml");
+/** The saved passwords (shared by every session) in a tab of the session, as Firefox opens about:logins:
+    the session's own about:logins tab if it has one, else a new one. */
+function openLogins(window, info) {
+  const session = sessionOfTab(info) ?? currentSession(window);
+  const open = session && webTabs(window, session).find((tab) => tab.browser?.currentURI?.spec === ABOUT_LOGINS);
+  if (open) window.gTabmail.switchToTab(open);
+  else if (session) openTabIn(window, session, ABOUT_LOGINS);
+  renderWebChrome(window);
 }
 
 /**
@@ -347,7 +378,7 @@ function openWebMenu(window, info, view = "main") {
         item("New tab", { icon: "tab", key: "Ctrl+T", run: done(() => void openWeb(window, "", { newTab: true, session: session?.id })) }),
         item("History", { icon: "history", key: "Ctrl+H", submenu: true, run: go("history") }),
         item("Downloads", { icon: "download", key: "Ctrl+Shift+Y", submenu: true, run: go("downloads") }),
-        item("Passwords", { icon: "key", userOnly: true, run: done(() => void openPasswordManager(window).catch((error) => console.warn("Mail Workspace:", error))) }),
+        item("Passwords", { icon: "key", userOnly: true, run: done(() => openLogins(window, info)) }),
         separator(),
         item("Print…", { icon: "print", key: "Ctrl+P", run: done(() => window.PrintUtils?.startPrintWindow(info.browser.browsingContext)) }),
         item("Save page as…", { icon: "save", key: "Ctrl+S", run: done(() => void savePage(window, info).then(() => openWebMenu(window, info, "downloads"), (error) => console.warn(error))) }),

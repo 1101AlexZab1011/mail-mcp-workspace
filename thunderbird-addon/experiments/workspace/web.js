@@ -15,7 +15,7 @@
    script (background/web.js); clicks are sent from here, as real mouse input. */
 /* global Services, ChromeUtils, Cc, Ci, ExtensionParent, parseAddress, webShortcut, makeSpaceButton, GROUP_FLYOUTS,
    WEB_SESSIONS_PREF, parseWebSessions, serializeWebSessions, findWebSession, webSessionName, newWebSessionId,
-   WEB_MENU, openWebMenu, closeWebMenu, recordVisit, recordTitle, dropSessionHistory, savePage, prepareWebPrefs */
+   WEB_MENU, ABOUT_LOGINS, openWebMenu, closeWebMenu, recordVisit, recordTitle, noteSiteIcon, dropSessionHistory, savePage, prepareWebPrefs */
 
 var WEB_GROUP = "browsers";
 var WEB_START = "https://www.google.com/";
@@ -289,6 +289,8 @@ function webNavigate(window, action) {
 async function webClick(window, x, y) {
   const info = activeWebTab(window);
   if (!info) throw new Error("No web tab is open");
+  if (info.browser?.currentURI?.spec === ABOUT_LOGINS) throw new Error("The saved passwords are the user's alone");
+  window.mwAgentInputUntil = Date.now() + 1500;
   if (window.gTabmail.currentTabInfo !== info) { window.gTabmail.switchToTab(info); await new Promise((r) => window.setTimeout(r, 200)); }
   const box = info.browser.getBoundingClientRect();
   const zoom = info.browser.fullZoom || 1;
@@ -381,7 +383,8 @@ function enhanceWebTab(window, info) {
     },
     onLocationChange(webProgress) {
       if (!webProgress?.isTopLevel) return;
-      if (info.browser.currentURI?.spec === "about:blank" && document.activeElement !== urlbar) urlbar.value = "";
+      const spec = info.browser.currentURI?.spec ?? "";
+      if (document.activeElement !== urlbar) urlbar.value = spec === "about:blank" ? "" : spec;
       void recordVisit(info);
       renderWebChrome(window);
     },
@@ -405,6 +408,7 @@ function enhanceWebTab(window, info) {
 }
 
 function faviconOf(info) {
+  if (info.browser?.currentURI?.spec === ABOUT_LOGINS) return "resource://mailworkspace/icons/key.svg";
   return info.favIconUrl || null;
 }
 
@@ -419,6 +423,7 @@ function renderWebChrome(window) {
     for (const info of webTabs(window)) {
       enhanceWebTab(window, info);
       pinContainer(info);
+      void noteSiteIcon(info);
       const session = sessionOfTab(info, state);
       const tabs = session ? webTabs(window, session) : [info];
       const strip = info.toolbar?.parentNode?.querySelector(".mw-web-tabs");
@@ -677,13 +682,29 @@ function installWeb(window) {
     const info = tabmail.currentTabInfo;
     if (!isWebTab(info)) return;
     const shortcut = webShortcut(event);
+    // about:logins searches its list on Ctrl+F, as in Firefox.
+    if (shortcut?.command === "find" && info.browser?.currentURI?.spec === ABOUT_LOGINS) return;
     if (shortcut && runWebShortcut(window, info, shortcut)) { event.preventDefault(); event.stopPropagation(); }
   };
   window.addEventListener("keydown", onKey, true);
+  // A tab's icon arrives after its page: the strip and the site icons follow it.
+  const onTabAttr = () => renderWebChrome(window);
+  window.addEventListener("TabAttrModified", onTabAttr);
+  // about:logins opens a site in a new tab of its own tab's session.
+  window.mwOpenWebFrom = (doc, url) => {
+    const from = tabmail.tabInfo.find((tab) => tab.browser?.contentDocument === doc);
+    return openWeb(window, url, { newTab: true, session: from ? sessionOfTab(from)?.id : null });
+  };
+  // A tab restored before about:logins was registered shows an error page: load it again.
+  for (const info of webTabs(window)) {
+    if (info.browser?.currentURI?.spec === ABOUT_LOGINS && !info.browser.contentDocument?.getElementById("rows")) loadInTab(info, ABOUT_LOGINS);
+  }
   renderWebChrome(window);
 
   return () => {
     window.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("TabAttrModified", onTabAttr);
+    delete window.mwOpenWebFrom;
     tabmail.unregisterTabMonitor(monitor);
     closeWebMenu(window);
     document.getElementById(WEB_MENU)?.remove();

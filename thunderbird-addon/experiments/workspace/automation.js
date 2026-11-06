@@ -326,6 +326,7 @@ function classifyCombo(combo, focusedDoc) {
 async function pressKey(window, combo, { check } = {}) {
   if (!check) window.mwAgentInputUntil = Date.now() + 1500;
   const focused = Services.focus.focusedWindow ?? window;
+  if (focused.document?.documentElement?.hasAttribute("data-user-only")) throw new Error("This page is reserved for the user");
   const verdict = classifyCombo(combo, focused.document?.location?.href ?? "");
   if (check) return { combo, ...verdict };
   const parts = combo.split("+").map((part) => part.trim()).filter(Boolean);
@@ -362,6 +363,10 @@ async function screenshot(window, { ref, scale } = {}) {
       x += r.x; y += r.y;
     }
     rect = new window.DOMRect(x, y, box.width, box.height);
+  }
+  // Pages that can show a secret (about:logins) hide it before the agent sees the window.
+  for (const { doc } of documentsOf(window)) {
+    try { doc.defaultView?.mwHideSecrets?.(); } catch { /* not ours */ }
   }
   const ratio = scale ?? Math.min(window.devicePixelRatio, 1.5);
   const bitmap = await window.browsingContext.currentWindowGlobal.drawSnapshot(rect, ratio, "white");

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<!-- about:logins: the Browser's saved passwords, as Firefox shows them. Served as chrome (system
+     principal) by experiments/workspace/aboutlogins.js; the whole page is the user's (data-user-only). -->
+<html data-user-only>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>Passwords</title>
+  <link rel="icon" href="resource://mailworkspace/icons/key.svg">
+  <link rel="stylesheet" href="resource://mailworkspace/shared/tokens.css">
+  <link rel="stylesheet" href="chrome://mailworkspace/content/logins.css">
+  <script src="chrome://mailworkspace/content/list.js"></script>
+  <script src="chrome://mailworkspace/content/logins.js" defer></script>
+</head>
+<body>
+  <aside class="list">
+    <div class="list-head">
+      <label class="search">
+        <img class="icon" src="resource://mailworkspace/icons/search.svg" alt="">
+        <input id="search" type="search" placeholder="Search passwords" aria-label="Search passwords" autocomplete="off" spellcheck="false">
+      </label>
+      <button id="add" class="round" title="Add password" aria-label="Add password">
+        <img class="icon" src="resource://mailworkspace/icons/add.svg" alt="">
+      </button>
+    </div>
+    <div class="list-meta">
+      <label class="sort">Sort by:
+        <select id="sort"></select>
+      </label>
+      <span id="count" class="count"></span>
+    </div>
+    <ol id="rows" class="rows" role="listbox" aria-label="Saved passwords" tabindex="0"></ol>
+  </aside>
+
+  <main class="detail">
+    <div class="top">
+      <button id="more" class="round" title="Menu" aria-label="Menu" aria-haspopup="menu" aria-expanded="false">
+        <img class="icon" src="resource://mailworkspace/icons/more_horiz.svg" alt="">
+      </button>
+      <div id="menu" class="menu" role="menu" hidden>
+        <button role="menuitem" data-run="import"><img class="icon" src="resource://mailworkspace/icons/upload.svg" alt="">Import from a file…</button>
+        <button role="menuitem" data-run="export"><img class="icon" src="resource://mailworkspace/icons/download.svg" alt="">Export passwords…</button>
+        <button role="menuitem" data-run="remove-all" class="danger"><img class="icon" src="resource://mailworkspace/icons/delete.svg" alt="">Remove all passwords…</button>
+      </div>
+    </div>
+    <div id="notice" class="notice" hidden></div>
+
+    <section id="view" class="card" hidden>
+      <header class="card-head">
+        <img id="view-icon" class="favicon large" alt="">
+        <h1 id="view-title"></h1>
+        <div class="actions">
+          <button id="edit" class="pill"><img class="icon" src="resource://mailworkspace/icons/edit.svg" alt="">Edit</button>
+          <button id="remove" class="pill"><img class="icon" src="resource://mailworkspace/icons/delete.svg" alt="">Remove</button>
+        </div>
+      </header>
+      <div class="field">
+        <div class="label">Website address</div>
+        <a id="view-origin" class="link" href="#"></a>
+      </div>
+      <div class="field">
+        <div class="label">Username</div>
+        <div class="value-row">
+          <span id="view-username" class="value"></span>
+          <button id="copy-username" class="pill copy">Copy</button>
+        </div>
+      </div>
+      <div class="field">
+        <div class="label">Password</div>
+        <div class="value-row">
+          <span id="view-password" class="value secret"></span>
+          <button id="reveal" class="eye" title="Show password" aria-label="Show password" aria-pressed="false">
+            <img class="icon" src="resource://mailworkspace/icons/visibility.svg" alt="">
+          </button>
+          <button id="copy-password" class="pill copy">Copy</button>
+        </div>
+      </div>
+      <ol id="timeline" class="timeline"></ol>
+    </section>
+
+    <form id="editor" class="card" hidden autocomplete="off">
+      <header class="card-head">
+        <img id="editor-icon" class="favicon large" alt="">
+        <h1 id="editor-title"></h1>
+      </header>
+      <label class="field">
+        <span class="label">Website address</span>
+        <input id="edit-origin" type="text" placeholder="https://www.example.com" spellcheck="false">
+      </label>
+      <label class="field">
+        <span class="label">Username</span>
+        <input id="edit-username" type="text" placeholder="(no username)" spellcheck="false">
+      </label>
+      <label class="field">
+        <span class="label">Password</span>
+        <span class="value-row">
+          <input id="edit-password" type="password" spellcheck="false">
+          <button id="edit-reveal" type="button" class="eye" title="Show password" aria-label="Show password" aria-pressed="false">
+            <img class="icon" src="resource://mailworkspace/icons/visibility.svg" alt="">
+          </button>
+        </span>
+      </label>
+      <p id="editor-error" class="error" hidden></p>
+      <div class="buttons">
+        <button id="save" type="submit" class="pill primary">Save</button>
+        <button id="cancel" type="button" class="pill">Cancel</button>
+      </div>
+    </form>
+
+    <section id="empty" class="empty" hidden>
+      <img class="icon huge" src="resource://mailworkspace/icons/key.svg" alt="">
+      <h1>Your saved passwords</h1>
+      <p id="empty-text"></p>
+    </section>
+  </main>
+
+  <dialog id="confirm" class="confirm">
+    <form method="dialog">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-text"></p>
+      <div class="buttons">
+        <button value="cancel" class="pill">Cancel</button>
+        <button id="confirm-ok" value="ok" class="pill danger-fill"></button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>
