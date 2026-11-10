@@ -149,6 +149,9 @@ input { user-select: text; }
 .segmented button[aria-pressed="true"] { background: var(--mw-primary-soft); color: var(--mw-primary-soft-text); }
 .dialog .actions .spacer { flex: 1; }
 
+.dialog.export-drawing { width: min(480px, calc(100vw - 32px)); }
+.export-options { display: grid; gap: 10px; margin: 8px 0 14px; justify-items: start; }
+.export-options .check { display: flex; gap: 8px; align-items: center; color: var(--mw-text-2); font-size: 13px; }
 .dialog.shortcuts { width: min(600px, calc(100vw - 32px)); }
 .dialog.shortcuts dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 8px 0 0; font-size: 13px; }
 .dialog.shortcuts dt { font-family: var(--mw-font-mono); font-size: 12px; color: var(--mw-text); white-space: nowrap; }

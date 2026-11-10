@@ -34,6 +34,7 @@ import { Terminals } from "./terminal.mjs";
 import { FileWriter, versionOf, waitForChange } from "./writes.mjs";
 import { Writer } from "./writer.mjs";
 import { Slides } from "./slides.mjs";
+import { Draw } from "./draw.mjs";
 import { Notes } from "./notes.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -107,6 +108,7 @@ export async function startHost({
   const writer = new FileWriter({ root: filesRoot, trashDir });
   const documents = new Writer({ files: writer, cacheDir, log, configDir });
   const decks = new Slides({ files: writer });
+  const drawings = new Draw({ files: writer });
   const notes = new Notes({ files: writer, configDir });
 
   // --- auth: tokens are listener-mcp tokens, verified by the broker, cached briefly.
@@ -307,6 +309,22 @@ export async function startHost({
     fsWrite(principal);
     const { path, ops, expect } = await readJson(request, 8 * 1024 * 1024);
     return decks.apply(path, ops, { expect });
+  });
+  // Draw: Inkscape does the path operations, exports and PDF imports (src/workspace/draw.mjs).
+  route("POST", "/v1/draw/operate", async ({ request, principal }) => {
+    need(principal, "read", "mail/workspace/files");
+    const { svg, ids, operation } = await readJson(request, 96 * 1024 * 1024);
+    return drawings.operate({ svg, ids, operation });
+  });
+  route("POST", "/v1/draw/export", async ({ request, principal }) => {
+    fsWrite(principal);
+    const { svg, source, out, format, dpi, textToPath } = await readJson(request, 96 * 1024 * 1024);
+    return drawings.export({ svg, source, out, format, dpi, textToPath });
+  });
+  route("POST", "/v1/draw/import-pdf", async ({ request, principal }) => {
+    need(principal, "read", "mail/workspace/files");
+    const { path, base64, page } = await readJson(request, 96 * 1024 * 1024);
+    return drawings.importPdf({ path, base64, page });
   });
   route("POST", "/v1/slides/new", async ({ request, principal }) => {
     fsWrite(principal);

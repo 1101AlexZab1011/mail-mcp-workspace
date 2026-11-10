@@ -20,7 +20,7 @@ import { parsePath, serializePath, pointAt, splitSegment, removeNode, setSegment
 
 import {
   SVG_NS, XLINK_NS, XML_NS, INKSCAPE_NS, SODIPODI_NS, ensureNamespace, takenIds, appendIndented, createElement, setAttributes,
-  copyWithFreshIds, declareNamespaces, removeTidy, setProperty, setsProperty, textLines, setTextLines, importSvg,
+  copyWithFreshIds, declareNamespaces, removeTidy, freshenIds, setProperty, setsProperty, textLines, setTextLines, importSvg,
 } from "./draw/content.js";
 const BACKUPS = "~/.local/state/mail-workspace/draw-backups";
 const RECENT_KEY = "draw.recent";
@@ -59,10 +59,13 @@ const SHORTCUTS = [
   ["N, double-click a path", "Edit its nodes: drag nodes and handles, double-click a segment to add a node, Delete removes nodes"],
   ["Pen: Enter, Backspace, Esc", "Finish the path, remove the last node, cancel"],
   ["Double-click a text", "Edit it (Ctrl+Enter or click away to finish, Esc to cancel)"],
-  ["Ctrl+I, drop, paste", "Insert an image or SVG figure"],
+  ["Ctrl+I, drop, paste", "Insert an image, SVG or PDF figure"],
   ["Ctrl+C / Ctrl+X / Ctrl+V", "Copy / cut / paste (in place)"],
   ["Ctrl+D, Delete", "Duplicate, delete"],
   ["Ctrl+G / Ctrl+Shift+G", "Group / ungroup"],
+  ["Ctrl+K / Ctrl+Shift+K", "Combine / break apart (Inkscape)"],
+  ["Ctrl+Shift+C, Ctrl+Alt+C, Ctrl+L", "Object to path, stroke to path, simplify (Inkscape)"],
+  ["Ctrl+Shift+E", "Export to PDF or PNG"],
   ["Shift+Page Up / Down", "Move the selection to the layer above / below"],
   ["Ctrl+A, Esc", "Select all, deselect"],
   ["Ctrl+Z / Ctrl+Shift+Z, Ctrl+Y", "Undo / redo"],
@@ -952,16 +955,18 @@ async function insertFiles(files) {
   for (const file of files) {
     try {
       if (/\.svg$/i.test(file.name) || file.type === "image/svg+xml") insertSvg(await file.text(), file.name);
+      else if (/\.pdf$/i.test(file.name) || file.type === "application/pdf") await insertPdf({ blob: file, name: file.name });
       else await insertImage(file, file.name);
     } catch (error) { toast(error.message); }
   }
 }
 
 async function insertDialog() {
-  const path = await ask({ title: "Insert an image or SVG figure", message: "PNG, JPEG, WebP, GIF or SVG", value: `${dirOf(tab.path)}/`, ok: "Insert" });
+  const path = await ask({ title: "Insert an image or figure", message: "PNG, JPEG, WebP, GIF, SVG, or the first page of a PDF", value: `${dirOf(tab.path)}/`, ok: "Insert" });
   if (!path) return;
   try {
     const info = await host(`/v1/fs/stat?path=${encodeURIComponent(path)}`);
+    if (/\.pdf$/i.test(info.path)) { await insertPdf({ path: info.path, name: nameOf(info.path) }); return; }
     const { url } = await host("/v1/links", { method: "POST", body: JSON.stringify({ path: info.path }) });
     const blob = await (await fetch(`${HOST_ENDPOINT}${url}`)).blob();
     await insertFiles([new File([blob], nameOf(info.path), { type: blob.type })]);
@@ -1292,7 +1297,8 @@ function setSegments(curved) {
 /** Rectangles, ellipses, lines and polygons become paths with the same outline, id and style. */
 function objectToPath() {
   const shapes = selected().filter((el) => GEOMETRY[el.localName]);
-  if (!shapes.length) { toast("Only rectangles, circles, ellipses, lines and polygons can become paths here (text comes with the Inkscape tools)"); return; }
+  // Text, groups and the rest: Inkscape knows how.
+  if (shapes.length !== selected().length) { void inkscapeOperation("object-to-path"); return; }
   const made = [];
   tab.history.edit("Object to path", () => {
     for (const el of shapes) {
@@ -1329,6 +1335,157 @@ function nodesSection(items) {
       button("Curved segments between the selected nodes", "Curved", () => setSegments(true), !count),
       button("Remove the selected nodes (Delete)", "Delete", deleteNodes, !count)),
     h("p.hint", {}, "Double-click a segment to add a node. Ctrl while dragging: straight moves, handles in 15° steps."));
+}
+
+// ---------------------------------------------------------- Inkscape's tools --
+
+// Booleans, text and stroke to path, combine, break apart and simplify are Inkscape's own: it gets a
+// copy of the drawing with the objects' ids, marks what it made, and that is swapped in here (one
+// undo step). Export and PDF import go through Inkscape as well (src/workspace/draw.mjs).
+const OPERATION_LABELS = {
+  union: "Union", difference: "Difference", intersection: "Intersection", exclusion: "Exclusion", division: "Division", "cut-path": "Cut path",
+  combine: "Combine", "break-apart": "Break apart", "object-to-path": "Object to path", "stroke-to-path": "Stroke to path", simplify: "Simplify",
+};
+const NEEDS_TWO = new Set(["union", "difference", "intersection", "exclusion", "division", "cut-path", "combine"]);
+const SAFE_ID = /^[A-Za-z_][\w.-]*$/;
+let inkscapeBusy = false;
+
+/** Where `node` is, as child indices from the document (to find its twin in a copy). */
+const routeTo = (node) => { const route = []; for (let n = node; n.parentNode; n = n.parentNode) route.unshift(Array.prototype.indexOf.call(n.parentNode.childNodes, n)); return route; };
+const follow = (doc, route) => route.reduce((n, i) => n?.childNodes[i], doc);
+
+async function inkscapeOperation(operation) {
+  const items = inDocumentOrder(selected());
+  const name = OPERATION_LABELS[operation];
+  if (!items.length) { toast(`${name}: select the objects first`); return; }
+  if (NEEDS_TWO.has(operation) && items.length < 2) { toast(`${name} works on two or more objects`); return; }
+  if (inkscapeBusy) return;
+  inkscapeBusy = true;
+  setStatus(`${name}: Inkscape is working…`, { sticky: true });
+  const doc = tab.doc;
+  try {
+    // A copy of the drawing where the objects, their parents and what follows them have ids Inkscape
+    // can select by and keeps, so its result can be put back in the same place here.
+    const copy = doc.cloneNode(true);
+    const taken = takenIds(doc);
+    const live = new Map(); // id in the copy → element here
+    const tag = (el) => {
+      const twin = follow(copy, routeTo(el));
+      if (!el.id || !SAFE_ID.test(el.id)) twin.setAttribute("id", g.freshId("draw-anchor", taken));
+      live.set(twin.getAttribute("id"), el);
+      return twin.getAttribute("id");
+    };
+    const ids = items.map(tag);
+    for (const el of items) {
+      for (let p = el.parentNode; p && p.nodeType === 1; p = p.parentNode) tag(p);
+      for (let n = el.nextElementSibling; n; n = n.nextElementSibling) tag(n);
+    }
+    const { svg } = await host("/v1/draw/operate", { method: "POST", body: JSON.stringify({ svg: g.frame(new XMLSerializer().serializeToString(copy), tab.framing), ids, operation }) });
+    if (tab?.doc !== doc) return;
+    const out = new DOMParser().parseFromString(svg, "image/svg+xml");
+    const results = [...out.querySelectorAll("[data-draw-result]")].filter((el) => !el.parentNode.closest?.("[data-draw-result]"));
+    const consumed = items.filter((el, i) => { const twin = out.getElementById(ids[i]); return !twin || twin.hasAttribute("data-draw-result"); });
+    const made = [];
+    tab.history.edit(name, () => {
+      // Where each result goes: its parent here, before the first of its next siblings that stays.
+      const places = results.map((r) => {
+        const parent = r.parentNode === out.documentElement ? root() : live.get(r.parentNode.getAttribute("id")) ?? doc.getElementById(r.parentNode.getAttribute("id")) ?? insertionParent();
+        let before = null;
+        for (let sib = r.nextElementSibling; sib && !before; sib = sib.nextElementSibling) {
+          const here = live.get(sib.getAttribute("id"));
+          if (here && here.parentNode === parent && !consumed.includes(here)) before = here;
+        }
+        return { r, parent, before };
+      });
+      for (const el of consumed) removeTidy(el);
+      for (const { r, parent, before } of places) {
+        const node = doc.importNode(r, true);
+        node.removeAttribute("data-draw-result");
+        for (const inner of node.querySelectorAll("[data-draw-result]")) inner.removeAttribute("data-draw-result");
+        for (const inner of [node, ...node.querySelectorAll("[id^='draw-anchor']")]) if (inner.id?.startsWith("draw-anchor")) inner.removeAttribute("id");
+        freshenIds(node, takenIds(doc));
+        if (!node.id) node.setAttribute("id", g.freshId(node.localName, takenIds(doc)));
+        if (before) { parent.insertBefore(node, before); const indent = node.previousSibling; if (indent?.nodeType === 3 && /^\s+$/.test(indent.data)) parent.insertBefore(doc.createTextNode(indent.data), before); }
+        else appendIndented(parent, node);
+        declareNamespaces(doc, node);
+        made.push(node);
+      }
+    });
+    select(made);
+    setStatus(`${name}: done`);
+  } catch (error) {
+    setStatus("");
+    toast(`${name} failed: ${error.message}`, { ms: 6000 });
+  } finally { inkscapeBusy = false; }
+}
+
+/** Export the drawing as it is now (unsaved changes too) to PDF or PNG, at the page's size. */
+function exportDialog() {
+  if (!tab) return;
+  const base = tab.path.replace(/\.svg$/i, "");
+  let format = "pdf";
+  let dpi = 300;
+  let textToPath = false;
+  const pathInput = h("input.input", { type: "text", value: `${base}.pdf`, "aria-label": "File" });
+  const options = h("div.export-options");
+  const render = () => {
+    pathInput.value = pathInput.value.replace(/\.(pdf|png)$/i, `.${format}`);
+    options.replaceChildren(
+      h("div.segmented", {}, ...["pdf", "png"].map((f) => h("button", { type: "button", "aria-pressed": String(format === f), onclick: () => { format = f; render(); } }, f.toUpperCase()))),
+      format === "png"
+        ? h("div.segmented", {}, ...[150, 300, 600].map((d) => h("button", { type: "button", "aria-pressed": String(dpi === d), onclick: () => { dpi = d; render(); } }, `${d} dpi`)))
+        : h("label.check", {}, h("input", { type: "checkbox", checked: textToPath, onchange: (e) => { textToPath = e.target.checked; } }), "Text as outlines (prints the same everywhere, but is no longer text)"),
+      h("p.hint", {}, format === "png" ? `${Math.round((toUserSize().w / ({ mm: 25.4, cm: 2.54, in: 1, pt: 72, pc: 6 }[tab.unit] ?? 96)) * dpi)} × ${Math.round((toUserSize().h / ({ mm: 25.4, cm: 2.54, in: 1, pt: 72, pc: 6 }[tab.unit] ?? 96)) * dpi)} px` : "Vector PDF at the page's size, fonts embedded."));
+  };
+  render();
+  const close = () => backdrop.remove();
+  const go = async () => {
+    const out = pathInput.value.trim();
+    if (!out) return;
+    const exists = await host(`/v1/fs/stat?path=${encodeURIComponent(out)}`).then(() => true, () => false);
+    if (exists && !(await ask({ title: `Replace ${nameOf(out)}?`, message: "A file with this name is already there.", ok: "Replace", danger: true }))) return;
+    close();
+    setStatus(`Exporting ${nameOf(out)} with Inkscape…`, { sticky: true });
+    try {
+      const result = await host("/v1/draw/export", { method: "POST", body: JSON.stringify({ svg: serialize(tab), source: tab.path, out, format, dpi, textToPath }) });
+      setStatus(`Exported ${nameOf(result.path)}`);
+      showBar(`Exported ${tilde(result.path)}`, [["Open", () => { hideBar(); void background("open-file", { path: result.path }); }], ["Close", hideBar]]);
+    } catch (error) { setStatus(""); toast(`Not exported: ${error.message}`, { ms: 6000 }); }
+  };
+  const backdrop = h("div.dialog-backdrop", { onclick: (e) => { if (e.target === backdrop) close(); } },
+    h("div.dialog.export-drawing", { role: "dialog", "aria-label": "Export" },
+      h("h2", {}, "Export"), options,
+      h("label.field-wide", {}, h("span", {}, "File"), pathInput),
+      h("div.actions", {}, h("button.btn", { type: "button", onclick: close }, "Cancel"), h("span.spacer"), h("button.btn.primary", { type: "button", onclick: () => void go() }, "Export"))));
+  backdrop.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); if (e.key === "Enter" && e.target === pathInput) void go(); e.stopPropagation(); });
+  document.body.append(backdrop);
+  pathInput.focus();
+}
+
+/** A PDF page (from a path, or bytes) inserted as an SVG figure, by way of Inkscape. */
+async function insertPdf({ path, blob, name }) {
+  setStatus(`Reading ${name} with Inkscape…`, { sticky: true });
+  try {
+    const body = path ? { path } : { base64: (await blobToDataUrl(blob)).replace(/^data:[^,]*,/, "") };
+    const { svg } = await host("/v1/draw/import-pdf", { method: "POST", body: JSON.stringify(body) });
+    insertSvg(svg, name);
+    setStatus(`Inserted ${name} (page 1)`);
+  } catch (error) { setStatus(""); toast(`${name}: ${error.message}`, { ms: 6000 }); }
+}
+
+function pathSection(items) {
+  if (!items.length) return null;
+  const op = (operation, title) => h("button.btn", { type: "button", title, disabled: inkscapeBusy || null, onclick: () => void inkscapeOperation(operation) }, OPERATION_LABELS[operation]);
+  return h("div", {}, h("h3", {}, "Path"),
+    h("div.row-buttons", {},
+      ...(items.length > 1 ? [
+        op("union", "One outline around everything"), op("difference", "The bottom object minus the top one"),
+        op("intersection", "Only where they overlap"), op("exclusion", "Only where they do not overlap"),
+        op("division", "Cut the bottom object along the top one"), op("combine", "One path holding them all (Ctrl+K)"),
+      ] : []),
+      op("break-apart", "Each part of a path on its own (Ctrl+Shift+K)"), op("object-to-path", "Shapes and text become paths (Ctrl+Shift+C)"),
+      op("stroke-to-path", "The outline becomes a filled shape (Ctrl+Alt+C)"), op("simplify", "Fewer nodes, about the same shape (Ctrl+L)")),
+    h("p.hint", {}, "These run in Inkscape and come back as one undo step."));
 }
 
 // ------------------------------------------------------------- structure --
@@ -1623,7 +1780,8 @@ function renderChrome() {
     iconButton("note_add", "New drawing", () => void newDrawingDialog(), { small: true }),
     iconButton("folder_open", "Open… (Ctrl+O)", () => void openDialog(), { small: true }),
     iconButton("save", "Save (Ctrl+S)", () => void tabs.save(), { small: true }),
-    iconButton("photo_library", "Insert an image or SVG figure (Ctrl+I)", () => tab && void insertDialog(), { small: true }),
+    iconButton("photo_library", "Insert an image, SVG or PDF figure (Ctrl+I)", () => tab && void insertDialog(), { small: true }),
+    iconButton("download", "Export to PDF or PNG (Ctrl+Shift+E)", exportDialog, { small: true }),
     iconButton("keyboard", "Keyboard shortcuts", showShortcuts, { small: true }),
   );
   $("#doc-info").textContent = tab ? `${g.fmt(toUserSize().w)} × ${g.fmt(toUserSize().h)} ${tab.unit}` : "";
@@ -1825,6 +1983,7 @@ function renderProps() {
       items.some(isGroup) ? h("button.btn", { type: "button", title: "Ungroup (Ctrl+Shift+G)", onclick: ungroup }, icon("ungroup", { size: 16 }), "Ungroup") : null,
       one && isGroup(one) ? h("button.btn", { type: "button", title: "Edit inside this group (double-click)", onclick: () => enterGroup(one) }, icon("layers", { size: 16 }), "Enter group") : null)));
     sections.push(alignSection(items));
+    sections.push(pathSection(items));
     sections.splice(2, 0, nodesSection(items));
   } else {
     const size = toUserSize();
@@ -1941,7 +2100,10 @@ addEventListener("keydown", (event) => {
       z: () => (event.shiftKey ? tab?.history.redo() : tab?.history.undo()), y: () => tab?.history.redo(),
       s: () => (event.shiftKey ? save(tab, { as: true }) : tabs.save()), o: openDialog,
       a: () => (tool === "node" && nodes ? selectAllNodes() : selectAll()), d: duplicate, 0: fit, i: insertDialog, g: () => (event.shiftKey ? ungroup() : group()),
-      c: () => copySelection(), x: () => copySelection({ cut: true }), v: paste, "=": () => zoomCenter(1.25), "+": () => zoomCenter(1.25), "-": () => zoomCenter(1 / 1.25),
+      c: () => (event.altKey ? inkscapeOperation("stroke-to-path") : event.shiftKey ? inkscapeOperation("object-to-path") : copySelection()),
+      x: () => copySelection({ cut: true }), v: paste,
+      k: () => inkscapeOperation(event.shiftKey ? "break-apart" : "combine"), l: () => inkscapeOperation("simplify"),
+      e: () => (event.shiftKey ? exportDialog() : undefined), "=": () => zoomCenter(1.25), "+": () => zoomCenter(1.25), "-": () => zoomCenter(1 / 1.25),
     };
     const action = actions[key];
     if (action && (tab || key === "o")) { take(); void action(); }
