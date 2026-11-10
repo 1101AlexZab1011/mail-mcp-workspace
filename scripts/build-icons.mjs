@@ -39,6 +39,8 @@ export const NAMES = [
   "dictionary", "check_small", "rate_review", "priority_high",
   // slides
   "upload", "slideshow",
+  // draw
+  "shape_line",
   // notes
   "star", "view_kanban", "mood", "wallpaper", "restore_from_trash", "drag_indicator", "database", "checklist", "subdirectory_arrow_right", "add_notes",
   // browser

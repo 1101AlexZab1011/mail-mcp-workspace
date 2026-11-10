@@ -11,7 +11,7 @@ import { CHAT_SIDE, FILES_SIDE } from "../shared/docks.js";
 const AGENT = "thunderbird:gui";
 const GROUP = "mail-gui";
 const CHANNEL = "mail/gui/commands";
-const OWN_PAGES = ["viewer", "artifacts", "paint", "writer", "slides", "notes"];
+const OWN_PAGES = ["viewer", "artifacts", "paint", "writer", "slides", "notes", "draw"];
 const PANELS = ["terminal"]; // pages outside the spaces, answered when loaded
 
 let ctx = null;

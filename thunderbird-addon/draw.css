@@ -1,0 +1,113 @@
+/* Draw space: the drawing on its page in the middle, tools on the left, the object panel on the right. */
+body { display: flex; flex-direction: column; background: var(--mw-bg); user-select: none; }
+input { user-select: text; }
+.tabs-host { flex: none; }
+.appbar .divider { width: 1px; height: 22px; background: var(--mw-border); margin: 0 4px; }
+.actions { display: flex; gap: 2px; align-items: center; }
+
+.workspace { flex: 1; min-height: 0; display: flex; }
+.workspace[hidden] { display: none; }
+
+.tools {
+  flex: none; width: 56px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0;
+  background: var(--mw-surface); border-right: 1px solid var(--mw-border); overflow-y: auto;
+}
+.tools .icon-btn { width: 40px; height: 40px; border-radius: 12px; }
+.tools .icon-btn[aria-pressed="true"] { background: var(--mw-primary-soft); color: var(--mw-primary-soft-text); }
+
+/* The view: the stage carries the page (and the frames on it) and is moved and scaled as a whole. */
+.viewport { flex: 1; min-width: 0; position: relative; overflow: hidden; background: var(--mw-surface-3); outline: none; touch-action: none; }
+.stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.page { position: relative; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18), 0 2px 12px rgba(0, 0, 0, 0.18); }
+.page .sheet { position: absolute; inset: 0; border: 0; display: block; background: transparent; pointer-events: none; }
+.page .sheet[hidden] { display: none; }
+
+.overlay { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; }
+.viewport[data-tool="select"] .overlay { cursor: default; }
+.viewport[data-tool="pan"] .overlay, .viewport.panning .overlay { cursor: grab; }
+.viewport.dragging .overlay { cursor: grabbing; }
+.viewport[data-tool="zoom"] .overlay { cursor: zoom-in; }
+.overlay .selection { fill: none; stroke: var(--mw-primary); stroke-width: 1; stroke-dasharray: 4 3; }
+.overlay .item { fill: none; stroke: var(--mw-primary); stroke-width: 1; opacity: 0.55; }
+.overlay .scope { fill: none; stroke: var(--mw-text-3); stroke-width: 1; stroke-dasharray: 2 4; }
+.overlay .handle { fill: var(--mw-surface); stroke: var(--mw-primary); stroke-width: 1.5; }
+.overlay .handle:hover { fill: var(--mw-primary); }
+.overlay .band { fill: color-mix(in srgb, var(--mw-primary) 10%, transparent); stroke: var(--mw-primary); stroke-width: 1; stroke-dasharray: 3 3; }
+.overlay .zoombox { fill: none; stroke: var(--mw-text-2); stroke-width: 1; stroke-dasharray: 3 3; }
+
+/* The object panel. */
+.props {
+  flex: none; width: 248px; padding: 14px; display: flex; flex-direction: column; gap: 18px;
+  background: var(--mw-surface); border-left: 1px solid var(--mw-border); overflow-y: auto; font-size: 13px;
+}
+.props h3 { margin: 0 0 8px; font-size: 11.5px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--mw-text-3); overflow-wrap: anywhere; }
+.props .hint { margin: 6px 0 0; color: var(--mw-text-3); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.props .row-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.props .row-buttons .btn { height: 30px; padding: 0 10px; font-size: 12.5px; }
+.geometry { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; }
+.field { display: flex; align-items: center; gap: 6px; }
+.field span { width: 14px; color: var(--mw-text-2); font-weight: 600; font-size: 12px; }
+.field .num { width: 100%; min-width: 0; height: 30px; padding: 0 8px; font-variant-numeric: tabular-nums; }
+.trail { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
+.crumb { border: 0; background: none; padding: 3px 6px; border-radius: var(--mw-radius-s); color: var(--mw-primary); font: inherit; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crumb:hover:not(:disabled) { background: var(--mw-surface-2); }
+.crumb:disabled { color: var(--mw-text); cursor: default; font-weight: 600; }
+.crumb + .crumb::before { content: "›"; margin-right: 6px; color: var(--mw-text-3); }
+
+.statusbar {
+  flex: none; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 14px;
+  background: var(--mw-surface); border-top: 1px solid var(--mw-border); color: var(--mw-text-2); font-size: 12px;
+}
+.statusbar .spacer { flex: 1; }
+#status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.statusbar .zoom { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; }
+
+/* Notice bar (changes on disk, conflicts). */
+.draw-bar {
+  position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 900; display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px 8px 14px; border-radius: var(--mw-radius); background: var(--mw-surface); box-shadow: var(--mw-shadow-3); font-size: 13px;
+  border-left: 3px solid var(--mw-warning);
+}
+.draw-bar[hidden] { display: none; }
+.draw-bar .btn { height: 28px; padding: 0 12px; font-size: 12.5px; }
+
+/* Start screen, when no drawing is open (the app bar and status bar stay). */
+.start-screen { flex: 1; min-height: 0; overflow: auto; background: var(--mw-bg); }
+.start-screen[hidden] { display: none; }
+.start-screen .inner { max-width: 760px; margin: 0 auto; padding: 56px 24px; }
+.start-screen h2 { margin: 0 0 6px; font-size: 22px; font-weight: 650; display: flex; align-items: center; gap: 10px; }
+.start-screen h2 .icon { color: var(--mw-primary); }
+.start-screen p { margin: 0 0 20px; color: var(--mw-text-2); }
+.start-screen .buttons { display: flex; gap: 8px; margin-bottom: 28px; flex-wrap: wrap; }
+.start-screen h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--mw-text-3); }
+.recent { display: grid; gap: 4px; }
+.recent button {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border: 0; border-radius: var(--mw-radius);
+  background: var(--mw-surface); text-align: left; cursor: pointer; box-shadow: var(--mw-shadow-1); color: var(--mw-text);
+}
+.recent button:hover { background: var(--mw-surface-2); }
+.recent .icon { color: var(--mw-primary); }
+.recent .name { font-weight: 560; }
+.recent .path { color: var(--mw-text-3); font: 12px var(--mw-font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* New drawing. */
+.dialog.new-drawing { width: min(520px, calc(100vw - 32px)); }
+.sizes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 12px; }
+.size {
+  display: grid; gap: 2px; padding: 10px; border: 1px solid var(--mw-border); border-radius: var(--mw-radius); background: var(--mw-surface);
+  text-align: left; cursor: pointer; color: var(--mw-text); font: inherit;
+}
+.size span { color: var(--mw-text-3); font-size: 12px; }
+.size[aria-checked="true"] { border-color: var(--mw-primary); background: var(--mw-primary-soft); color: var(--mw-primary-soft-text); }
+.new-drawing .row { margin-bottom: 12px; }
+.field-wide { display: grid; gap: 6px; }
+.field-wide span { color: var(--mw-text-2); font-size: 12.5px; }
+.segmented { display: inline-flex; border: 1px solid var(--mw-border); border-radius: var(--mw-radius-pill); overflow: hidden; }
+.segmented button { border: 0; background: none; height: 28px; padding: 0 12px; font-size: 12.5px; font-weight: 560; color: var(--mw-text-2); cursor: pointer; }
+.segmented button[aria-pressed="true"] { background: var(--mw-primary-soft); color: var(--mw-primary-soft-text); }
+.dialog .actions .spacer { flex: 1; }
+
+.dialog.shortcuts { width: min(600px, calc(100vw - 32px)); }
+.dialog.shortcuts dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 8px 0 0; font-size: 13px; }
+.dialog.shortcuts dt { font-family: var(--mw-font-mono); font-size: 12px; color: var(--mw-text); white-space: nowrap; }
+.dialog.shortcuts dd { margin: 0; color: var(--mw-text-2); }

@@ -316,6 +316,7 @@ tree.addEventListener("contextmenu", (event) => {
         ...(/\.md$/i.test(entry.path) ? [{ label: "Open in Notes", icon: "notes", run: () => background("open-space", { name: "notes", query: entry.path }) }] : []),
         ...(isDeck(entry.path) ? [{ label: "Open in Slides", icon: "slides", run: () => openFile(entry.path) }] : []),
         ...(isPowerPoint(entry.path) ? [{ label: "Open in Slides (import)", icon: "slides", run: () => background("open-document", { path: entry.path }) }] : []),
+        ...(/\.svg$/i.test(entry.path) ? [{ label: "Edit in Draw", icon: "shape_line", run: () => background("open-space", { name: "draw", query: entry.path }) }] : []),
         ...(/\.(png|jpe?g|webp|bmp|gif)$/i.test(entry.path) ? [{ label: "Edit in Paint", icon: "brush", run: () => background("open-space", { name: "paint", query: entry.path }) }] : []),
         { label: "Open in viewer", icon: "preview", run: () => openFile(entry.path, { viewer: true }) }, { label: "Attach to chat", icon: "attach_file", run: () => attachToChat(paths) }]),
     "-",

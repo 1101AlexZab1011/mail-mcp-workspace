@@ -105,12 +105,13 @@
 :root[mw-workspace] [id$="spacesButton-writer"] img { content: url("resource://mailworkspace/icons/writer.svg"); }
 :root[mw-workspace] [id$="spacesButton-slides"] img { content: url("resource://mailworkspace/icons/slides.svg"); }
 :root[mw-workspace] [id$="spacesButton-notes"] img { content: url("resource://mailworkspace/icons/notes.svg"); }
+:root[mw-workspace] [id$="spacesButton-draw"] img { content: url("resource://mailworkspace/icons/shape_line.svg"); }
 
 /* Tool groups (experiments/workspace/groups.js): one button per group opens its last tool; the tools'
    own buttons stay in the toolbar, hidden, and keep their state. */
 :root[mw-groups] #spacesToolbar :is(#mailButton, #addressBookButton, #calendarButton, #tasksButton, #mw-files-dock-button,
   [id$="spacesButton-viewer"], [id$="spacesButton-artifacts"], [id$="spacesButton-notes"], [id$="spacesButton-paint"],
-  [id$="spacesButton-writer"], [id$="spacesButton-slides"], #mw-browser-button) { display: none !important; }
+  [id$="spacesButton-writer"], [id$="spacesButton-slides"], [id$="spacesButton-draw"], #mw-browser-button) { display: none !important; }
 :root[mw-workspace] #spacesToolbar .mw-group-button { position: relative; }
 :root[mw-workspace] #spacesToolbar .mw-group-button + .mw-group-button { margin-top: 2px; }
 :root[mw-workspace] #spacesToolbar .mw-group-button.mw-active { background: var(--mw-hover) !important; color: var(--mw-text) !important; }

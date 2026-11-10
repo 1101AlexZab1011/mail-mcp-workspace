@@ -10,6 +10,7 @@ const SPACES = [
   { name: "paint", title: "Paint (Ctrl+9)", url: "paint.html", icon: "brush" },
   { name: "writer", title: "Writer (Ctrl+Shift+6)", url: "writer.html", icon: "writer" },
   { name: "slides", title: "Slides (Ctrl+Shift+7)", url: "slides.html", icon: "slides" },
+  { name: "draw", title: "Draw (Ctrl+Shift+9)", url: "draw.html", icon: "shape_line" },
   { name: "notes", title: "Notes (Ctrl+Shift+8)", url: "notes.html", icon: "notes" },
 ];
 
@@ -83,12 +84,13 @@ const EDITS = {
   writer: /\.(qmd|md|markdown|rmd)$/i,
   slides: /\.(slides\.json|pptx)$/i,
   paint: /\.(png|jpe?g|webp|bmp|gif)$/i,
+  draw: /\.svg$/i,
 };
 
 // Requests from the add-on's pages.
 const pageRequests = {
   "open-file": ({ path }) => openSpace("viewer", path),
-  "open-document": ({ path }) => openSpace(/\.(slides\.json|pptx)$/i.test(path) ? "slides" : "writer", path),
+  "open-document": ({ path }) => openSpace(/\.(slides\.json|pptx)$/i.test(path) ? "slides" : /\.svg$/i.test(path) ? "draw" : "writer", path),
   "attach-to-chat": ({ files }) => deliver("chat", { type: "attach", files }),
   "open-space": ({ name, query }) => openSpace(name, query),
   "set-dock": ({ side, change }) => browser.workspace.setDock(side, change),

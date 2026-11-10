@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Draw</title>
+<link rel="stylesheet" href="shared/ui.css">
+<link rel="stylesheet" href="shared/doctabs.css">
+<link rel="stylesheet" href="draw.css">
+<body>
+  <header class="appbar">
+    <h1>Draw</h1>
+    <span id="doc-info" class="subtitle"></span>
+    <span class="spacer"></span>
+    <span id="history" class="actions"></span>
+    <span class="divider"></span>
+    <span id="file-actions" class="actions"></span>
+  </header>
+  <div id="tabs" class="tabs-host"></div>
+  <div id="app" class="workspace" hidden>
+    <nav id="tools" class="tools" aria-label="Tools"></nav>
+    <div id="viewport" class="viewport" tabindex="0">
+      <!-- The drawing: one sandboxed frame per open file, on a page, moved and scaled by the view. -->
+      <div id="stage" class="stage"><div id="page" class="page"></div></div>
+      <!-- The editor's layer: takes the pointer, shows the selection and its handles. -->
+      <svg id="overlay" class="overlay" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+    <aside id="props" class="props" aria-label="Object"></aside>
+  </div>
+  <div id="start" class="start-screen" hidden></div>
+  <div id="bar" class="draw-bar" hidden></div>
+  <footer class="statusbar">
+    <span id="status"></span>
+    <span class="spacer"></span>
+    <span id="zoom-controls" class="actions"></span>
+  </footer>
+  <script type="module" src="draw.js"></script>
+</body>
+</html>

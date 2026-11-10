@@ -7,8 +7,8 @@ description: Operate the Mail Workspace GUI in Thunderbird for the user through 
 
 The user works in Thunderbird with the Mail Workspace add-on: chat on the right
 (this conversation), a file browser dock on the left, and spaces for Mail,
-Address Book, Calendar, Tasks, Files (viewer), Artifacts, Paint and a web
-Browser, plus a terminal that slides up over the window (Ctrl+`). The
+Address Book, Calendar, Tasks, Files (viewer), Artifacts, Paint, Writer, Slides,
+Draw, Notes and a web Browser, plus a terminal that slides up over the window (Ctrl+`). The
 `mail-gui` MCP server lets you see and operate all of it. Do the job for the
 user instead of describing clicks.
 
@@ -144,7 +144,7 @@ as `~/.ssh` are refused):
 
 ## Editors: tabs and saving
 
-Writer, Slides and Paint keep every open file in a tab, the way VS Code does. A dot on a tab marks
+Writer, Slides, Draw and Paint keep every open file in a tab, the way VS Code does. A dot on a tab marks
 unsaved changes, and nothing saves on its own: the user saves with Ctrl+S, and unsaved changes survive
 a reload as drafts.
 
@@ -154,7 +154,7 @@ a reload as drafts.
   and never save over their work unasked.
 - `*_state` lists the open tabs and which are modified.
 - Switching from the File viewer to an editor opens the viewed file there (images in Paint, decks in
-  Slides, .qmd/.md in Writer, pages of the notes vault in Notes).
+  Slides, SVG in Draw, .qmd/.md in Writer, pages of the notes vault in Notes).
 - Notes is the exception: it saves as the user types, so your edits to a page land at once.
 
 ## Writer (papers in Quarto)
@@ -246,6 +246,19 @@ hand; you work through the `slides_*` tools.
     poster.
   - Scripts you write through `slides_apply` are trusted. If someone
     changes a script outside the editor, the user must allow it once.
+
+## Draw (posters, figures, diagrams)
+
+The Draw space edits SVG files in place, Inkscape's included: whatever it does not change is written
+back byte for byte (layers, Inkscape settings, filters, clones), so the same file keeps working in
+Inkscape. It opens from the Create group, Ctrl+Shift+9, or "Edit in Draw" on an SVG in Files.
+
+- The user selects, moves and scales by hand (double-click enters a group; Ctrl+click picks inside
+  one). While Draw is open, `gui_state` includes its state: the open file, page size and units, the
+  group being edited and the selection (ids and boxes in document units).
+- Open a file with `gui_open` (`space: "draw"`, `query: <path>`).
+- There are no `draw_*` tools yet (reading the drawing, edits as one undo step, screenshots, export
+  come next). Until then, do not rewrite a drawing's file while it has unsaved changes in Draw.
 
 ## Notes (a Notion-like notebook)
 
