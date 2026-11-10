@@ -32,8 +32,8 @@ const TOOL_GROUPS = [
     id: "create", label: "Create",
     tools: [
       { id: "notes", selector: '[id$="spacesButton-notes"]', icon: "notes" },
-      { id: "paint", selector: '[id$="spacesButton-paint"]', icon: "brush" },
       { id: "writer", selector: '[id$="spacesButton-writer"]', icon: "writer" },
+      { id: "paint", selector: '[id$="spacesButton-paint"]', icon: "brush" },
       { id: "slides", selector: '[id$="spacesButton-slides"]', icon: "slides" },
     ],
   },
