@@ -64,6 +64,51 @@ export function composedTransform(original, before, current) {
   return matrixString(total);
 }
 
+/** Snap the drag (dx, dy) to the nearest multiple of `step` degrees, keeping its length. */
+export function snapAngle(dx, dy, step = 15) {
+  const length = Math.hypot(dx, dy);
+  const angle = Math.round(Math.atan2(dy, dx) / ((step * Math.PI) / 180)) * ((step * Math.PI) / 180);
+  return [length * Math.cos(angle), length * Math.sin(angle)];
+}
+
+// ---------------------------------------------------------------- styles --
+
+/** A `style` attribute as [property, value] pairs, in order. */
+export function parseStyle(text) {
+  return (text ?? "").split(";").map((part) => {
+    const at = part.indexOf(":");
+    return at < 0 ? null : [part.slice(0, at).trim(), part.slice(at + 1).trim()];
+  }).filter((pair) => pair && pair[0]);
+}
+
+/** The `style` attribute with one property set (or removed, for null); the others stay as written. */
+export function setStyleProperty(text, property, value) {
+  const pairs = parseStyle(text);
+  const at = pairs.findIndex(([name]) => name === property);
+  if (value === null || value === undefined) { if (at >= 0) pairs.splice(at, 1); }
+  else if (at >= 0) pairs[at][1] = value;
+  else pairs.push([property, value]);
+  return pairs.map(([name, v]) => `${name}:${v}`).join(";");
+}
+
+/** A computed colour ("rgb(30, 136, 229)", "#1e88e5", "none") as #rrggbb, or null for none. */
+export function hexColor(value) {
+  if (!value || value === "none" || value.startsWith("url(")) return null;
+  if (/^#[0-9a-f]{6}$/i.test(value)) return value.toLowerCase();
+  if (/^#[0-9a-f]{3}$/i.test(value)) return `#${[...value.slice(1)].map((c) => c + c).join("")}`.toLowerCase();
+  const m = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?/.exec(value);
+  if (!m || (m[4] !== undefined && Number(m[4]) === 0)) return null;
+  return `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** A length with a CSS unit in px (SVG user units at 96 dpi); null when it has none we know. */
+export function lengthInPx(value) {
+  const m = /^\s*([\d.eE+-]+)\s*(px|mm|cm|in|pt|pc)?\s*$/.exec(value ?? "");
+  if (!m) return null;
+  const factor = { px: 1, mm: 96 / 25.4, cm: 96 / 2.54, in: 96, pt: 4 / 3, pc: 16 }[m[2] ?? "px"];
+  return Number(m[1]) * factor;
+}
+
 // --------------------------------------------------------------- the file --
 
 /**

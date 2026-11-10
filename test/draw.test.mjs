@@ -65,3 +65,30 @@ test("a new drawing is an Inkscape-ready page in the chosen orientation", () => 
   assert.match(hd, /width="1920"/);
   assert.match(hd, /viewBox="0 0 1920 1080"/);
 });
+
+test("style attributes change one property and keep the rest as written", () => {
+  assert.deepEqual(g.parseStyle("fill:#fff; stroke : none;;font-family:'URW Gothic', sans-serif"), [["fill", "#fff"], ["stroke", "none"], ["font-family", "'URW Gothic', sans-serif"]]);
+  assert.equal(g.setStyleProperty("fill:#fff;stroke:none", "stroke", "#000"), "fill:#fff;stroke:#000");
+  assert.equal(g.setStyleProperty("fill:#fff", "stroke-width", "2"), "fill:#fff;stroke-width:2");
+  assert.equal(g.setStyleProperty("fill:#fff;stroke:none", "fill", null), "stroke:none");
+  assert.equal(g.setStyleProperty(null, "fill", "red"), "fill:red");
+});
+
+test("colours and lengths are read the way the panel shows them", () => {
+  assert.equal(g.hexColor("rgb(30, 136, 229)"), "#1e88e5");
+  assert.equal(g.hexColor("#ABC"), "#aabbcc");
+  assert.equal(g.hexColor("none"), null);
+  assert.equal(g.hexColor("rgba(0, 0, 0, 0)"), null);
+  assert.equal(g.hexColor("url(#grad)"), null);
+  assert.equal(g.lengthInPx("10mm").toFixed(3), "37.795");
+  assert.equal(g.lengthInPx("12pt"), 16);
+  assert.equal(g.lengthInPx("100"), 100);
+  assert.equal(g.lengthInPx("50%"), null);
+});
+
+test("Ctrl snaps lines to 15° steps", () => {
+  const [x, y] = g.snapAngle(10, 1);
+  assert.ok(Math.abs(x - Math.hypot(10, 1)) < 1e-9 && Math.abs(y) < 1e-9);
+  const [a, b] = g.snapAngle(10, 9);
+  assert.ok(Math.abs(a - b) < 1e-9);
+});

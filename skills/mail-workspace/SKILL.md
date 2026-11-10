@@ -253,8 +253,10 @@ The Draw space edits SVG files in place, Inkscape's included: whatever it does n
 back byte for byte (layers, Inkscape settings, filters, clones), so the same file keeps working in
 Inkscape. It opens from the Create group, Ctrl+Shift+9, or "Edit in Draw" on an SVG in Files.
 
-- The user selects, moves and scales by hand (double-click enters a group; Ctrl+click picks inside
-  one). While Draw is open, `gui_state` includes its state: the open file, page size and units, the
+- The user draws by hand: select, move and scale (double-click enters a group; Ctrl+click picks
+  inside one), rectangles, ellipses, lines and text (double-click a text to edit it), images and SVG
+  figures (Ctrl+I, drop, paste: matplotlib figures come in as a group), fill, stroke and font in the
+  side panel. While Draw is open, `gui_state` includes its state: the open file, page size and units, the
   group being edited and the selection (ids and boxes in document units).
 - Open a file with `gui_open` (`space: "draw"`, `query: <path>`).
 - There are no `draw_*` tools yet (reading the drawing, edits as one undo step, screenshots, export

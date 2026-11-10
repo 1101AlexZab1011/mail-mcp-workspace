@@ -36,8 +36,17 @@ export class DocTabs {
 
   find(path) { return this.tabs.find((tab) => tab.path === path); }
 
-  /** Open a file in a tab (or switch to its tab). */
-  async open(path, { activate = true, draft, append = false } = {}) {
+  /** Open a file in a tab (or switch to its tab). Two opens of one file at once give one tab. */
+  async open(path, options = {}) {
+    this.opening ??= new Map();
+    const pending = this.opening.get(path);
+    if (pending) { const tab = await pending; if (options.activate !== false) await this.activate(tab); return tab; }
+    const task = this.#open(path, options);
+    this.opening.set(path, task);
+    try { return await task; } finally { this.opening.delete(path); }
+  }
+
+  async #open(path, { activate = true, draft, append = false } = {}) {
     const existing = this.find(path);
     if (existing) { if (activate) await this.activate(existing); return existing; }
     const tab = { id: `t${nextId++}`, path, title: nameOf(path), dirty: false };

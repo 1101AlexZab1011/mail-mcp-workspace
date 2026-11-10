@@ -9,7 +9,7 @@
 // On top of the frame lies the editor's own overlay: it takes the pointer, finds what is under it,
 // and draws the selection and its handles. Undo records what each edit changed in the document
 // (draw/history.js). Each tab keeps its frame, undo and view while another tab is shown.
-import { host } from "./shared/broker.js";
+import { host, HOST_ENDPOINT } from "./shared/broker.js";
 import { icon } from "./shared/icons.js";
 import { $, h, iconButton, background, toast, registerPage, ask, contextMenu } from "./shared/page.js";
 import { DocTabs } from "./shared/doctabs.js";
@@ -17,9 +17,10 @@ import { History } from "./draw/history.js";
 import * as g from "./draw/geometry.js";
 import { indexSource, serializePreserving } from "./draw/serialize.js";
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-const INKSCAPE_NS = "http://www.inkscape.org/namespaces/inkscape";
-const SODIPODI_NS = "http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd";
+import {
+  SVG_NS, XLINK_NS, XML_NS, INKSCAPE_NS, SODIPODI_NS, ensureNamespace, takenIds, appendIndented, createElement, setAttributes,
+  copyWithFreshIds, declareNamespaces, setProperty, setsProperty, textLines, setTextLines, importSvg,
+} from "./draw/content.js";
 const BACKUPS = "~/.local/state/mail-workspace/draw-backups";
 const RECENT_KEY = "draw.recent";
 const MAX_FILE = 50 * 1024 * 1024;
@@ -34,6 +35,12 @@ const ui = {
 
 const TOOLS = [
   { id: "select", icon: "arrow_selector_tool", label: "Select and transform", key: "s" },
+  "-",
+  { id: "rect", icon: "rectangle", label: "Rectangle (Ctrl: square)", key: "r" },
+  { id: "ellipse", icon: "circle", label: "Ellipse (Ctrl: circle)", key: "e" },
+  { id: "line", icon: "horizontal_rule", label: "Line (Ctrl: 15° steps)", key: "l" },
+  { id: "text", icon: "title", label: "Text: click to write, click a text to edit it", key: "t" },
+  "-",
   { id: "pan", icon: "pan_tool", label: "Hand: move the view (or hold Space)", key: "h" },
   { id: "zoom", icon: "zoom_in", label: "Zoom: click to zoom in, Shift+click out, drag an area", key: "z" },
 ];
@@ -45,6 +52,10 @@ const SHORTCUTS = [
   ["Ctrl while dragging", "Move only horizontally or vertically; keep proportions when scaling"],
   ["Arrows (Shift: ×10)", "Move the selection"],
   ["Home / End, Page Up / Down", "To front / back, one step up / down"],
+  ["R, E, L, T", "Rectangle, ellipse, line, text"],
+  ["Double-click a text", "Edit it (Ctrl+Enter or click away to finish, Esc to cancel)"],
+  ["Ctrl+I, drop, paste", "Insert an image or SVG figure"],
+  ["Ctrl+C / Ctrl+X / Ctrl+V", "Copy / cut / paste (in place)"],
   ["Ctrl+D, Delete", "Duplicate, delete"],
   ["Ctrl+A, Esc", "Select all, deselect"],
   ["Ctrl+Z / Ctrl+Shift+Z, Ctrl+Y", "Undo / redo"],
@@ -136,6 +147,7 @@ async function makeTab(t, text) {
     frame, doc, framing: g.framing(text), source: indexSource(text, doc), size: naturalSize(doc), unit: documentUnit(doc),
     view: null, selection: new Set(), scope: doc.documentElement,
   });
+  t.style ??= defaultStyle(doc, t.size);
   t.history ??= new History((step) => onHistory(t, step));
   t.history.attach(doc);
 }
@@ -174,6 +186,7 @@ const tabs = new DocTabs({
       void watch(t);
     },
     hide(t) {
+      if (editing) commitText();
       watchToken++;
       t.frame.hidden = true;
       if (tab === t) tab = null;
@@ -499,8 +512,16 @@ ui.overlay.addEventListener("pointerdown", (event) => {
   const pan = event.button === 1 || spaceDown || tool === "pan";
   if (pan) { startPan(event); return; }
   if (event.button !== 0) return;
+  if (editing) commitText();
   const start = { x: event.clientX, y: event.clientY, frame: toFrame(event.clientX, event.clientY) };
   if (tool === "zoom") { gesture = { kind: "zoom", start, shift: event.shiftKey }; ui.overlay.setPointerCapture(event.pointerId); return; }
+  if (SHAPES.has(tool)) { gesture = { kind: "create", start, el: null }; ui.overlay.setPointerCapture(event.pointerId); return; }
+  if (tool === "text") {
+    event.preventDefault();
+    const text = tab.doc.elementFromPoint(...start.frame)?.closest?.("text");
+    if (text && !locked(text)) editText(text); else newText(start.frame);
+    return;
+  }
 
   const handle = event.target.closest?.("[data-handle]");
   if (handle && tab.selection.size) {
@@ -564,6 +585,22 @@ ui.overlay.addEventListener("pointermove", (event) => {
     transformBy(gesture.items, g.scalingAbout(sx, sy, ax, ay));
     drawOverlay();
     setStatus(`Scale ${Math.round(sx * 100)}% × ${Math.round(sy * 100)}%`, { sticky: true });
+  } else if (gesture.kind === "create") {
+    if (!gesture.el) {
+      if (travelled < DRAG_START) return;
+      tab.history.begin(`Draw ${tool}`);
+      gesture.parent = insertionParent();
+      gesture.local = placer(gesture.parent);
+      gesture.el = createElement(gesture.parent, tool === "line" ? "path" : tool, { transform: gesture.local.transform, style: shapeStyle(gesture.local, tool) });
+    }
+    const [sx, sy] = start.frame;
+    let [ex, ey] = [fx, fy];
+    if (event.ctrlKey || event.metaKey) {
+      if (tool === "line") { const [ddx, ddy] = g.snapAngle(ex - sx, ey - sy); ex = sx + ddx; ey = sy + ddy; }
+      else { const d = Math.max(Math.abs(ex - sx), Math.abs(ey - sy)); ex = sx + Math.sign(ex - sx || 1) * d; ey = sy + Math.sign(ey - sy || 1) * d; }
+    }
+    shapeGeometry(gesture.el, tool, gesture.local, [sx, sy], [ex, ey]);
+    select([gesture.el]);
   } else if (gesture.kind === "band" || gesture.kind === "zoom") {
     if (travelled < DRAG_START) return;
     gesture.rect = { x: Math.min(start.frame[0], fx), y: Math.min(start.frame[1], fy), w: Math.abs(dx), h: Math.abs(dy) };
@@ -578,6 +615,7 @@ function endGesture(event) {
   if (event?.pointerId !== undefined && ui.overlay.hasPointerCapture(event.pointerId)) ui.overlay.releasePointerCapture(event.pointerId);
   if (done.kind === "pan") ui.viewport.classList.remove("dragging");
   if ((done.kind === "move" || done.kind === "scale") && done.begun) { tab.history.end(); setStatus(""); }
+  if (done.kind === "create" && done.el) { tab.history.end(); select([done.el]); }
   if (done.kind === "band" && done.rect) {
     const r = done.rect;
     const inside = selectableChildren().filter((el) => {
@@ -607,7 +645,8 @@ function startPan(event) {
 ui.overlay.addEventListener("dblclick", (event) => {
   if (!tab || tool !== "select") return;
   const hit = hitAt(event.clientX, event.clientY);
-  if (hit && isGroup(hit)) enterGroup(hit, event.clientX, event.clientY);
+  if (hit?.localName === "text") editText(hit);
+  else if (hit && isGroup(hit)) enterGroup(hit, event.clientX, event.clientY);
   else if (!hit) leaveGroup();
 });
 
@@ -675,6 +714,266 @@ function drawOverlay() {
   ui.overlay.replaceChildren(...parts);
 }
 
+// -------------------------------------------------------------- creating --
+
+const SHAPES = new Set(["rect", "ellipse", "line"]);
+const textEditor = $("#text-editor");
+let editing = null; // the text being written: { text: element | null, at: [x, y] frame px }
+
+/** Starting style for a drawing: sizes in its own units, scaled to its page. */
+function defaultStyle(doc, size) {
+  const vb = doc.documentElement.viewBox?.baseVal;
+  const pageH = vb?.height || size.h;
+  const nice = (v) => Number(v.toPrecision(2));
+  return { fill: "#1e88e5", stroke: null, strokeWidth: nice(pageH / 1000), fontSize: nice(pageH / 90), fontFamily: "sans-serif", textFill: "#1b1f27" };
+}
+
+const scaleOf = (m) => Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) || 1;
+/** How many of an element's own units make one unit of the document. */
+const unitsPerDocUnit = (el) => scaleOf(screenCTM(root())) / scaleOf(screenCTM(el));
+
+/** Where new objects go: the group being edited, else the layer of the selection, the current layer or the top one. */
+function insertionParent() {
+  if (tab.scope !== root()) return tab.scope;
+  const layers = [...root().children].filter(isLayer);
+  if (!layers.length) return root();
+  const first = selected()[0];
+  const current = tab.doc.querySelector("namedview")?.getAttributeNS(INKSCAPE_NS, "current-layer");
+  return layers.find((l) => first && l.contains(first)) ?? layers.find((l) => l.id === current) ?? layers.at(-1);
+}
+
+/**
+ * How to place frame points in `parent`: straight into its units when it is not rotated or skewed,
+ * else in frame pixels with a transform that undoes the parent's. `unit`: local units per document unit.
+ */
+function placer(parent) {
+  const m = screenCTM(parent);
+  if (Math.abs(m[1]) < 1e-9 && Math.abs(m[2]) < 1e-9) {
+    const inv = g.invert(m);
+    return { at: (x, y) => g.apply(inv, [x, y]), transform: null, unit: unitsPerDocUnit(parent) };
+  }
+  return { at: (x, y) => [x, y], transform: g.matrixString(g.invert(m)), unit: scaleOf(screenCTM(root())) };
+}
+
+const fontValue = (family) => (/^[\w-]+$/.test(family) ? family : `'${family.replace(/'/g, "")}'`);
+
+function shapeStyle(local, kind) {
+  const s = tab.style;
+  if (kind === "line") return `fill:none;stroke:${s.stroke ?? s.fill ?? "#1b1f27"};stroke-width:${g.fmt(s.strokeWidth * local.unit)};stroke-linecap:round`;
+  return `fill:${s.fill ?? "none"};stroke:${s.stroke ?? "none"}${s.stroke ? `;stroke-width:${g.fmt(s.strokeWidth * local.unit)}` : ""}`;
+}
+
+/** Shape a new rect, ellipse or line between two frame points. */
+function shapeGeometry(el, kind, local, a, b) {
+  const [x1, y1] = local.at(...a);
+  const [x2, y2] = local.at(...b);
+  const box = { x: g.fmt(Math.min(x1, x2)), y: g.fmt(Math.min(y1, y2)), width: g.fmt(Math.abs(x2 - x1)), height: g.fmt(Math.abs(y2 - y1)) };
+  if (kind === "rect") setAttributes(el, box);
+  else if (kind === "ellipse") setAttributes(el, { cx: g.fmt((x1 + x2) / 2), cy: g.fmt((y1 + y2) / 2), rx: g.fmt(Math.abs(x2 - x1) / 2), ry: g.fmt(Math.abs(y2 - y1) / 2) });
+  else el.setAttribute("d", `M ${g.fmt(x1)},${g.fmt(y1)} ${g.fmt(x2)},${g.fmt(y2)}`);
+}
+
+// Text is written in a box over the drawing and goes into the document when it is done.
+function showTextEditor({ value, x, y, size, family, color }) {
+  const [vx, vy] = toView(x, y);
+  Object.assign(textEditor.style, { left: `${vx}px`, top: `${vy}px`, fontSize: `${Math.max(size * tab.view.scale, 6)}px`, fontFamily: family, color, width: "auto", height: "auto" });
+  textEditor.value = value;
+  textEditor.hidden = false;
+  fitTextEditor();
+  setTimeout(() => { textEditor.focus(); textEditor.select(); }, 0);
+  setStatus("Ctrl+Enter or click away to finish, Esc to cancel.", { sticky: true });
+}
+function fitTextEditor() {
+  textEditor.style.width = "0"; textEditor.style.height = "0";
+  textEditor.style.width = `${textEditor.scrollWidth + 8}px`;
+  textEditor.style.height = `${textEditor.scrollHeight}px`;
+}
+textEditor.addEventListener("input", fitTextEditor);
+textEditor.addEventListener("keydown", (event) => {
+  event.stopPropagation();
+  if (event.key === "Escape") { event.preventDefault(); editing = null; textEditor.hidden = true; setStatus(""); ui.viewport.focus(); }
+  else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); commitText(); ui.viewport.focus(); }
+});
+textEditor.addEventListener("blur", () => commitText());
+
+function newText([x, y]) {
+  editing = { text: null, at: [x, y] };
+  const size = tab.style.fontSize * scaleOf(screenCTM(root()));
+  showTextEditor({ value: "", x, y, size, family: tab.style.fontFamily, color: tab.style.textFill });
+}
+
+function editText(text) {
+  editing = { text };
+  select([text]);
+  const cs = tab.doc.defaultView.getComputedStyle(text);
+  const box = boxOf(text);
+  const size = Number.parseFloat(cs.fontSize) * scaleOf(screenCTM(text));
+  showTextEditor({ value: textLines(text).map((l) => l.text).join("\n"), x: box.x, y: box.y - size * 0.1, size, family: cs.fontFamily, color: g.hexColor(cs.fill) ?? "#000" });
+}
+
+function commitText() {
+  if (!editing || !tab) return;
+  const done = editing;
+  editing = null;
+  textEditor.hidden = true;
+  setStatus("");
+  const value = textEditor.value.replace(/\s+$/, "");
+  const lines = value.split("\n");
+  if (done.text) {
+    const text = done.text;
+    if (value === textLines(text).map((l) => l.text).join("\n")) return;
+    if (!value.trim()) { tab.history.edit("Delete text", () => text.remove()); select([]); return; }
+    const old = textLines(text).map((l) => Number.parseFloat(l.node.getAttribute("y")));
+    const size = Number.parseFloat(tab.doc.defaultView.getComputedStyle(text).fontSize);
+    const lineHeight = old.length > 1 && Number.isFinite(old[1] - old[0]) ? old.at(-1) - old.at(-2) : size * 1.25;
+    tab.history.edit("Edit text", () => setTextLines(text, lines, { lineHeight, taken: takenIds(tab.doc) }));
+    select([text]);
+    return;
+  }
+  if (!value.trim()) return;
+  const parent = insertionParent();
+  const local = placer(parent);
+  const size = tab.style.fontSize * local.unit;
+  const [x, top] = local.at(...done.at);
+  let text;
+  tab.history.edit("Text", () => {
+    ensureNamespace(tab.doc, "sodipodi", SODIPODI_NS);
+    const taken = takenIds(tab.doc);
+    text = createElement(parent, "text", {
+      style: `font-size:${g.fmt(size)};line-height:1.25;font-family:${fontValue(tab.style.fontFamily)};fill:${tab.style.textFill}`,
+      x: g.fmt(x), y: g.fmt(top + size * 0.8), transform: local.transform,
+    }, taken);
+    text.setAttributeNS(XML_NS, "xml:space", "preserve");
+    lines.forEach((line, i) => {
+      const tspan = createElement(text, "tspan", { x: g.fmt(x), y: g.fmt(top + size * (0.8 + 1.25 * i)) }, taken);
+      tspan.setAttributeNS(SODIPODI_NS, "sodipodi:role", "line");
+      tspan.textContent = line;
+    });
+  });
+  select([text]);
+}
+
+// Images (embedded, as Inkscape does by default) and SVG figures (as a group, ids kept unique).
+const blobToDataUrl = (blob) => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = reject; r.readAsDataURL(blob); });
+
+/** A box of `w`×`h` frame px, shrunk to at most half the page, centred in the view. */
+function placeBox(w, h) {
+  const k = Math.min(1, (tab.size.w * 0.5) / w, (tab.size.h * 0.5) / h);
+  const r = ui.viewport.getBoundingClientRect();
+  const [cx, cy] = toFrame(r.left + r.width / 2, r.top + r.height / 2);
+  return { x: cx - (w * k) / 2, y: cy - (h * k) / 2, w: w * k, h: h * k };
+}
+
+async function insertImage(blob, name) {
+  const href = await blobToDataUrl(blob);
+  const img = new Image();
+  img.src = href;
+  await img.decode().catch(() => { throw new Error(`${name} is not an image Draw can show`); });
+  const box = placeBox(img.naturalWidth, img.naturalHeight);
+  const parent = insertionParent();
+  const local = placer(parent);
+  let el;
+  tab.history.edit("Insert image", () => {
+    ensureNamespace(tab.doc, "xlink", XLINK_NS);
+    el = createElement(parent, "image", { preserveAspectRatio: "none", transform: local.transform });
+    shapeGeometry(el, "rect", local, [box.x, box.y], [box.x + box.w, box.y + box.h]);
+    el.setAttributeNS(XLINK_NS, "xlink:href", href);
+  });
+  select([el]);
+}
+
+function insertSvg(text, name) {
+  const parent = insertionParent();
+  let group;
+  tab.history.edit("Insert figure", () => {
+    const imported = importSvg(tab.doc, text, name, takenIds(tab.doc));
+    group = imported.group;
+    const box = placeBox(imported.px.w, imported.px.h);
+    // Figure units → frame px (placed and fitted), then into the parent's units.
+    const figure = g.multiply(g.multiply(g.translation(box.x, box.y), [box.w / imported.box.w, 0, 0, box.h / imported.box.h, 0, 0]), g.translation(-imported.box.x, -imported.box.y));
+    group.setAttribute("transform", g.matrixString(g.multiply(g.invert(screenCTM(parent)), figure)));
+    appendIndented(parent, group);
+  });
+  select([group]);
+}
+
+/** Insert files: SVGs as figures, anything else as images. */
+async function insertFiles(files) {
+  for (const file of files) {
+    try {
+      if (/\.svg$/i.test(file.name) || file.type === "image/svg+xml") insertSvg(await file.text(), file.name);
+      else await insertImage(file, file.name);
+    } catch (error) { toast(error.message); }
+  }
+}
+
+async function insertDialog() {
+  const path = await ask({ title: "Insert an image or SVG figure", message: "PNG, JPEG, WebP, GIF or SVG", value: `${dirOf(tab.path)}/`, ok: "Insert" });
+  if (!path) return;
+  try {
+    const info = await host(`/v1/fs/stat?path=${encodeURIComponent(path)}`);
+    const { url } = await host("/v1/links", { method: "POST", body: JSON.stringify({ path: info.path }) });
+    const blob = await (await fetch(`${HOST_ENDPOINT}${url}`)).blob();
+    await insertFiles([new File([blob], nameOf(info.path), { type: blob.type })]);
+  } catch (error) { toast(error.message); }
+}
+
+ui.viewport.addEventListener("dragover", (event) => { if (tab && event.dataTransfer.types.includes("Files")) { event.preventDefault(); ui.viewport.classList.add("drop"); } });
+ui.viewport.addEventListener("dragleave", () => ui.viewport.classList.remove("drop"));
+ui.viewport.addEventListener("drop", (event) => {
+  ui.viewport.classList.remove("drop");
+  if (!tab || !event.dataTransfer.files.length) return;
+  event.preventDefault();
+  void insertFiles([...event.dataTransfer.files]);
+});
+
+// The clipboard: objects copied here paste back in place (into the group or layer being edited);
+// an image or SVG from elsewhere is inserted.
+let clip = null; // { items: [{ node, parent: frame matrix of its old parent }], text }
+
+async function copySelection({ cut = false } = {}) {
+  const items = selected();
+  if (!items.length) return;
+  clip = { items: items.map((el) => ({ node: el.cloneNode(true), parent: parentCTM(el) })), text: null };
+  clip.text = `<svg xmlns="${SVG_NS}" xmlns:xlink="${XLINK_NS}">${items.map((el) => new XMLSerializer().serializeToString(el)).join("")}</svg>`;
+  await navigator.clipboard.writeText(clip.text).catch(() => {});
+  if (cut) deleteSelection();
+  setStatus(`${cut ? "Cut" : "Copied"} ${items.length} ${items.length === 1 ? "object" : "objects"}`);
+}
+
+function pasteObjects() {
+  const parent = insertionParent();
+  const here = screenCTM(parent);
+  const taken = takenIds(tab.doc);
+  const copies = [];
+  tab.history.edit("Paste", () => {
+    for (const { node, parent: there } of clip.items) {
+      const copy = copyWithFreshIds(node, taken);
+      appendIndented(parent, copy);
+      declareNamespaces(tab.doc, copy);
+      // Where it was on the page, whatever the new parent's transform.
+      setTransform(copy, g.composedTransform(copy.getAttribute("transform"), g.multiply(g.invert(here), there), ownMatrix(copy)));
+      copies.push(copy);
+    }
+  });
+  select(copies);
+}
+
+async function paste() {
+  let items = [];
+  try { items = await navigator.clipboard.read(); } catch { /* nothing readable */ }
+  for (const item of items) {
+    const image = item.types.find((t) => t.startsWith("image/") && t !== "image/svg+xml");
+    if (image) { await insertImage(await item.getType(image), "pasted image").catch((error) => toast(error.message)); return; }
+    if (item.types.includes("text/plain")) {
+      const text = await (await item.getType("text/plain")).text();
+      if (clip && text === clip.text) { pasteObjects(); return; }
+      if (/^\s*(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<svg[\s>]/.test(text)) { try { insertSvg(text, "pasted figure"); } catch (error) { toast(error.message); } return; }
+    }
+  }
+  if (clip) pasteObjects();
+}
+
 // --------------------------------------------------------------- editing --
 
 function deleteSelection() {
@@ -685,39 +984,13 @@ function deleteSelection() {
   drawOverlay(); renderProps();
 }
 
-/** Every id in the document (for new ones). */
-const takenIds = () => new Set([...tab.doc.querySelectorAll("[id]")].map((el) => el.id));
-
-/** A copy of `el` with fresh ids; references inside the copy follow the renamed ids. */
-function cloneWithFreshIds(el, taken) {
-  const copy = el.cloneNode(true);
-  const renamed = new Map();
-  for (const node of [copy, ...copy.querySelectorAll("[id]")]) {
-    if (!node.id) continue;
-    const fresh = g.freshId(node.id.replace(/[-_]?\d+$/, "") || node.localName, taken);
-    renamed.set(node.id, fresh);
-    node.id = fresh;
-  }
-  if (renamed.size) {
-    for (const node of [copy, ...copy.querySelectorAll("*")]) {
-      for (const attr of [...node.attributes]) {
-        let value = attr.value;
-        value = value.replace(/url\(\s*#([^)\s]+)\s*\)/g, (m, id) => (renamed.has(id) ? `url(#${renamed.get(id)})` : m));
-        if ((attr.localName === "href") && value.startsWith("#") && renamed.has(value.slice(1))) value = `#${renamed.get(value.slice(1))}`;
-        if (value !== attr.value) attr.value = value;
-      }
-    }
-  }
-  return copy;
-}
-
 function duplicate() {
   const items = selected();
   if (!items.length) return;
-  const taken = takenIds();
+  const taken = takenIds(tab.doc);
   const copies = [];
   tab.history.edit(`Duplicate ${items.length}`, () => {
-    for (const el of items) { const copy = cloneWithFreshIds(el, taken); el.after(copy); copies.push(copy); }
+    for (const el of items) { const copy = copyWithFreshIds(el, taken); el.after(copy); copies.push(copy); }
   });
   select(copies);
 }
@@ -776,20 +1049,26 @@ function setStatus(text, { sticky = false } = {}) {
 }
 const hintFor = (id) => ({
   select: "Click to select (Ctrl+click inside groups), drag to move, drag the corners to scale. Double-click a group to enter it.",
+  rect: "Drag to draw a rectangle; Ctrl makes a square.",
+  ellipse: "Drag to draw an ellipse; Ctrl makes a circle.",
+  line: "Drag to draw a line; Ctrl snaps it to 15° steps.",
+  text: "Click where the text goes, or click a text to edit it.",
   pan: "Drag to move around. Ctrl+wheel zooms.",
   zoom: "Click to zoom in, Shift+click to zoom out, or drag around an area.",
 }[id] ?? "");
 
 function setTool(id) {
+  if (editing) commitText();
   tool = id;
   ui.viewport.dataset.tool = id;
   renderTools();
   drawOverlay();
+  if (tab) renderProps();
   setStatus("");
 }
 
 function renderTools() {
-  $("#tools").replaceChildren(...TOOLS.map((t) => iconButton(t.icon, `${t.label} (${t.key.toUpperCase()})`, () => setTool(t.id), { pressed: tool === t.id })));
+  $("#tools").replaceChildren(...TOOLS.map((t) => (t === "-" ? h("span.sep") : iconButton(t.icon, `${t.label} (${t.key.toUpperCase()})`, () => setTool(t.id), { pressed: tool === t.id }))));
 }
 
 function renderHistory() {
@@ -807,6 +1086,7 @@ function renderChrome() {
     iconButton("note_add", "New drawing", () => void newDrawingDialog(), { small: true }),
     iconButton("folder_open", "Open… (Ctrl+O)", () => void openDialog(), { small: true }),
     iconButton("save", "Save (Ctrl+S)", () => void tabs.save(), { small: true }),
+    iconButton("photo_library", "Insert an image or SVG figure (Ctrl+I)", () => tab && void insertDialog(), { small: true }),
     iconButton("keyboard", "Keyboard shortcuts", showShortcuts, { small: true }),
   );
   $("#doc-info").textContent = tab ? `${g.fmt(toUserSize().w)} × ${g.fmt(toUserSize().h)} ${tab.unit}` : "";
@@ -824,6 +1104,100 @@ function numberField(labelText, value, onCommit) {
   input.addEventListener("change", () => onCommit(Number(input.value)));
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } e.stopPropagation(); });
   return h("label.field", {}, h("span", {}, labelText), input);
+}
+
+// ----------------------------------------------------------------- style --
+
+let fontList = [];
+host("/v1/slides/fonts").then(({ fonts }) => { fontList = fonts; }, () => {});
+
+const textsIn = (el) => (el.localName === "text" ? [el] : [...el.querySelectorAll("text")]);
+
+/** What the style panel shows: the first selected object's look (sizes in document units), or the defaults. */
+function currentLook(items) {
+  const el = items[0];
+  if (!el) return { ...tab.style, opacity: 1, textual: tool === "text" };
+  const view = tab.doc.defaultView;
+  const cs = view.getComputedStyle(el);
+  const text = textsIn(el)[0];
+  const ts = text ? view.getComputedStyle(text) : null;
+  return {
+    fill: g.hexColor(cs.fill), stroke: g.hexColor(cs.stroke), strokeWidth: Number.parseFloat(cs.strokeWidth) / unitsPerDocUnit(el),
+    opacity: Number(cs.opacity), textual: Boolean(text),
+    fontSize: text ? Number.parseFloat(ts.fontSize) / unitsPerDocUnit(text) : null, fontFamily: ts?.fontFamily.replace(/["']/g, "") ?? null,
+  };
+}
+
+/** Set a style property on the selection (one undo step), or on the defaults for new objects. */
+function applyLook(property, value) {
+  const items = selected();
+  if (!items.length) {
+    const key = { fill: tool === "text" ? "textFill" : "fill", stroke: "stroke", "stroke-width": "strokeWidth", "font-size": "fontSize", "font-family": "fontFamily" }[property];
+    if (key) tab.style[key] = value;
+    renderProps();
+    return;
+  }
+  tab.history.edit(`Set ${property}`, () => {
+    for (const el of items) {
+      if (property === "stroke-width") setProperty(el, property, g.fmt(value * unitsPerDocUnit(el)));
+      else if (property === "opacity") setProperty(el, property, value === 1 ? null : g.fmt(value));
+      else if (property === "font-size") for (const text of textsIn(el)) resizeText(text, value);
+      else {
+        // Colours and fonts: on the object and wherever inside it sets its own.
+        const v = value === null ? "none" : property === "font-family" ? fontValue(value) : value;
+        setProperty(el, property, v);
+        for (const inner of el.querySelectorAll("*")) if (setsProperty(inner, property)) setProperty(inner, property, v);
+      }
+    }
+  });
+}
+
+/** A new font size (document units) for a text, its lines spaced to match. */
+function resizeText(text, size) {
+  const old = Number.parseFloat(tab.doc.defaultView.getComputedStyle(text).fontSize);
+  const next = size * unitsPerDocUnit(text);
+  setProperty(text, "font-size", g.fmt(next));
+  for (const span of text.querySelectorAll("tspan")) if (setsProperty(span, "font-size")) setProperty(span, "font-size", g.fmt(next));
+  const lines = textLines(text).map((l) => l.node).filter((n) => n !== text && n.hasAttribute("y"));
+  const y0 = Number.parseFloat(lines[0]?.getAttribute("y"));
+  for (const line of lines.slice(1)) line.setAttribute("y", g.fmt(y0 + (Number.parseFloat(line.getAttribute("y")) - y0) * (next / old)));
+}
+
+function paintControl(labelText, value, onPick) {
+  const input = h("input", { type: "color", value: value ?? "#000000", title: labelText, "aria-label": labelText });
+  input.addEventListener("change", () => onPick(input.value));
+  return h("div.paint-row", {}, h("span.name", {}, labelText), input, h("span.hex", {}, value ?? "none"),
+    h("button.btn.toggle", { type: "button", "aria-pressed": String(value === null), title: value === null ? `Give it a ${labelText.toLowerCase()}` : `No ${labelText.toLowerCase()}`, onclick: () => onPick(value === null ? input.value : null) }, "None"));
+}
+
+function labeledNumber(labelText, value, onCommit, suffix = tab.unit) {
+  const input = h("input.input.num", { type: "number", step: "any", min: 0, value: g.fmt(value ?? 0), "aria-label": labelText, title: labelText });
+  input.addEventListener("change", () => { const v = Number(input.value); if (Number.isFinite(v) && v >= 0) onCommit(v); });
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } e.stopPropagation(); });
+  return h("label.field-row", {}, h("span.name", {}, labelText), input, h("span.unit", {}, suffix));
+}
+
+function fontField(value, onCommit) {
+  const input = h("input.input", { type: "text", value: value ?? "", list: "draw-fonts", "aria-label": "Font", title: "Font" });
+  input.addEventListener("change", () => { if (input.value.trim()) onCommit(input.value.trim()); });
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } e.stopPropagation(); });
+  return h("label.field-row.font", {}, h("span.name", {}, "Font"), input, h("datalist", { id: "draw-fonts" }, ...fontList.map((f) => h("option", { value: f }))));
+}
+
+function styleSection(items) {
+  const creating = !items.length && (SHAPES.has(tool) || tool === "text");
+  if (!items.length && !creating) return null;
+  const look = currentLook(items);
+  const textual = items.length ? look.textual : tool === "text";
+  const opacity = h("input", { type: "range", min: 0, max: 100, value: Math.round(look.opacity * 100), "aria-label": "Opacity", title: "Opacity" });
+  opacity.addEventListener("change", () => applyLook("opacity", Number(opacity.value) / 100));
+  return h("div", {}, h("h3", {}, items.length ? "Style" : `New ${tool === "text" ? "text" : "shapes"}`),
+    paintControl(textual && !items.length ? "Colour" : "Fill", textual && !items.length ? tab.style.textFill : look.fill, (v) => applyLook("fill", v)),
+    textual && !items.length ? null : paintControl("Stroke", look.stroke, (v) => applyLook("stroke", v)),
+    textual && !items.length ? null : labeledNumber("Stroke width", look.strokeWidth, (v) => applyLook("stroke-width", v)),
+    textual ? labeledNumber("Font size", look.fontSize ?? tab.style.fontSize, (v) => applyLook("font-size", v)) : null,
+    textual ? fontField(look.fontFamily ?? tab.style.fontFamily, (v) => applyLook("font-family", v)) : null,
+    items.length ? h("label.field-row", {}, h("span.name", {}, "Opacity"), opacity, h("span.unit", {}, `${Math.round(look.opacity * 100)}%`)) : null);
 }
 
 function renderProps() {
@@ -849,6 +1223,7 @@ function renderProps() {
         numberField("X", user.x, (v) => setGeometry("x", v)), numberField("Y", user.y, (v) => setGeometry("y", v)),
         numberField("W", user.w, (v) => setGeometry("w", v)), numberField("H", user.h, (v) => setGeometry("h", v))) : null,
       user ? h("p.hint", {}, `In ${tab.unit}, from the page's top left corner.`) : null));
+    sections.push(styleSection(items));
     sections.push(h("div", {}, h("h3", {}, "Arrange"), h("div.row-buttons", {},
       h("button.btn", { type: "button", title: "Raise to top (Home)", onclick: () => arrange("top") }, icon("flip_to_front", { size: 16 }), "Top"),
       h("button.btn", { type: "button", title: "Raise one step (Page Up)", onclick: () => arrange("up") }, icon("keyboard_arrow_up", { size: 16 }), "Up"),
@@ -859,11 +1234,12 @@ function renderProps() {
       one && isGroup(one) ? h("button.btn", { type: "button", title: "Edit inside this group (double-click)", onclick: () => enterGroup(one) }, icon("layers", { size: 16 }), "Enter group") : null)));
   } else {
     const size = toUserSize();
+    sections.push(styleSection(items));
     sections.push(h("div", {}, h("h3", {}, "Page"),
       h("p.hint", {}, `${g.fmt(size.w)} × ${g.fmt(size.h)} ${tab.unit}`),
       h("p.hint", { title: tab.path }, tilde(tab.path))));
   }
-  ui.props.replaceChildren(...sections);
+  ui.props.replaceChildren(...sections.filter(Boolean));
 }
 
 function renderZoom() {
@@ -968,7 +1344,8 @@ addEventListener("keydown", (event) => {
     const actions = {
       z: () => (event.shiftKey ? tab?.history.redo() : tab?.history.undo()), y: () => tab?.history.redo(),
       s: () => (event.shiftKey ? save(tab, { as: true }) : tabs.save()), o: openDialog,
-      a: selectAll, d: duplicate, 0: fit, "=": () => zoomCenter(1.25), "+": () => zoomCenter(1.25), "-": () => zoomCenter(1 / 1.25),
+      a: selectAll, d: duplicate, 0: fit, i: insertDialog,
+      c: () => copySelection(), x: () => copySelection({ cut: true }), v: paste, "=": () => zoomCenter(1.25), "+": () => zoomCenter(1.25), "-": () => zoomCenter(1 / 1.25),
     };
     const action = actions[key];
     if (action && (tab || key === "o")) { take(); void action(); }
@@ -986,7 +1363,7 @@ addEventListener("keydown", (event) => {
     "+": () => zoomCenter(1.25), "=": () => zoomCenter(1.25), "-": () => zoomCenter(1 / 1.25), 5: fit, 1: () => zoomTo(1),
   };
   if (simple[key]) { take(); simple[key](); return; }
-  const found = TOOLS.find((t) => t.key === key);
+  const found = TOOLS.find((t) => t !== "-" && t.key === key);
   if (found) { take(); setTool(found.id); }
 }, true);
 addEventListener("keyup", (event) => { if (event.key === " ") { spaceDown = false; ui.viewport.classList.remove("panning"); } });
