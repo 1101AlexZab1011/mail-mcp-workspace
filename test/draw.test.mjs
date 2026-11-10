@@ -92,3 +92,68 @@ test("Ctrl snaps lines to 15° steps", () => {
   const [a, b] = g.snapAngle(10, 9);
   assert.ok(Math.abs(a - b) < 1e-9);
 });
+
+import * as P from "../thunderbird-addon/draw/path.js";
+
+test("path data reads into nodes with handles, whatever the command", () => {
+  const [sq] = P.parsePath("m10 10 l10 0 0 10z");
+  assert.equal(sq.closed, true);
+  assert.deepEqual(sq.nodes.map((n) => n.p), [[10, 10], [20, 10], [20, 20]]);
+  assert.equal(P.serializePath(P.parsePath("m10 10 l10 0 0 10z")), "M 10,10 L 20,10 L 20,20 Z");
+  assert.equal(P.serializePath(P.parsePath("M0 0 H5 V5")), "M 0,0 L 5,0 L 5,5");
+  const smooth = P.parsePath("M0 0 C 1 1 2 2 3 3 S 5 5 6 6")[0].nodes;
+  assert.deepEqual(smooth[1].out, [4, 4]); // reflected control point
+  const quad = P.parsePath("M0,0 Q 6,9 12,0")[0].nodes;
+  assert.deepEqual(quad[0].out, [4, 6]);
+  assert.deepEqual(quad[1].in, [8, 6]);
+  const arc = P.parsePath("M0 0 a5 5 0 01 10 0")[0].nodes[1];
+  assert.equal(arc.kind, "A");
+  assert.deepEqual(arc.arc, [5, 5, 0, 0, 1]);
+  assert.deepEqual(arc.p, [10, 0]);
+  assert.equal(P.serializePath(P.parsePath("M0 0 a5 5 0 01 10 0")), "M 0,0 A 5 5 0 0 1 10,0");
+});
+
+test("a closed curve that ends on its start keeps its closing curve", () => {
+  const d = "M 0,0 C 0,5 5,10 10,10 C 15,10 10,0 0,0 Z";
+  const [sub] = P.parsePath(d);
+  assert.equal(sub.nodes.length, 2);
+  assert.deepEqual(sub.nodes[0].in, [10, 0]);
+  assert.equal(P.serializePath([sub]), "M 0,0 C 0,5 5,10 10,10 C 15,10 10,0 0,0 Z");
+});
+
+test("splitting keeps the curve's shape; removing joins the neighbours", () => {
+  const [sub] = P.parsePath("M 0,0 C 0,10 10,10 10,0");
+  const before = P.pointAt(sub.nodes[0], sub.nodes[1], 0.25);
+  const node = P.splitSegment(sub, 1, 0.5);
+  assert.equal(sub.nodes.length, 3);
+  assert.deepEqual(node.p, [5, 7.5]);
+  const after = P.pointAt(sub.nodes[0], sub.nodes[1], 0.5);
+  assert.ok(Math.hypot(after[0] - before[0], after[1] - before[1]) < 1e-9);
+  P.removeNode(sub, 1);
+  assert.equal(sub.nodes.length, 2);
+  assert.equal(sub.nodes[1].kind, "C");
+  const [line] = P.parsePath("M 0,0 L 10,0 L 20,0");
+  P.splitSegment(line, 1, 0.5);
+  assert.deepEqual(line.nodes[1].p, [5, 0]);
+  P.removeNode(line, 0);
+  assert.equal(P.serializePath([line]), "M 5,0 L 10,0 L 20,0");
+});
+
+test("segments turn straight or curved, nodes smooth", () => {
+  const [sub] = P.parsePath("M 0,0 L 9,0 L 9,9");
+  P.setSegmentCurved(sub, 1, true);
+  assert.deepEqual(sub.nodes[0].out, [3, 0]);
+  assert.deepEqual(sub.nodes[1].in, [6, 0]);
+  P.makeSmooth(sub.nodes[1], sub.nodes[0], sub.nodes[2]);
+  assert.ok(P.isSmooth(sub.nodes[1]));
+  P.setSegmentCurved(sub, 1, false);
+  assert.equal(sub.nodes[0].out, null);
+});
+
+test("shapes become the same outline as a path", () => {
+  assert.equal(P.shapePath("rect", { x: 1, y: 2, width: 3, height: 4 }), "M 1,2 L 4,2 L 4,6 L 1,6 Z");
+  assert.match(P.shapePath("circle", { cx: 0, cy: 0, r: 10 }), /^M 10,0 C 10,5\.5228 5\.5228,10 0,10/);
+  assert.equal(P.shapePath("polygon", { points: "0,0 5,0 5,5" }), "M 0,0 L 5,0 L 5,5 Z");
+  assert.equal(P.shapePath("line", { x1: 0, y1: 0, x2: 3, y2: 4 }), "M 0,0 L 3,4");
+  assert.match(P.shapePath("rect", { x: 0, y: 0, width: 10, height: 10, rx: 2 }), /C/);
+});

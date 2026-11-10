@@ -16,6 +16,7 @@ import { DocTabs } from "./shared/doctabs.js";
 import { History } from "./draw/history.js";
 import * as g from "./draw/geometry.js";
 import { indexSource, serializePreserving } from "./draw/serialize.js";
+import { parsePath, serializePath, pointAt, splitSegment, removeNode, setSegmentCurved, makeSmooth, isSmooth, shapePath, GEOMETRY } from "./draw/path.js";
 
 import {
   SVG_NS, XLINK_NS, XML_NS, INKSCAPE_NS, SODIPODI_NS, ensureNamespace, takenIds, appendIndented, createElement, setAttributes,
@@ -35,7 +36,9 @@ const ui = {
 
 const TOOLS = [
   { id: "select", icon: "arrow_selector_tool", label: "Select and transform", key: "s" },
+  { id: "node", icon: "polyline", label: "Nodes: click a path, drag its nodes and handles; double-click a segment adds a node", key: "n" },
   "-",
+  { id: "pen", icon: "draw", label: "Pen: click for corners, drag for curves; Enter or double-click ends, clicking the first node closes", key: "b" },
   { id: "rect", icon: "rectangle", label: "Rectangle (Ctrl: square)", key: "r" },
   { id: "ellipse", icon: "circle", label: "Ellipse (Ctrl: circle)", key: "e" },
   { id: "line", icon: "horizontal_rule", label: "Line (Ctrl: 15° steps)", key: "l" },
@@ -52,7 +55,9 @@ const SHORTCUTS = [
   ["Ctrl while dragging", "Move only horizontally or vertically; keep proportions when scaling"],
   ["Arrows (Shift: ×10)", "Move the selection"],
   ["Home / End, Page Up / Down", "To front / back, one step up / down"],
-  ["R, E, L, T", "Rectangle, ellipse, line, text"],
+  ["R, E, L, T, B", "Rectangle, ellipse, line, text, pen"],
+  ["N, double-click a path", "Edit its nodes: drag nodes and handles, double-click a segment to add a node, Delete removes nodes"],
+  ["Pen: Enter, Backspace, Esc", "Finish the path, remove the last node, cancel"],
   ["Double-click a text", "Edit it (Ctrl+Enter or click away to finish, Esc to cancel)"],
   ["Ctrl+I, drop, paste", "Insert an image or SVG figure"],
   ["Ctrl+C / Ctrl+X / Ctrl+V", "Copy / cut / paste (in place)"],
@@ -518,6 +523,8 @@ ui.overlay.addEventListener("pointerdown", (event) => {
   const start = { x: event.clientX, y: event.clientY, frame: toFrame(event.clientX, event.clientY) };
   if (tool === "zoom") { gesture = { kind: "zoom", start, shift: event.shiftKey }; ui.overlay.setPointerCapture(event.pointerId); return; }
   if (SHAPES.has(tool)) { gesture = { kind: "create", start, el: null }; ui.overlay.setPointerCapture(event.pointerId); return; }
+  if (tool === "pen") { penDown(event, start); return; }
+  if (tool === "node") { nodeDown(event, start); return; }
   if (tool === "text") {
     event.preventDefault();
     const text = tab.doc.elementFromPoint(...start.frame)?.closest?.("text");
@@ -547,6 +554,7 @@ ui.overlay.addEventListener("pointerdown", (event) => {
 });
 
 ui.overlay.addEventListener("pointermove", (event) => {
+  if (!gesture && tab && tool === "pen" && pen) { pen.cursor = toFrame(event.clientX, event.clientY); drawOverlay(); return; }
   if (!gesture || !tab) return;
   const { start } = gesture;
   const travelled = Math.hypot(event.clientX - start.x, event.clientY - start.y);
@@ -587,6 +595,16 @@ ui.overlay.addEventListener("pointermove", (event) => {
     transformBy(gesture.items, g.scalingAbout(sx, sy, ax, ay));
     drawOverlay();
     setStatus(`Scale ${Math.round(sx * 100)}% × ${Math.round(sy * 100)}%`, { sticky: true });
+  } else if (gesture.kind === "pen") {
+    if (travelled < DRAG_START) return;
+    const { node } = gesture;
+    node.out = [fx, fy];
+    node.in = [2 * node.p[0] - fx, 2 * node.p[1] - fy];
+    drawOverlay();
+  } else if (gesture.kind === "nodes" || gesture.kind === "handle") {
+    if (!gesture.begun) { if (travelled < DRAG_START) return; gesture.begun = true; tab.history.begin(gesture.kind === "nodes" ? "Move nodes" : "Move handle"); }
+    dragNodes(gesture, dx, dy, [fx, fy], event.ctrlKey || event.metaKey);
+    drawOverlay();
   } else if (gesture.kind === "create") {
     if (!gesture.el) {
       if (travelled < DRAG_START) return;
@@ -603,7 +621,7 @@ ui.overlay.addEventListener("pointermove", (event) => {
     }
     shapeGeometry(gesture.el, tool, gesture.local, [sx, sy], [ex, ey]);
     select([gesture.el]);
-  } else if (gesture.kind === "band" || gesture.kind === "zoom") {
+  } else if (gesture.kind === "band" || gesture.kind === "zoom" || gesture.kind === "nodeband") {
     if (travelled < DRAG_START) return;
     gesture.rect = { x: Math.min(start.frame[0], fx), y: Math.min(start.frame[1], fy), w: Math.abs(dx), h: Math.abs(dy) };
     drawOverlay();
@@ -618,6 +636,18 @@ function endGesture(event) {
   if (done.kind === "pan") ui.viewport.classList.remove("dragging");
   if ((done.kind === "move" || done.kind === "scale") && done.begun) { tab.history.end(); setStatus(""); }
   if (done.kind === "create" && done.el) { tab.history.end(); select([done.el]); }
+  if ((done.kind === "nodes" || done.kind === "handle") && done.begun) tab.history.end();
+  if (done.kind === "nodeband" && nodes) {
+    if (!done.add) nodes.selected.clear();
+    if (done.rect) {
+      const r = done.rect;
+      const m = screenCTM(nodes.el);
+      nodes.subpaths.forEach((sub, si) => sub.nodes.forEach((n, i) => {
+        const [x, y] = g.apply(m, n.p);
+        if (x >= r.x && y >= r.y && x <= r.x + r.w && y <= r.y + r.h) nodes.selected.add(`${si}:${i}`);
+      }));
+    }
+  }
   if (done.kind === "band" && done.rect) {
     const r = done.rect;
     const inside = selectableChildren().filter((el) => {
@@ -645,9 +675,13 @@ function startPan(event) {
 }
 
 ui.overlay.addEventListener("dblclick", (event) => {
-  if (!tab || tool !== "select") return;
+  if (!tab) return;
+  if (tool === "pen") { finishPen(false, { dropRepeat: true }); return; }
+  if (tool === "node") { addNodeAt(event.clientX, event.clientY); return; }
+  if (tool !== "select") return;
   const hit = hitAt(event.clientX, event.clientY);
   if (hit?.localName === "text") editText(hit);
+  else if (hit?.localName === "path") setTool("node");
   else if (hit && isGroup(hit)) enterGroup(hit, event.clientX, event.clientY);
   else if (!hit) leaveGroup();
 });
@@ -700,7 +734,10 @@ function drawOverlay() {
     }
     const items = selected();
     if (items.length > 1) for (const el of items) { const r = viewRect(boxOf(el)); parts.push(svgEl("rect", { class: "item", x: r.x, y: r.y, width: r.w, height: r.h })); }
-    const box = items.length ? unionBox(items) : null;
+    if (tool === "node") syncNodes();
+    const box = items.length && !(tool === "node" && nodes) ? unionBox(items) : null;
+    if (nodes) parts.push(...nodeOverlay());
+    if (pen) parts.push(...penOverlay());
     if (box) {
       const r = viewRect(box);
       parts.push(svgEl("rect", { class: "selection", x: r.x, y: r.y, width: Math.max(r.w, 1), height: Math.max(r.h, 1) }));
@@ -746,8 +783,10 @@ function currentLayer() {
   if (!layers.length) return null;
   const first = selected()[0];
   const current = tab.doc.querySelector("namedview")?.getAttributeNS(INKSCAPE_NS, "current-layer");
+  // Without a choice (selection, panel), never a layer you cannot see or touch.
+  const usable = layers.filter((l) => !layerHidden(l) && !layerLocked(l) && !layers.some((outer) => outer !== l && outer.contains(l) && (layerHidden(outer) || layerLocked(outer))));
   return layers.find((l) => first && l.contains(first) && !layers.some((inner) => inner !== l && l.contains(inner) && inner.contains(first)))
-    ?? (tab.layer?.isConnected ? tab.layer : null) ?? layers.find((l) => l.id === current) ?? layers.at(-1);
+    ?? (tab.layer?.isConnected ? tab.layer : null) ?? usable.find((l) => l.id === current) ?? usable.at(-1) ?? layers.at(-1);
 }
 
 /** Every layer and sublayer, in document order. */
@@ -983,6 +1022,313 @@ async function paste() {
     }
   }
   if (clip) pasteObjects();
+}
+
+// ------------------------------------------------------------ paths: pen --
+
+// The path being drawn, in frame px until it is finished: { nodes: [{ p, in, out }], cursor }.
+let pen = null;
+
+function penDown(event, start) {
+  pen ??= { nodes: [] };
+  const first = pen.nodes[0];
+  if (first && pen.nodes.length >= 2) {
+    const [vx, vy] = toView(...first.p);
+    const r = ui.viewport.getBoundingClientRect();
+    if (Math.hypot(event.clientX - r.left - vx, event.clientY - r.top - vy) < 8) { finishPen(true); return; }
+  }
+  const node = { p: start.frame, in: null, out: null };
+  pen.nodes.push(node);
+  gesture = { kind: "pen", start, node };
+  ui.overlay.setPointerCapture(event.pointerId);
+  drawOverlay();
+}
+
+/** Turn what the pen drew into a path (closed: back to its first node). */
+function finishPen(closed, { dropRepeat = false } = {}) {
+  const drawn = pen;
+  pen = null;
+  // A double-click to finish also put down two nodes on top of each other.
+  if (dropRepeat && drawn) {
+    const near = (a, b) => Math.hypot(a.p[0] - b.p[0], a.p[1] - b.p[1]) * tab.view.scale < 4;
+    while (drawn.nodes.length > 1 && near(drawn.nodes.at(-1), drawn.nodes.at(-2))) drawn.nodes.pop();
+  }
+  if (!drawn || drawn.nodes.length < 2) { drawOverlay(); return; }
+  const parent = insertionParent();
+  const local = placer(parent);
+  const at = (pt) => (pt ? local.at(...pt) : null);
+  const list = drawn.nodes.map((n, i) => ({ p: at(n.p), in: at(n.in), out: at(n.out), kind: "M" }));
+  list.forEach((n, i) => { if (i) n.kind = list[i - 1].out || n.in ? "C" : "L"; });
+  if (!closed) { list[0].in = null; list.at(-1).out = null; }
+  const s = tab.style;
+  let el;
+  tab.history.edit("Pen", () => {
+    el = createElement(parent, "path", {
+      style: `fill:${closed ? (s.fill ?? "none") : "none"};stroke:${s.stroke ?? "#1b1f27"};stroke-width:${g.fmt(s.strokeWidth * local.unit)};stroke-linecap:round;stroke-linejoin:round`,
+      d: serializePath([{ nodes: list, closed }]), transform: local.transform,
+    });
+  });
+  select([el]);
+}
+
+function penOverlay() {
+  const pts = pen.nodes;
+  if (!pts.length) return [];
+  const v = (pt) => toView(...pt).map(g.fmt).join(",");
+  let d = `M ${v(pts[0].p)}`;
+  for (let i = 1; i < pts.length; i++) d += pts[i - 1].out || pts[i].in ? ` C ${v(pts[i - 1].out ?? pts[i - 1].p)} ${v(pts[i].in ?? pts[i].p)} ${v(pts[i].p)}` : ` L ${v(pts[i].p)}`;
+  const parts = [svgEl("path", { class: "pen-path", d })];
+  const last = pts.at(-1);
+  if (pen.cursor && !gesture) parts.push(svgEl("path", { class: "pen-rubber", d: `M ${v(last.p)} ${last.out ? `C ${v(last.out)} ${v(pen.cursor)} ` : "L "}${v(pen.cursor)}` }));
+  if (last.out) {
+    for (const h of [last.in, last.out]) { const [x, y] = toView(...h); const [px, py] = toView(...last.p); parts.push(svgEl("line", { class: "node-arm", x1: px, y1: py, x2: x, y2: y }), svgEl("circle", { class: "node-handle", cx: x, cy: y, r: 3.5 })); }
+  }
+  pts.forEach((n, i) => { const [x, y] = toView(...n.p); parts.push(svgEl("rect", { class: `node${i === 0 && pts.length > 1 ? " closer" : ""}`, x: x - 4, y: y - 4, width: 8, height: 8 })); });
+  return parts;
+}
+
+// ----------------------------------------------------------- paths: nodes --
+
+// The path whose nodes are being edited: { el, d (as last read or written), subpaths (in the
+// element's own units), selected: Set of "subpath:node" }.
+let nodes = null;
+
+const viewMatrix = () => [tab.view.scale, 0, 0, tab.view.scale, tab.view.x, tab.view.y];
+const nodeTarget = () => { const items = selected(); return items.length === 1 && items[0].localName === "path" ? items[0] : null; };
+
+/** Follow the selected path (and its `d`, which undo or the agent may change). */
+function syncNodes() {
+  const el = tool === "node" ? nodeTarget() : null;
+  if (!el) { nodes = null; return; }
+  const d = el.getAttribute("d") ?? "";
+  if (nodes?.el === el && nodes.d === d) return;
+  let subpaths;
+  try { subpaths = parsePath(d); } catch (error) { nodes = null; setStatus(error.message); return; }
+  const kept = nodes?.el === el ? [...nodes.selected].filter((k) => { const [s, i] = k.split(":").map(Number); return subpaths[s]?.nodes[i]; }) : [];
+  nodes = { el, d, subpaths, selected: new Set(kept) };
+}
+
+function writeNodes() {
+  nodes.d = serializePath(nodes.subpaths);
+  nodes.el.setAttribute("d", nodes.d);
+}
+
+const nodeAt = (key) => { const [s, i] = key.split(":").map(Number); return { sub: nodes.subpaths[s], i, node: nodes.subpaths[s]?.nodes[i] }; };
+const neighbours = (sub, i) => {
+  const n = sub.nodes.length;
+  return { prev: i > 0 ? sub.nodes[i - 1] : sub.closed ? sub.nodes[n - 1] : null, next: i < n - 1 ? sub.nodes[i + 1] : sub.closed ? sub.nodes[0] : null };
+};
+const copyNode = (n) => ({ ...n, p: [...n.p], in: n.in && [...n.in], out: n.out && [...n.out] });
+
+function nodeDown(event, start) {
+  syncNodes();
+  const target = event.target.closest?.("[data-node], [data-handle-of]");
+  if (nodes && target?.dataset.node) {
+    const key = target.dataset.node;
+    if (event.shiftKey) { if (nodes.selected.has(key)) nodes.selected.delete(key); else nodes.selected.add(key); }
+    else if (!nodes.selected.has(key)) nodes.selected = new Set([key]);
+    gesture = { kind: "nodes", start, begun: false, origin: new Map([...nodes.selected].map((k) => [k, copyNode(nodeAt(k).node)])) };
+  } else if (nodes && target?.dataset.handleOf) {
+    const [s, i, which] = target.dataset.handleOf.split(":");
+    const { node } = nodeAt(`${s}:${i}`);
+    gesture = { kind: "handle", start, begun: false, key: `${s}:${i}`, which, smooth: isSmooth(node) };
+  } else {
+    // A click on another object picks it (inside groups too); on nothing, a box selects nodes.
+    const hit = tab.doc.elementFromPoint(...start.frame);
+    const el = hit && pickable(hit, { deep: true });
+    if (el && el !== nodes?.el) {
+      select([el]);
+      if (el.localName !== "path") setStatus(`A ${el.localName} has no nodes to edit until it is a path: Object to path, in the panel.`);
+      return;
+    }
+    gesture = { kind: "nodeband", start, add: event.shiftKey, rect: null };
+  }
+  ui.overlay.setPointerCapture(event.pointerId);
+  drawOverlay();
+  renderProps();
+}
+
+/** Move the selected nodes (with their handles) or one handle, by a drag in frame px. */
+function dragNodes(drag, dx, dy, [fx, fy], constrain) {
+  const inv = g.invert(screenCTM(nodes.el));
+  if (drag.kind === "nodes") {
+    if (constrain) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
+    const [ux, uy] = g.applyVector(inv, [dx, dy]);
+    const shift = (pt) => pt && [pt[0] + ux, pt[1] + uy];
+    for (const [key, from] of drag.origin) Object.assign(nodeAt(key).node, { p: shift(from.p), in: shift(from.in), out: shift(from.out) });
+  } else {
+    const { node } = nodeAt(drag.key);
+    let pt = g.apply(inv, [fx, fy]);
+    if (constrain) { const [sx, sy] = g.snapAngle(pt[0] - node.p[0], pt[1] - node.p[1]); pt = [node.p[0] + sx, node.p[1] + sy]; }
+    node[drag.which] = pt;
+    const other = drag.which === "in" ? "out" : "in";
+    // A smooth node stays smooth: the other handle turns with this one and keeps its length.
+    if (drag.smooth && node[other]) {
+      const len = Math.hypot(node[other][0] - node.p[0], node[other][1] - node.p[1]);
+      const dir = [node.p[0] - pt[0], node.p[1] - pt[1]];
+      const l = Math.hypot(...dir) || 1;
+      node[other] = [node.p[0] + (dir[0] / l) * len, node.p[1] + (dir[1] / l) * len];
+    }
+    if (drag.which === "in" && node.kind === "L") node.kind = "C";
+  }
+  writeNodes();
+}
+
+function nodeOverlay() {
+  const m = screenCTM(nodes.el);
+  const total = g.multiply(viewMatrix(), m);
+  const v = (pt) => g.apply(total, pt);
+  const parts = [svgEl("path", { class: "node-outline", d: nodes.d, transform: g.matrixString(total) })];
+  const shown = new Set();
+  for (const key of nodes.selected) {
+    const { sub, i, node } = nodeAt(key);
+    if (!node) continue;
+    const [s] = key.split(":");
+    shown.add(`${s}:${i}:in`).add(`${s}:${i}:out`);
+    const { prev, next } = neighbours(sub, i);
+    if (prev) shown.add(`${s}:${sub.nodes.indexOf(prev)}:out`);
+    if (next) shown.add(`${s}:${sub.nodes.indexOf(next)}:in`);
+  }
+  for (const key of shown) {
+    const [s, i, which] = key.split(":");
+    const node = nodes.subpaths[s].nodes[i];
+    if (!node?.[which]) continue;
+    const [px, py] = v(node.p);
+    const [hx, hy] = v(node[which]);
+    parts.push(svgEl("line", { class: "node-arm", x1: px, y1: py, x2: hx, y2: hy }), svgEl("circle", { class: "node-handle", cx: hx, cy: hy, r: 4, "data-handle-of": key }));
+  }
+  nodes.subpaths.forEach((sub, s) => sub.nodes.forEach((node, i) => {
+    const [x, y] = v(node.p);
+    const key = `${s}:${i}`;
+    const smooth = isSmooth(node);
+    parts.push(svgEl("rect", {
+      class: `node${nodes.selected.has(key) ? " selected" : ""}`, "data-node": key, x: x - 4.5, y: y - 4.5, width: 9, height: 9,
+      ...(smooth ? {} : { transform: `rotate(45 ${x} ${y})` }),
+    }));
+  }));
+  return parts;
+}
+
+/** Double-click on a segment of the edited path: a node there, the curve's shape kept. */
+function addNodeAt(clientX, clientY) {
+  syncNodes();
+  if (!nodes) { const hit = hitAt(clientX, clientY, { deep: true }); if (hit) select([hit]); return; }
+  const [fx, fy] = toFrame(clientX, clientY);
+  const m = screenCTM(nodes.el);
+  let best = null;
+  nodes.subpaths.forEach((sub, s) => {
+    const n = sub.nodes.length;
+    for (let i = sub.closed ? 0 : 1; i < n; i++) {
+      const from = sub.nodes[(i - 1 + n) % n];
+      const to = sub.nodes[i];
+      if (to.kind === "A") continue;
+      for (let k = 1; k < 48; k++) {
+        const t = k / 48;
+        const [x, y] = g.apply(m, pointAt(from, to, t));
+        const dist = Math.hypot(x - fx, y - fy);
+        if (!best || dist < best.dist) best = { dist, s, i, t };
+      }
+    }
+  });
+  if (!best || best.dist * tab.view.scale > 8) return;
+  tab.history.edit("Add node", () => { splitSegment(nodes.subpaths[best.s], best.i, best.t); writeNodes(); });
+  const sub = nodes.subpaths[best.s];
+  nodes.selected = new Set([`${best.s}:${best.i === 0 ? sub.nodes.length - 1 : best.i}`]);
+  drawOverlay(); renderProps();
+}
+
+function selectAllNodes() {
+  nodes.selected = new Set(nodes.subpaths.flatMap((sub, s) => sub.nodes.map((_, i) => `${s}:${i}`)));
+  drawOverlay(); renderProps();
+}
+
+/** Remove the selected nodes; a subpath left with one node goes, and so does a path left with none. */
+function deleteNodes() {
+  const el = nodes.el;
+  const byPath = new Map();
+  for (const key of nodes.selected) { const [s, i] = key.split(":").map(Number); byPath.set(s, [...(byPath.get(s) ?? []), i]); }
+  tab.history.edit("Delete nodes", () => {
+    for (const [s, list] of byPath) for (const i of list.sort((a, b) => b - a)) removeNode(nodes.subpaths[s], i);
+    nodes.subpaths = nodes.subpaths.filter((sub) => sub.nodes.length > 1);
+    if (nodes.subpaths.length) writeNodes(); else removeTidy(el);
+  });
+  if (!el.isConnected) { nodes = null; select([]); return; }
+  nodes.selected.clear();
+  drawOverlay(); renderProps();
+}
+
+/** Selected nodes: smooth (handles in line) or sharp (no handles). */
+function setNodeKind(kind) {
+  tab.history.edit(kind === "smooth" ? "Smooth nodes" : "Sharp nodes", () => {
+    for (const key of nodes.selected) {
+      const { sub, i, node } = nodeAt(key);
+      const { prev, next } = neighbours(sub, i);
+      if (kind === "smooth") makeSmooth(node, prev, next);
+      else {
+        node.in = null; node.out = null;
+        if (node.kind === "C" && !prev?.out) node.kind = "L";
+        if (next?.kind === "C" && !next.in) next.kind = "L";
+      }
+    }
+    writeNodes();
+  });
+}
+
+/** The segments between selected nodes (or next to a lone selected node): straight or curved. */
+function setSegments(curved) {
+  tab.history.edit(curved ? "Curve segments" : "Straighten segments", () => {
+    nodes.subpaths.forEach((sub, s) => {
+      const n = sub.nodes.length;
+      const picked = (i) => nodes.selected.has(`${s}:${(i + n) % n}`);
+      for (let i = sub.closed ? 0 : 1; i < n; i++) {
+        const lone = nodes.selected.size === 1 && (picked(i) || picked(i - 1));
+        if ((picked(i) && picked(i - 1)) || lone) setSegmentCurved(sub, i, curved);
+      }
+    });
+    writeNodes();
+  });
+}
+
+/** Rectangles, ellipses, lines and polygons become paths with the same outline, id and style. */
+function objectToPath() {
+  const shapes = selected().filter((el) => GEOMETRY[el.localName]);
+  if (!shapes.length) { toast("Only rectangles, circles, ellipses, lines and polygons can become paths here (text comes with the Inkscape tools)"); return; }
+  const made = [];
+  tab.history.edit("Object to path", () => {
+    for (const el of shapes) {
+      const attrs = Object.fromEntries(GEOMETRY[el.localName].map((name) => [name, name === "points" ? el.getAttribute(name) : Number.parseFloat(el.getAttribute(name))]));
+      const d = shapePath(el.localName, attrs);
+      if (!d) continue;
+      const path = tab.doc.createElementNS(SVG_NS, "path");
+      for (const attr of el.attributes) if (!GEOMETRY[el.localName].includes(attr.name)) path.setAttributeNS(attr.namespaceURI, attr.name, attr.value);
+      path.setAttribute("d", d);
+      el.replaceWith(path);
+      made.push(path);
+    }
+  });
+  select(made);
+}
+
+function nodesSection(items) {
+  if (tool !== "node") return null;
+  const shapes = items.filter((el) => GEOMETRY[el.localName]);
+  if (!nodes) {
+    return h("div", {}, h("h3", {}, "Nodes"),
+      shapes.length ? h("div.row-buttons", {}, h("button.btn", { type: "button", title: "Make it a path with the same outline", onclick: objectToPath }, icon("polyline", { size: 16 }), "Object to path"))
+        : h("p.hint", {}, "Click a path to see its nodes. Double-click a path with the Select tool to come here."));
+  }
+  const count = nodes.selected.size;
+  const total = nodes.subpaths.reduce((sum, sub) => sum + sub.nodes.length, 0);
+  const button = (title, text, run, disabled) => h("button.btn", { type: "button", title, disabled: disabled || null, onclick: run }, text);
+  return h("div", {}, h("h3", {}, "Nodes"),
+    h("p.hint", {}, count ? `${count} of ${total} nodes selected` : `${total} nodes. Click one (Shift adds), drag a box around several, Ctrl+A selects all.`),
+    h("div.row-buttons", {},
+      button("Handles in one line (smooth curve through the node)", "Smooth", () => setNodeKind("smooth"), !count),
+      button("No handles (a sharp corner)", "Sharp", () => setNodeKind("sharp"), !count),
+      button("Straight segments between the selected nodes", "Straight", () => setSegments(false), !count),
+      button("Curved segments between the selected nodes", "Curved", () => setSegments(true), !count),
+      button("Remove the selected nodes (Delete)", "Delete", deleteNodes, !count)),
+    h("p.hint", {}, "Double-click a segment to add a node. Ctrl while dragging: straight moves, handles in 15° steps."));
 }
 
 // ------------------------------------------------------------- structure --
@@ -1241,12 +1587,15 @@ const hintFor = (id) => ({
   ellipse: "Drag to draw an ellipse; Ctrl makes a circle.",
   line: "Drag to draw a line; Ctrl snaps it to 15° steps.",
   text: "Click where the text goes, or click a text to edit it.",
+  node: "Click a path to edit its nodes; drag nodes and handles; double-click a segment to add a node.",
+  pen: "Click for corners, drag for curves. Enter or double-click ends the path; click the first node to close it.",
   pan: "Drag to move around. Ctrl+wheel zooms.",
   zoom: "Click to zoom in, Shift+click to zoom out, or drag around an area.",
 }[id] ?? "");
 
 function setTool(id) {
   if (editing) commitText();
+  if (pen && id !== "pen") finishPen(false);
   tool = id;
   ui.viewport.dataset.tool = id;
   renderTools();
@@ -1373,7 +1722,7 @@ function fontField(value, onCommit) {
 }
 
 function styleSection(items) {
-  const creating = !items.length && (SHAPES.has(tool) || tool === "text");
+  const creating = !items.length && (SHAPES.has(tool) || tool === "text" || tool === "pen");
   if (!items.length && !creating) return null;
   const look = currentLook(items);
   const textual = items.length ? look.textual : tool === "text";
@@ -1476,8 +1825,10 @@ function renderProps() {
       items.some(isGroup) ? h("button.btn", { type: "button", title: "Ungroup (Ctrl+Shift+G)", onclick: ungroup }, icon("ungroup", { size: 16 }), "Ungroup") : null,
       one && isGroup(one) ? h("button.btn", { type: "button", title: "Edit inside this group (double-click)", onclick: () => enterGroup(one) }, icon("layers", { size: 16 }), "Enter group") : null)));
     sections.push(alignSection(items));
+    sections.splice(2, 0, nodesSection(items));
   } else {
     const size = toUserSize();
+    sections.push(nodesSection(items));
     sections.push(styleSection(items));
     sections.push(h("div", {}, h("h3", {}, "Page"),
       h("p.hint", {}, `${g.fmt(size.w)} × ${g.fmt(size.h)} ${tab.unit}`),
@@ -1589,7 +1940,7 @@ addEventListener("keydown", (event) => {
     const actions = {
       z: () => (event.shiftKey ? tab?.history.redo() : tab?.history.undo()), y: () => tab?.history.redo(),
       s: () => (event.shiftKey ? save(tab, { as: true }) : tabs.save()), o: openDialog,
-      a: selectAll, d: duplicate, 0: fit, i: insertDialog, g: () => (event.shiftKey ? ungroup() : group()),
+      a: () => (tool === "node" && nodes ? selectAllNodes() : selectAll()), d: duplicate, 0: fit, i: insertDialog, g: () => (event.shiftKey ? ungroup() : group()),
       c: () => copySelection(), x: () => copySelection({ cut: true }), v: paste, "=": () => zoomCenter(1.25), "+": () => zoomCenter(1.25), "-": () => zoomCenter(1 / 1.25),
     };
     const action = actions[key];
@@ -1602,6 +1953,15 @@ addEventListener("keydown", (event) => {
   const arrows = { arrowleft: [-step, 0], arrowright: [step, 0], arrowup: [0, -step], arrowdown: [0, step] };
   if (arrows[key]) { if (tab.selection.size) { take(); nudge(...arrows[key]); } return; }
   if (event.shiftKey && (key === "pageup" || key === "pagedown")) { take(); layerStep(key === "pageup" ? "up" : "down"); return; }
+  if (pen) {
+    const penKeys = { enter: () => finishPen(false), escape: () => { pen = null; drawOverlay(); }, backspace: () => { pen.nodes.pop(); if (!pen.nodes.length) pen = null; drawOverlay(); } };
+    if (penKeys[key]) { take(); penKeys[key](); return; }
+  }
+  if (tool === "node" && nodes?.selected.size && (key === "delete" || key === "backspace" || key === "escape")) {
+    take();
+    if (key === "escape") { nodes.selected.clear(); drawOverlay(); renderProps(); } else deleteNodes();
+    return;
+  }
   const simple = {
     delete: deleteSelection, backspace: deleteSelection,
     escape: () => { if (tab.selection.size) select([]); else leaveGroup(); },
