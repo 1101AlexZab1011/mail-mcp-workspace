@@ -19,7 +19,7 @@ import { indexSource, serializePreserving } from "./draw/serialize.js";
 
 import {
   SVG_NS, XLINK_NS, XML_NS, INKSCAPE_NS, SODIPODI_NS, ensureNamespace, takenIds, appendIndented, createElement, setAttributes,
-  copyWithFreshIds, declareNamespaces, setProperty, setsProperty, textLines, setTextLines, importSvg,
+  copyWithFreshIds, declareNamespaces, removeTidy, setProperty, setsProperty, textLines, setTextLines, importSvg,
 } from "./draw/content.js";
 const BACKUPS = "~/.local/state/mail-workspace/draw-backups";
 const RECENT_KEY = "draw.recent";
@@ -57,6 +57,8 @@ const SHORTCUTS = [
   ["Ctrl+I, drop, paste", "Insert an image or SVG figure"],
   ["Ctrl+C / Ctrl+X / Ctrl+V", "Copy / cut / paste (in place)"],
   ["Ctrl+D, Delete", "Duplicate, delete"],
+  ["Ctrl+G / Ctrl+Shift+G", "Group / ungroup"],
+  ["Shift+Page Up / Down", "Move the selection to the layer above / below"],
   ["Ctrl+A, Esc", "Select all, deselect"],
   ["Ctrl+Z / Ctrl+Shift+Z, Ctrl+Y", "Undo / redo"],
   ["5, Ctrl+0", "Fit the page"],
@@ -735,12 +737,21 @@ const unitsPerDocUnit = (el) => scaleOf(screenCTM(root())) / scaleOf(screenCTM(e
 /** Where new objects go: the group being edited, else the layer of the selection, the current layer or the top one. */
 function insertionParent() {
   if (tab.scope !== root()) return tab.scope;
-  const layers = [...root().children].filter(isLayer);
-  if (!layers.length) return root();
+  return currentLayer() ?? root();
+}
+
+/** The layer new objects go to: the selection's, the one picked in the panel, Inkscape's current one, or the top one. */
+function currentLayer() {
+  const layers = allLayers();
+  if (!layers.length) return null;
   const first = selected()[0];
   const current = tab.doc.querySelector("namedview")?.getAttributeNS(INKSCAPE_NS, "current-layer");
-  return layers.find((l) => first && l.contains(first)) ?? layers.find((l) => l.id === current) ?? layers.at(-1);
+  return layers.find((l) => first && l.contains(first) && !layers.some((inner) => inner !== l && l.contains(inner) && inner.contains(first)))
+    ?? (tab.layer?.isConnected ? tab.layer : null) ?? layers.find((l) => l.id === current) ?? layers.at(-1);
 }
+
+/** Every layer and sublayer, in document order. */
+const allLayers = () => [...root().querySelectorAll("g")].filter(isLayer);
 
 /**
  * How to place frame points in `parent`: straight into its units when it is not rotated or skewed,
@@ -974,12 +985,189 @@ async function paste() {
   if (clip) pasteObjects();
 }
 
+// ------------------------------------------------------------- structure --
+
+const inDocumentOrder = (items) => [...items].sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+const INHERITED = ["fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-dasharray",
+  "font-family", "font-size", "font-weight", "font-style", "text-anchor", "letter-spacing", "line-height", "color", "visibility"];
+
+/** Move `el` into `parent` (before `before`, else last), keeping its place on the page. */
+function reparent(el, parent, before = null) {
+  const correction = g.multiply(g.invert(screenCTM(parent)), parentCTM(el));
+  const own = ownMatrix(el);
+  const original = el.getAttribute("transform");
+  removeTidy(el);
+  if (!before) appendIndented(parent, el);
+  else {
+    parent.insertBefore(el, before);
+    // Keep each object on its own line: the indentation in front of `before` goes in front of `el` too.
+    const indent = el.previousSibling;
+    if (indent?.nodeType === 3 && /^\s+$/.test(indent.data) && !["text", "tspan"].includes(parent.localName)) parent.insertBefore(tab.doc.createTextNode(indent.data), before);
+  }
+  if (!g.isIdentity(correction)) setTransform(el, g.composedTransform(original, correction, own));
+}
+
+/** Group the selection where its top object is (Ctrl+G). */
+function group() {
+  const items = inDocumentOrder(selected());
+  if (!items.length) return;
+  const top = items.at(-1);
+  const parent = top.parentNode;
+  let made;
+  tab.history.edit(`Group ${items.length}`, () => {
+    made = tab.doc.createElementNS(SVG_NS, "g");
+    made.setAttribute("id", g.freshId("g", takenIds(tab.doc)));
+    top.after(made);
+    const indent = top.previousSibling;
+    if (indent?.nodeType === 3 && /^\s+$/.test(indent.data)) made.before(tab.doc.createTextNode(indent.data));
+    for (const el of items) reparent(el, made);
+  });
+  select([made]);
+}
+
+/** Ungroup the selected groups (Ctrl+Shift+G): their objects take over the group's transform and style. */
+function ungroup() {
+  const groups = selected().filter(isGroup);
+  if (!groups.length) return;
+  const clipped = groups.filter((gr) => ["clip-path", "mask", "filter"].some((p) => setsProperty(gr, p)));
+  if (clipped.length) { toast(`${label(clipped[0])} is clipped, masked or filtered; ungrouping it would lose that. Enter the group instead (double-click).`, { ms: 5000 }); return; }
+  const freed = [];
+  tab.history.edit(`Ungroup ${groups.length}`, () => {
+    for (const gr of groups) {
+      const view = tab.doc.defaultView;
+      const opacity = Number(view.getComputedStyle(gr).opacity);
+      const own = INHERITED.filter((p) => setsProperty(gr, p)).map((p) => [p, gr.style.getPropertyValue(p) || gr.getAttribute(p)]);
+      for (const el of [...gr.children]) {
+        if (el.matches("title, desc, metadata")) continue;
+        // The group's own style still applies to what it held, unless they set their own.
+        for (const [property, value] of own) if (value && !setsProperty(el, property)) setProperty(el, property, value);
+        if (opacity < 1) setProperty(el, "opacity", g.fmt(opacity * Number(view.getComputedStyle(el).opacity)));
+        reparent(el, gr.parentNode, gr);
+        freed.push(el);
+      }
+      removeTidy(gr);
+    }
+  });
+  select(freed);
+}
+
+/** Align the selection's objects to each other (several) or to the page (one, or `toPage`). */
+function align(side, { toPage = selected().length < 2 } = {}) {
+  const items = selected();
+  if (!items.length) return;
+  const target = toPage ? { x: 0, y: 0, w: tab.size.w, h: tab.size.h } : unionBox(items);
+  if (!target) return;
+  tab.history.edit("Align", () => {
+    for (const el of items) {
+      const b = boxOf(el);
+      const dx = { left: target.x - b.x, center: target.x + target.w / 2 - (b.x + b.w / 2), right: target.x + target.w - (b.x + b.w) }[side] ?? 0;
+      const dy = { top: target.y - b.y, middle: target.y + target.h / 2 - (b.y + b.h / 2), bottom: target.y + target.h - (b.y + b.h) }[side] ?? 0;
+      if (dx || dy) moveBy(capture([el]), dx, dy);
+    }
+  });
+  drawOverlay(); renderProps();
+}
+
+/** Equal gaps between three or more objects, along x or y; the outer two stay. */
+function distribute(axis) {
+  const items = selected();
+  if (items.length < 3) return;
+  const [pos, size] = axis === "x" ? ["x", "w"] : ["y", "h"];
+  const boxes = items.map((el) => ({ el, b: boxOf(el) })).sort((a, b) => a.b[pos] - b.b[pos]);
+  const first = boxes[0].b;
+  const last = boxes.at(-1).b;
+  const gap = (last[pos] + last[size] - first[pos] - boxes.reduce((sum, { b }) => sum + b[size], 0)) / (boxes.length - 1);
+  tab.history.edit("Distribute", () => {
+    let at = first[pos] + first[size] + gap;
+    for (const { el, b } of boxes.slice(1, -1)) {
+      const d = at - b[pos];
+      if (d) moveBy(capture([el]), axis === "x" ? d : 0, axis === "x" ? 0 : d);
+      at += b[size] + gap;
+    }
+  });
+  drawOverlay(); renderProps();
+}
+
+// Layers are Inkscape's: groups marked inkscape:groupmode="layer", named by inkscape:label,
+// hidden with display:none and locked with sodipodi:insensitive.
+const layerHidden = (layer) => tab.doc.defaultView.getComputedStyle(layer).display === "none";
+const layerLocked = (layer) => layer.getAttributeNS(SODIPODI_NS, "insensitive") === "true";
+
+function addLayer() {
+  const above = currentLayer();
+  let layer;
+  tab.history.edit("Add layer", () => {
+    ensureNamespace(tab.doc, "inkscape", INKSCAPE_NS);
+    const taken = takenIds(tab.doc);
+    const names = new Set(allLayers().map((l) => l.getAttributeNS(INKSCAPE_NS, "label")));
+    let n = allLayers().length + 1;
+    while (names.has(`Layer ${n}`)) n++;
+    layer = tab.doc.createElementNS(SVG_NS, "g");
+    layer.setAttributeNS(INKSCAPE_NS, "inkscape:label", `Layer ${n}`);
+    layer.setAttributeNS(INKSCAPE_NS, "inkscape:groupmode", "layer");
+    layer.setAttribute("id", g.freshId("layer", taken));
+    if (above) { above.after(layer); const indent = above.previousSibling; if (indent?.nodeType === 3 && /^\s+$/.test(indent.data)) above.after(tab.doc.createTextNode(indent.data)); }
+    else appendIndented(root(), layer);
+  });
+  tab.layer = layer;
+  select([]);
+}
+
+function toggleLayer(layer, what) {
+  tab.history.edit(what === "hide" ? "Show or hide layer" : "Lock or unlock layer", () => {
+    if (what === "hide") setProperty(layer, "display", layerHidden(layer) ? "inline" : "none");
+    else if (layerLocked(layer)) layer.removeAttributeNS(SODIPODI_NS, "insensitive");
+    else { ensureNamespace(tab.doc, "sodipodi", SODIPODI_NS); layer.setAttributeNS(SODIPODI_NS, "sodipodi:insensitive", "true"); }
+  });
+  for (const el of selected()) if (layer.contains(el)) tab.selection.delete(el);
+  drawOverlay(); renderProps();
+}
+
+async function renameLayer(layer) {
+  const name = await ask({ title: "Rename layer", value: layer.getAttributeNS(INKSCAPE_NS, "label") ?? "", ok: "Rename" });
+  if (name) tab.history.edit("Rename layer", () => layer.setAttributeNS(INKSCAPE_NS, "inkscape:label", name));
+}
+
+async function deleteLayer(layer) {
+  const count = layer.querySelectorAll(":scope > *").length;
+  if (count && !(await ask({ title: `Delete ${layer.getAttributeNS(INKSCAPE_NS, "label") ?? "this layer"}?`, message: `It holds ${count} ${count === 1 ? "object" : "objects"}; they go too (Ctrl+Z brings them back).`, ok: "Delete", danger: true }))) return;
+  tab.history.edit("Delete layer", () => removeTidy(layer));
+  if (tab.layer === layer) tab.layer = null;
+  select([]);
+}
+
+/** Restack a layer among its sibling layers: up is towards the front. */
+function moveLayer(layer, direction) {
+  const siblings = [...layer.parentNode.children].filter(isLayer);
+  const other = siblings[siblings.indexOf(layer) + (direction === "up" ? 1 : -1)];
+  if (!other) return;
+  tab.history.edit("Move layer", () => { const indent = layer.previousSibling; removeTidy(layer); if (direction === "up") other.after(layer); else other.before(layer); if (indent?.nodeType === 3 && /^\s+$/.test(indent.data)) layer.before(indent); });
+  renderProps();
+}
+
+/** Move the selection into `layer` (on top of it), keeping it in place on the page. */
+function moveToLayer(layer) {
+  const items = inDocumentOrder(selected()).filter((el) => el !== layer && !el.contains(layer));
+  if (!items.length || !layer) return;
+  tab.history.edit("Move to layer", () => { for (const el of items) reparent(el, layer); });
+  tab.layer = layer;
+  tab.scope = root();
+  select(items);
+}
+
+function layerStep(direction) {
+  const layers = allLayers();
+  const at = layers.indexOf(currentLayer());
+  const next = layers[at + (direction === "up" ? 1 : -1)];
+  if (next && tab.selection.size) moveToLayer(next);
+}
+
 // --------------------------------------------------------------- editing --
 
 function deleteSelection() {
   const items = selected();
   if (!items.length) return;
-  tab.history.edit(`Delete ${items.length}`, () => { for (const el of items) el.remove(); });
+  tab.history.edit(`Delete ${items.length}`, () => { for (const el of items) removeTidy(el); });
   tab.selection.clear();
   drawOverlay(); renderProps();
 }
@@ -1200,6 +1388,59 @@ function styleSection(items) {
     items.length ? h("label.field-row", {}, h("span.name", {}, "Opacity"), opacity, h("span.unit", {}, `${Math.round(look.opacity * 100)}%`)) : null);
 }
 
+function alignSection(items) {
+  const toPage = items.length < 2 || tab.alignTo === "page";
+  const button = (name, title, run) => iconButton(name, title, run, { small: true });
+  return h("div", {}, h("h3", {}, "Align"),
+    items.length > 1 ? h("div.segmented.align-to", {}, ...[["selection", "To each other"], ["page", "To the page"]].map(([value, text]) => h("button", {
+      type: "button", "aria-pressed": String((tab.alignTo ?? "selection") === value), onclick: () => { tab.alignTo = value; renderProps(); },
+    }, text))) : h("p.hint.align-note", {}, "One object aligns to the page."),
+    h("div.icon-row", {},
+      button("align_horizontal_left", "Left edges", () => align("left", { toPage })),
+      button("align_horizontal_center", "Centres, horizontally", () => align("center", { toPage })),
+      button("align_horizontal_right", "Right edges", () => align("right", { toPage })),
+      button("align_vertical_top", "Top edges", () => align("top", { toPage })),
+      button("align_vertical_center", "Centres, vertically", () => align("middle", { toPage })),
+      button("align_vertical_bottom", "Bottom edges", () => align("bottom", { toPage }))),
+    items.length > 2 ? h("div.icon-row", {},
+      button("horizontal_distribute", "Equal gaps across", () => distribute("x")),
+      button("vertical_distribute", "Equal gaps down", () => distribute("y"))) : null);
+}
+
+function layersSection() {
+  const layers = allLayers();
+  const current = currentLayer();
+  const rows = [...layers].reverse().map((layer) => {
+    const depth = [...allLayers()].filter((l) => l !== layer && l.contains(layer)).length;
+    const hidden = layerHidden(layer);
+    const lockedLayer = layerLocked(layer);
+    const name = layer.getAttributeNS(INKSCAPE_NS, "label") || layer.id;
+    const row = h(`div.layer${layer === current ? ".current" : ""}`, {
+      style: { paddingLeft: `${6 + depth * 14}px` }, title: "Click: new objects go here. Right-click for more.", "data-agent": `Layer ${name}`,
+      onclick: () => { tab.layer = layer; tab.scope = root(); select([]); },
+      ondblclick: () => void renameLayer(layer),
+    },
+    iconButton(hidden ? "visibility_off" : "visibility", hidden ? "Show" : "Hide", (e) => { e.stopPropagation(); toggleLayer(layer, "hide"); }, { small: true }),
+    iconButton(lockedLayer ? "lock" : "lock_open", lockedLayer ? "Unlock" : "Lock", (e) => { e.stopPropagation(); toggleLayer(layer, "lock"); }, { small: true }),
+    h("span.layer-name", {}, name));
+    row.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      contextMenu(event, [
+        ...(tab.selection.size ? [{ label: "Move the selection here", icon: "move_down", run: () => moveToLayer(layer) }] : []),
+        { label: "Rename", icon: "edit", run: () => void renameLayer(layer) },
+        { label: "Raise", icon: "keyboard_arrow_up", run: () => moveLayer(layer, "up") },
+        { label: "Lower", icon: "keyboard_arrow_down", run: () => moveLayer(layer, "down") },
+        "-",
+        { label: "Delete layer", icon: "delete", run: () => void deleteLayer(layer) },
+      ]);
+    });
+    return row;
+  });
+  return h("div", {}, h("div.section-head", {}, h("h3", {}, "Layers"), iconButton("add", "New layer above the current one", addLayer, { small: true })),
+    rows.length ? h("div.layers", {}, ...rows) : h("p.hint", {}, "No layers: everything is on the page itself. Add one to keep parts apart, as in Inkscape."),
+    rows.length && tab.selection.size ? h("p.hint", {}, "Shift+Page Up / Down moves the selection to the layer above / below.") : null);
+}
+
 function renderProps() {
   if (!tab) { ui.props.replaceChildren(); return; }
   const items = selected();
@@ -1231,7 +1472,10 @@ function renderProps() {
       h("button.btn", { type: "button", title: "Lower to bottom (End)", onclick: () => arrange("bottom") }, icon("flip_to_back", { size: 16 }), "Bottom"),
       h("button.btn", { type: "button", title: "Duplicate (Ctrl+D)", onclick: duplicate }, icon("content_copy", { size: 16 }), "Duplicate"),
       h("button.btn", { type: "button", title: "Delete (Del)", onclick: deleteSelection }, icon("delete", { size: 16 }), "Delete"),
+      h("button.btn", { type: "button", title: "Group (Ctrl+G)", onclick: group }, icon("ad_group", { size: 16 }), "Group"),
+      items.some(isGroup) ? h("button.btn", { type: "button", title: "Ungroup (Ctrl+Shift+G)", onclick: ungroup }, icon("ungroup", { size: 16 }), "Ungroup") : null,
       one && isGroup(one) ? h("button.btn", { type: "button", title: "Edit inside this group (double-click)", onclick: () => enterGroup(one) }, icon("layers", { size: 16 }), "Enter group") : null)));
+    sections.push(alignSection(items));
   } else {
     const size = toUserSize();
     sections.push(styleSection(items));
@@ -1239,6 +1483,7 @@ function renderProps() {
       h("p.hint", {}, `${g.fmt(size.w)} × ${g.fmt(size.h)} ${tab.unit}`),
       h("p.hint", { title: tab.path }, tilde(tab.path))));
   }
+  if (tab.scope === root()) sections.push(layersSection());
   ui.props.replaceChildren(...sections.filter(Boolean));
 }
 
@@ -1344,7 +1589,7 @@ addEventListener("keydown", (event) => {
     const actions = {
       z: () => (event.shiftKey ? tab?.history.redo() : tab?.history.undo()), y: () => tab?.history.redo(),
       s: () => (event.shiftKey ? save(tab, { as: true }) : tabs.save()), o: openDialog,
-      a: selectAll, d: duplicate, 0: fit, i: insertDialog,
+      a: selectAll, d: duplicate, 0: fit, i: insertDialog, g: () => (event.shiftKey ? ungroup() : group()),
       c: () => copySelection(), x: () => copySelection({ cut: true }), v: paste, "=": () => zoomCenter(1.25), "+": () => zoomCenter(1.25), "-": () => zoomCenter(1 / 1.25),
     };
     const action = actions[key];
@@ -1356,6 +1601,7 @@ addEventListener("keydown", (event) => {
   const step = event.shiftKey ? 10 : 1;
   const arrows = { arrowleft: [-step, 0], arrowright: [step, 0], arrowup: [0, -step], arrowdown: [0, step] };
   if (arrows[key]) { if (tab.selection.size) { take(); nudge(...arrows[key]); } return; }
+  if (event.shiftKey && (key === "pageup" || key === "pagedown")) { take(); layerStep(key === "pageup" ? "up" : "down"); return; }
   const simple = {
     delete: deleteSelection, backspace: deleteSelection,
     escape: () => { if (tab.selection.size) select([]); else leaveGroup(); },

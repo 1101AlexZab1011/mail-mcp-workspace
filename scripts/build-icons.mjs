@@ -40,7 +40,8 @@ export const NAMES = [
   // slides
   "upload", "slideshow",
   // draw
-  "shape_line",
+  "shape_line", "ad_group", "ungroup", "align_horizontal_left", "align_horizontal_center", "align_horizontal_right",
+  "align_vertical_top", "align_vertical_center", "align_vertical_bottom", "horizontal_distribute", "vertical_distribute", "move_up", "move_down",
   // notes
   "star", "view_kanban", "mood", "wallpaper", "restore_from_trash", "drag_indicator", "database", "checklist", "subdirectory_arrow_right", "add_notes",
   // browser

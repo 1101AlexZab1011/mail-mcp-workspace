@@ -68,6 +68,18 @@ input { user-select: text; }
 .field-row input[type=range] { width: 100%; accent-color: var(--mw-primary); }
 .props .name { color: var(--mw-text-2); font-size: 12.5px; }
 .props .unit { color: var(--mw-text-3); font-size: 12px; min-width: 24px; }
+.icon-row { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 6px; }
+.align-to { display: flex; margin-bottom: 4px; }
+.align-to button { flex: 1; }
+.align-note { margin: 0 0 4px; }
+.section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.section-head h3 { margin: 0; }
+.layers { display: grid; gap: 1px; }
+.layer { display: flex; align-items: center; gap: 2px; padding: 2px 6px; border-radius: var(--mw-radius-s); cursor: pointer; }
+.layer:hover { background: var(--mw-surface-2); }
+.layer.current { background: var(--mw-primary-soft); color: var(--mw-primary-soft-text); }
+.layer .icon-btn { width: 26px; height: 26px; }
+.layer-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 4px; }
 .trail { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
 .crumb { border: 0; background: none; padding: 3px 6px; border-radius: var(--mw-radius-s); color: var(--mw-primary); font: inherit; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crumb:hover:not(:disabled) { background: var(--mw-surface-2); }

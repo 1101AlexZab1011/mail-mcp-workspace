@@ -40,6 +40,13 @@ export function appendIndented(parent, el) {
   return el;
 }
 
+/** Remove `el` with the indentation in front of it, so no empty line is left behind. */
+export function removeTidy(el) {
+  const before = el.previousSibling;
+  if (before?.nodeType === 3 && /^\s+$/.test(before.data) && !["text", "tspan", "textPath"].includes(el.parentNode?.localName)) before.remove();
+  el.remove();
+}
+
 /** A new SVG element with a fresh id (rect1, text3…), appended to `parent`. */
 export function createElement(parent, name, attributes = {}, taken = takenIds(parent.ownerDocument)) {
   const el = parent.ownerDocument.createElementNS(SVG_NS, name);

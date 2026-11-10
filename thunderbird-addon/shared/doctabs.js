@@ -39,6 +39,7 @@ export class DocTabs {
   /** Open a file in a tab (or switch to its tab). Two opens of one file at once give one tab. */
   async open(path, options = {}) {
     this.opening ??= new Map();
+    if (options.activate !== false) this.explicitOpens = (this.explicitOpens ?? 0) + 1;
     const pending = this.opening.get(path);
     if (pending) { const tab = await pending; if (options.activate !== false) await this.activate(tab); return tab; }
     const task = this.#open(path, options);
@@ -191,6 +192,7 @@ export class DocTabs {
   async restore() {
     const { [this.storageKey]: saved } = await browser.storage.local.get(this.storageKey).catch(() => ({}));
     if (!saved) return false;
+    const opensBefore = this.explicitOpens ?? 0;
     for (const path of saved.files ?? []) {
       try { await this.open(path, { activate: false, append: true }); } catch { /* moved or deleted since */ }
     }
@@ -204,7 +206,8 @@ export class DocTabs {
         this.setDirty(tab, true);
       }
     }
-    const active = this.tabs.find((t) => t.path === saved.active || t.id === saved.active) ?? this.tabs[0];
+    // A file opened meanwhile (from Files, the viewer or the agent) stays in front.
+    const active = (this.explicitOpens ?? 0) !== opensBefore ? this.active : this.tabs.find((t) => t.path === saved.active || t.id === saved.active) ?? this.tabs[0];
     if (active) await this.activate(active);
     this.persist();
     return this.tabs.length > 0;
