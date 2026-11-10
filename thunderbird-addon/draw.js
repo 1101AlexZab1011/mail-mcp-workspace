@@ -2140,7 +2140,222 @@ addEventListener("blur", () => { spaceDown = false; ui.viewport.classList.remove
 
 // ------------------------------------------------------------- agent API --
 
-const describe = (el) => ({ id: el.id || null, tag: el.localName, label: el.getAttributeNS(INKSCAPE_NS, "label") || undefined, box: (() => { const b = unionBox([el]); return b ? Object.fromEntries(Object.entries(toUser(b)).map(([k, v]) => [k, Number(g.fmt(v))])) : null; })() });
+
+const SHOTS = "~/.cache/mail-workspace/draw-shots";
+const round = (v) => Number(g.fmt(v));
+const userBox = (el) => { const b = unionBox([el]); return b ? Object.fromEntries(Object.entries(toUser(b)).map(([k, v]) => [k, round(v)])) : null; };
+
+/** An element or layer by id, or a layer by its name. */
+function target(ref) {
+  if (!tab) throw new Error("No drawing is open in Draw");
+  if (ref === undefined || ref === null || ref === "") return null;
+  const el = tab.doc.getElementById(ref) ?? allLayers().find((l) => l.getAttributeNS(INKSCAPE_NS, "label") === ref);
+  if (!el) throw new Error(`Nothing has the id or layer name "${ref}"`);
+  return el;
+}
+const targets = (ids) => (Array.isArray(ids) ? ids : [ids]).map(target);
+
+/** What one element is, for the agent: id, tag, label, box (document units), text, colours. */
+function outline(el, depth, budget) {
+  if (budget.left-- <= 0) { budget.truncated = true; return null; }
+  const view = tab.doc.defaultView;
+  const item = { id: el.id || undefined, tag: el.localName };
+  const name = el.getAttributeNS(INKSCAPE_NS, "label");
+  if (name) item.label = name;
+  if (isLayer(el)) Object.assign(item, { layer: true, hidden: layerHidden(el) || undefined, locked: layerLocked(el) || undefined });
+  const box = el.localName === "svg" ? null : userBox(el);
+  if (box) item.box = box;
+  if (el.localName === "text") item.text = textLines(el).map((l) => l.text).join("\n");
+  if (["rect", "circle", "ellipse", "path", "line", "polyline", "polygon", "text"].includes(el.localName)) {
+    const cs = view.getComputedStyle(el);
+    const fill = g.hexColor(cs.fill);
+    const stroke = g.hexColor(cs.stroke);
+    if (fill) item.fill = fill;
+    if (stroke) item.stroke = stroke;
+    if (el.localName === "text") { item.fontSize = round(Number.parseFloat(cs.fontSize) / unitsPerDocUnit(el)); item.font = cs.fontFamily.replace(/["']/g, ""); }
+  }
+  if (el.localName === "image") {
+    const href = el.getAttributeNS(XLINK_NS, "href") ?? el.getAttribute("href") ?? "";
+    item.image = href.startsWith("data:") ? `embedded ${href.slice(5, href.indexOf(";"))}, ${Math.round((href.length * 0.75) / 1024)} KB` : href;
+  }
+  const kids = [...el.children].filter((c) => !c.matches(SKIP) && c.localName !== "namedview" && c.localName !== "tspan");
+  if (kids.length && el.localName !== "text") {
+    if (depth > 0) item.children = kids.map((c) => outline(c, depth - 1, budget)).filter(Boolean);
+    else item.count = kids.length;
+  }
+  return item;
+}
+
+/** An element's markup, embedded images shortened. */
+function markup(el, limit = 20000) {
+  const text = new XMLSerializer().serializeToString(el)
+    .replace(/(data:[\w/+.-]+;base64,)[A-Za-z0-9+/=\s]{200,}/g, (m, head) => `${head}…(${Math.round((m.length * 0.75) / 1024)} KB)`)
+    .replace(/ xmlns(:\w+)?="[^"]*"/g, "");
+  return text.length > limit ? `${text.slice(0, limit)}… (${text.length - limit} more characters)` : text;
+}
+
+/** Document units → frame px (a move). */
+const docVector = (dx, dy) => g.applyVector(screenCTM(root()), [dx, dy]);
+
+/** Parse an SVG fragment ("<rect …/>", several elements) into nodes of this document. */
+function fragment(svg) {
+  const parsed = new DOMParser().parseFromString(`<svg xmlns="${SVG_NS}" xmlns:xlink="${XLINK_NS}" xmlns:inkscape="${INKSCAPE_NS}" xmlns:sodipodi="${SODIPODI_NS}">${svg}</svg>`, "image/svg+xml");
+  if (parsed.documentElement.localName !== "svg") throw new Error(`The SVG does not parse: ${parsed.documentElement.textContent.split("\n")[0]}`);
+  return [...parsed.documentElement.children].map((node) => tab.doc.importNode(node, true));
+}
+
+const setAttr = (el, name, value) => {
+  const prefix = name.includes(":") ? name.split(":")[0] : null;
+  const ns = prefix ? ({ xlink: XLINK_NS, inkscape: INKSCAPE_NS, sodipodi: SODIPODI_NS, xml: XML_NS }[prefix] ?? root().lookupNamespaceURI(prefix)) : null;
+  if (prefix && !ns) throw new Error(`Unknown prefix in ${name}`);
+  if (prefix && prefix !== "xml") ensureNamespace(tab.doc, prefix, ns);
+  if (value === null || value === undefined) { if (ns) el.removeAttributeNS(ns, name.split(":")[1]); else el.removeAttribute(name); }
+  else if (ns) el.setAttributeNS(ns, name, String(value)); else el.setAttribute(name, String(value));
+};
+
+/** The agent's edits, one op at a time (draw_apply). Returns what each op made or changed. */
+const OPS = {
+  async add({ svg, parent, before }) {
+    const into = parent ? target(parent) : insertionParent();
+    const anchor = before ? target(before) : null;
+    const made = [];
+    for (const node of fragment(svg)) {
+      freshenIds(node, takenIds(tab.doc));
+      if (!node.id) node.setAttribute("id", g.freshId(node.localName, takenIds(tab.doc)));
+      if (anchor) { into.insertBefore(node, anchor); const indent = node.previousSibling; if (indent?.nodeType === 3 && /^\s+$/.test(indent.data)) into.insertBefore(tab.doc.createTextNode(indent.data), anchor); }
+      else appendIndented(into, node);
+      declareNamespaces(tab.doc, node);
+      made.push(node.id);
+    }
+    return { added: made };
+  },
+  set({ id, ids, attrs = {} }) { for (const el of targets(ids ?? id)) for (const [name, value] of Object.entries(attrs)) setAttr(el, name, value); return { set: Object.keys(attrs) }; },
+  style({ id, ids, props = {} }) {
+    for (const el of targets(ids ?? id)) for (const [name, value] of Object.entries(props)) setProperty(el, name, value === null ? null : String(value));
+    return { styled: Object.keys(props) };
+  },
+  text({ id, text }) {
+    const el = target(id);
+    if (el.localName !== "text") throw new Error(`${id} is a ${el.localName}, not a text`);
+    const lines = String(text).split("\n");
+    const old = textLines(el).map((l) => Number.parseFloat(l.node.getAttribute("y")));
+    const size = Number.parseFloat(tab.doc.defaultView.getComputedStyle(el).fontSize);
+    setTextLines(el, lines, { lineHeight: old.length > 1 && Number.isFinite(old[1] - old[0]) ? old.at(-1) - old.at(-2) : size * 1.25, taken: takenIds(tab.doc) });
+    return { lines: lines.length };
+  },
+  move({ id, ids, dx = 0, dy = 0 }) { const [fx, fy] = docVector(dx, dy); moveBy(capture(targets(ids ?? id)), fx, fy); return {}; },
+  place({ id, ids, x, y, w, h }) {
+    const els = targets(ids ?? id);
+    select(els);
+    for (const [key, value] of Object.entries({ w, h, x, y })) if (value !== undefined) setGeometry(key, Number(value));
+    return { box: userBox(els[0]) };
+  },
+  delete({ id, ids }) { const els = targets(ids ?? id); for (const el of els) removeTidy(el); tab.selection.clear(); return { deleted: els.length }; },
+  group({ ids }) { select(targets(ids)); group(); return { group: selected()[0]?.id }; },
+  ungroup({ id, ids }) { select(targets(ids ?? id)); ungroup(); return { freed: selected().map((el) => el.id) }; },
+  order({ id, ids, to }) { select(targets(ids ?? id)); arrange(to); return {}; },
+  align({ ids, side, to = "selection" }) { select(targets(ids)); align(side, { toPage: to === "page" || ids.length < 2 }); return {}; },
+  distribute({ ids, axis = "x" }) { select(targets(ids)); distribute(axis); return {}; },
+  layer({ action, layer, name }) {
+    if (action === "add") { addLayer(); const made = tab.layer; if (name) made.setAttributeNS(INKSCAPE_NS, "inkscape:label", name); return { layer: made.id }; }
+    const el = target(layer);
+    if (!isLayer(el)) throw new Error(`${layer} is not a layer`);
+    if (action === "rename") el.setAttributeNS(INKSCAPE_NS, "inkscape:label", name);
+    else if (action === "hide" || action === "show") { if (layerHidden(el) !== (action === "hide")) toggleLayer(el, "hide"); }
+    else if (action === "lock" || action === "unlock") { if (layerLocked(el) !== (action === "lock")) toggleLayer(el, "lock"); }
+    else if (action === "delete") removeTidy(el);
+    else if (action === "current") tab.layer = el;
+    else throw new Error("layer action is add, rename, hide, show, lock, unlock, delete or current");
+    return { layer: el.id };
+  },
+  to_layer({ ids, layer }) { const el = target(layer); if (!isLayer(el)) throw new Error(`${layer} is not a layer`); select(targets(ids)); moveToLayer(el); return {}; },
+  async insert({ path, x, y, w, parent }) {
+    if (parent) { tab.scope = target(parent); }
+    const before = new Set(takenIds(tab.doc));
+    const info = await host(`/v1/fs/stat?path=${encodeURIComponent(path)}`);
+    if (/\.pdf$/i.test(info.path)) await insertPdf({ path: info.path, name: nameOf(info.path) });
+    else {
+      const { url } = await host("/v1/links", { method: "POST", body: JSON.stringify({ path: info.path }) });
+      const blob = await (await fetch(`${HOST_ENDPOINT}${url}`)).blob();
+      await insertFiles([new File([blob], nameOf(info.path), { type: blob.type })]);
+    }
+    tab.scope = root();
+    const made = selected().filter((el) => !before.has(el.id));
+    if (!made.length) throw new Error(`${nameOf(info.path)} could not be inserted`);
+    select(made);
+    // A width scales it in proportion; x and y place its top left corner.
+    if (w !== undefined) { const box = toUser(unionBox(made)); setGeometry("w", Number(w)); setGeometry("h", (box.h * Number(w)) / box.w); }
+    if (x !== undefined) setGeometry("x", Number(x));
+    if (y !== undefined) setGeometry("y", Number(y));
+    return { inserted: made.map((el) => el.id), box: userBox(made[0]) };
+  },
+  async path({ operation, ids }) {
+    if (!OPERATION_LABELS[operation]) throw new Error(`operation is one of ${Object.keys(OPERATION_LABELS).join(", ")}`);
+    select(targets(ids));
+    await inkscapeOperation(operation);
+    return { result: selected().map((el) => el.id) };
+  },
+};
+
+/** Run the agent's ops as one undo step; a drawing without unsaved changes of the user's is saved at once. */
+async function applyOps(ops) {
+  if (!tab) throw new Error("No drawing is open in Draw");
+  const t = tab;
+  const userChanges = t.history.modified;
+  const results = [];
+  t.history.begin("Agent edit");
+  try {
+    for (const [i, op] of ops.entries()) {
+      const run = OPS[op.op];
+      if (!run) throw new Error(`Op ${i}: unknown op "${op.op}" (${Object.keys(OPS).join(", ")})`);
+      try { results.push({ op: op.op, ...(await run(op)) }); }
+      catch (error) { throw new Error(`Op ${i} (${op.op}): ${error.message}`); }
+    }
+  } catch (error) {
+    // Nothing half done stays: what the ops changed so far is undone (and not offered for redo).
+    if (t.history.finish()) { t.history.undo(); t.history.undone.pop(); }
+    drawOverlay(); renderProps();
+    throw error;
+  }
+  t.history.finish();
+  drawOverlay(); renderProps();
+  let saved = false;
+  if (!userChanges && t.history.modified) saved = await save(t);
+  return { results, saved, ...(userChanges ? { note: "The user has unsaved changes; your edit joined them, unsaved. Tell them." } : {}) };
+}
+
+/** A PNG of the page, an element or a region (document units), written to the shots folder. */
+async function shot({ id, region, scale = 1 }) {
+  if (!tab) throw new Error("No drawing is open in Draw");
+  const url = URL.createObjectURL(new Blob([serialize(tab)], { type: "image/svg+xml" }));
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    let area = { x: 0, y: 0, w: tab.size.w, h: tab.size.h };
+    if (id) { const b = unionBox([target(id)]); if (!b) throw new Error(`${id} has no size`); const pad = Math.max(b.w, b.h) * 0.04; area = { x: b.x - pad, y: b.y - pad, w: b.w + 2 * pad, h: b.h + 2 * pad }; }
+    else if (region) {
+      const ctm = screenCTM(root());
+      const [x, y] = g.apply(ctm, [region.x, region.y]);
+      const [w, hh] = g.applyVector(ctm, [region.w, region.h]);
+      area = { x, y, w, h: hh };
+    }
+    const k = Math.min(scale, 4096 / area.w, 4096 / area.h, 32);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(area.w * k));
+    canvas.height = Math.max(1, Math.round(area.h * k));
+    const c = canvas.getContext("2d");
+    c.fillStyle = "#ffffff";
+    c.fillRect(0, 0, canvas.width, canvas.height);
+    c.drawImage(img, -area.x * k, -area.y * k, tab.size.w * k, tab.size.h * k);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    const path = `${SHOTS}/${Date.now()}.png`;
+    const written = await host(`/v1/fs/raw?${new URLSearchParams({ path, createDirs: "1" })}`, { method: "PUT", body: blob });
+    return { path: written.path, width: canvas.width, height: canvas.height };
+  } finally { URL.revokeObjectURL(url); }
+}
+
+const describe = (el) => ({ id: el.id || null, tag: el.localName, label: el.getAttributeNS(INKSCAPE_NS, "label") || undefined, box: userBox(el) });
 
 registerPage("draw", {
   state: () => ({
@@ -2151,16 +2366,39 @@ registerPage("draw", {
     unit: tab?.unit,
     page: tab ? toUserSize() : null,
     zoom: tab?.view ? Math.round(tab.view.scale * 1000) / 1000 : null,
+    layers: tab ? allLayers().map((l) => ({ id: l.id, name: l.getAttributeNS(INKSCAPE_NS, "label") || undefined, hidden: layerHidden(l) || undefined, locked: layerLocked(l) || undefined, current: l === currentLayer() || undefined })) : [],
     editing: tab && tab.scope !== root() ? describe(tab.scope) : null,
     selected: selected().slice(0, 100).map(describe),
+    nodes: nodes ? { path: nodes.el.id, selected: [...nodes.selected] } : undefined,
   }),
   commands: {
     open: ({ path, query }) => openFile(path ?? query),
+    new: async ({ path, size = "a0", landscape }) => {
+      const page = g.PAGE_SIZES.find((p) => p.id === size) ?? g.PAGE_SIZES[0];
+      const file = /\.svg$/i.test(path) ? path : `${path}.svg`;
+      const result = await host("/v1/fs/file", { method: "PUT", body: JSON.stringify({ path: file, text: g.blankDrawing({ ...page, landscape: landscape ?? page.w > page.h }), expect: "absent", createDirs: true }) });
+      await openFile(result.path);
+      return { path: result.path, page: toUserSize(), unit: tab.unit };
+    },
     save: async () => ({ saved: tab ? await tabs.save() : false }),
+    read: ({ id, depth = 2, limit = 400, markup: asMarkup = false }) => {
+      const el = id ? target(id) : root();
+      if (asMarkup) return { id, svg: markup(el) };
+      const budget = { left: limit, truncated: false };
+      return { path: tab.path, unit: tab.unit, page: toUserSize(), tree: outline(el, depth, budget), ...(budget.truncated ? { truncated: `Only ${limit} elements shown; read deeper parts by id` } : {}) };
+    },
+    apply: ({ ops }) => applyOps(ops),
+    shot: (args) => shot(args),
+    export: async ({ format = "pdf", out, dpi, textToPath }) => {
+      if (!tab) throw new Error("No drawing is open in Draw");
+      const file = out ?? tab.path.replace(/\.svg$/i, `.${format}`);
+      return host("/v1/draw/export", { method: "POST", body: JSON.stringify({ svg: serialize(tab), source: tab.path, out: file, format, dpi, textToPath }) });
+    },
     select: ({ ids = [] }) => {
       if (!tab) throw new Error("No drawing is open");
       const found = ids.map((id) => tab.doc.getElementById(id)).filter(Boolean);
       select(found);
+      if (found.length) { const box = unionBox(found); if (box) zoomToBox({ x: box.x - box.w * 0.25, y: box.y - box.h * 0.25, w: box.w * 1.5, h: box.h * 1.5 }); }
       return { selected: found.map(describe), missing: ids.filter((id) => !tab.doc.getElementById(id)) };
     },
     zoom: ({ fit: what = "page", ids, scale }) => {

@@ -11,6 +11,7 @@ export class History {
     this.undone = [];
     this.onChange = onChange;
     this.pending = null;
+    this.depth = 0; // edits inside an edit (an agent's batch) join the outer one
     this.savedAt = 0; // the length of `done` when the file was last read or written
     this.observer = null;
     this.root = null;
@@ -25,12 +26,13 @@ export class History {
     this.done = [];
     this.undone = [];
     this.pending = null;
+    this.depth = 0;
     this.savedAt = 0;
     this.onChange();
   }
 
   begin(label) {
-    if (this.pending) this.end();
+    if (this.pending) { this.depth++; return; }
     this.pending = { label, records: [] };
     this.observer.observe(this.root, { subtree: true, attributes: true, attributeOldValue: true, childList: true, characterData: true, characterDataOldValue: true });
   }
@@ -38,6 +40,7 @@ export class History {
   /** Close the current edit; an edit that changed nothing leaves no step. */
   end() {
     if (!this.pending) return null;
+    if (this.depth > 0) { this.depth--; return null; }
     const step = this.pending;
     step.records.push(...this.observer.takeRecords());
     this.observer.disconnect();
@@ -63,8 +66,11 @@ export class History {
   get modified() { return this.savedAt !== this.done.length; }
   markSaved() { this.savedAt = this.done.length; this.onChange(); }
 
+  /** Close whatever is open, however deep (before undo and redo). */
+  finish() { this.depth = 0; return this.end(); }
+
   undo() {
-    this.end();
+    this.finish();
     const step = this.done.pop();
     if (!step) return null;
     for (const record of [...step.records].reverse()) revert(record);
@@ -74,7 +80,7 @@ export class History {
   }
 
   redo() {
-    this.end();
+    this.finish();
     const step = this.undone.pop();
     if (!step) return null;
     for (const record of step.records) replay(record);

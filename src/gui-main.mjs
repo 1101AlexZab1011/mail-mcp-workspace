@@ -467,6 +467,80 @@ register("slides_export", "Export the open deck as PowerPoint (saved next to the
   media: z.boolean().optional().describe("Include audio and video (slower)"),
 }, async ({ media }) => text(await gui("page", { page: "slides", type: "export", format: "pptx", media }, { timeoutMs: 180_000 })));
 
+// --------------------------------------------------------------- draw --
+
+const DRAW_OPS_HELP = `Ops (all document units: those of draw_state's unit, from the page's top left; ids from draw_read):
+- {op:"add", svg: "<rect x='10' y='10' width='50' height='20' style='fill:#1e88e5'/>" (one or more elements; Inkscape markup such as inkscape:label is fine), parent?: id or layer name (default: the current layer), before?: id}
+- {op:"set", id | ids, attrs: {name: value | null}} (any attribute, also inkscape:label, transform, d)
+- {op:"style", id | ids, props: {fill, stroke, "stroke-width", opacity, "font-size", "font-family", …: value | null}}
+- {op:"text", id, text: "line 1\\nline 2"} (a text's content; unchanged lines keep their styling)
+- {op:"move", id | ids, dx, dy} · {op:"place", id | ids, x?, y?, w?, h?} (the box of the selection)
+- {op:"delete", id | ids} · {op:"group", ids} · {op:"ungroup", id | ids}
+- {op:"order", id | ids, to: top|bottom|up|down} · {op:"align", ids, side: left|center|right|top|middle|bottom, to?: selection|page} · {op:"distribute", ids, axis: x|y}
+- {op:"layer", action: add|rename|hide|show|lock|unlock|delete|current, layer?: id or name, name?} · {op:"to_layer", ids, layer}
+- {op:"insert", path: image, SVG or PDF (first page), x?, y?, w? (keeps proportions), parent?}
+- {op:"path", operation: union|difference|intersection|exclusion|division|combine|break-apart|object-to-path|stroke-to-path|simplify, ids} (runs Inkscape; text to path is object-to-path)`;
+
+/** Is `path` (or, with no path, any drawing) the one open in Draw? Opens it if not. */
+async function drawOpen(path) {
+  const state = await gui("page", { page: "draw", type: "state" }).catch(() => ({ path: null }));
+  if (!path) { if (!state.path) throw new Error("No drawing is open in Draw; pass path"); return state; }
+  const want = (await hostCall(`/v1/fs/stat?path=${encodeURIComponent(path)}`)).path;
+  if (state.path !== want) await gui("page", { page: "draw", type: "open", path: want });
+  return gui("page", { page: "draw", type: "state" });
+}
+
+register("draw_state", "Draw: the open drawing (path, unsaved edits, page size and units, layers) and what the user has selected (ids, boxes in document units), the group being edited, the nodes picked in the node tool. Resolve \"this\", \"these\", \"the selected\" with it.", {}, async () => text(await gui("page", { page: "draw", type: "state" })), { readOnlyHint: true });
+
+register("draw_open", "Open an SVG drawing (a poster, figure, diagram; Inkscape files too) in Draw.", {
+  path: z.string(),
+}, async ({ path }) => text(await gui("page", { page: "draw", type: "open", path })));
+
+register("draw_new", "Create a new drawing (one page, one Inkscape layer) and open it in Draw.", {
+  path: z.string().describe("Where to create it (.svg)"),
+  size: z.enum(["a0", "a1", "a2", "a3", "a4", "hd"]).optional().describe("Page size: A sizes in mm (default a0), hd is 1920×1080 px"),
+  landscape: z.boolean().optional(),
+}, async ({ path, size, landscape }) => text(await gui("page", { page: "draw", type: "new", path, size, landscape })));
+
+register("draw_read", "Read the drawing open in Draw (unsaved edits included): its tree of layers, groups and objects with ids, Inkscape labels, boxes {x, y, w, h} in document units, text, colours and fonts. Start from the top (depth 2), then read parts by id. markup: true gives one element's SVG instead (embedded images shortened).", {
+  path: z.string().optional().describe("Open this drawing first; omit for the open one"),
+  id: z.string().optional().describe("Start here (an id or a layer name); default: the whole drawing"),
+  depth: z.number().int().min(0).max(12).optional(),
+  limit: z.number().int().min(10).max(2000).optional().describe("Most elements to list (default 400)"),
+  markup: z.boolean().optional(),
+}, async ({ path, id, depth, limit, markup }) => {
+  await drawOpen(path);
+  return text(await gui("page", { page: "draw", type: "read", id, depth, limit, markup }));
+}, { readOnlyHint: true });
+
+register("draw_apply", `Change the drawing open in Draw with a list of ops, as one undo step for the user. Saved at once when the user had no unsaved changes; otherwise it joins theirs, unsaved, and the result says so (tell them). If an op fails, none of the ops stay. Check the result with draw_shot.\n${DRAW_OPS_HELP}`, {
+  ops: z.array(z.record(z.string(), z.any())).min(1),
+  path: z.string().optional().describe("Open this drawing first; omit for the open one"),
+}, async ({ ops, path }) => {
+  await drawOpen(path);
+  return text(await gui("page", { page: "draw", type: "apply", ops }, { timeoutMs: 300_000 }));
+});
+
+register("draw_shot", "A picture of the open drawing (unsaved edits included): the page, one element (by id) or a region in document units. Use it to see the poster and to check your edits.", {
+  id: z.string().optional(),
+  region: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }).optional(),
+  scale: z.number().min(0.05).max(8).optional().describe("Pixels per page pixel (default 1, capped at 4096 px a side)"),
+}, async ({ id, region, scale }) => {
+  const shot = await gui("page", { page: "draw", type: "shot", id, region, scale }, { timeoutMs: 120_000 });
+  return imageResult(shot.path, `${id ? `element ${id}` : region ? "region" : "page"}, ${shot.width}×${shot.height} px`);
+}, { readOnlyHint: true });
+
+register("draw_select", "Select objects in Draw and show them (zoomed in), to point the user at something before changing it.", {
+  ids: z.array(z.string()),
+}, async ({ ids }) => text(await gui("page", { page: "draw", type: "select", ids })));
+
+register("draw_export", "Export the open drawing as it is (unsaved edits included) through Inkscape: a vector PDF or a PNG at the page's size. Default file: next to the drawing, same name.", {
+  format: z.enum(["pdf", "png"]).optional(),
+  out: z.string().optional(),
+  dpi: z.number().int().min(30).max(1200).optional().describe("PNG only (default 300)"),
+  textToPath: z.boolean().optional().describe("PDF only: text as outlines"),
+}, async ({ format, out, dpi, textToPath }) => text(await gui("page", { page: "draw", type: "export", format, out, dpi, textToPath }, { timeoutMs: 600_000 })));
+
 // -------------------------------------------------------------- notes --
 // Notes is a vault of Markdown pages (default ~/Notes): the title is the file name, a page's subpages live
 // in a folder of the same name next to it, front matter holds icon/cover/properties, [[Page]] links pages,

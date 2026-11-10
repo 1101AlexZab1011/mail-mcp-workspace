@@ -253,19 +253,24 @@ The Draw space edits SVG files in place, Inkscape's included: whatever it does n
 back byte for byte (layers, Inkscape settings, filters, clones), so the same file keeps working in
 Inkscape. It opens from the Create group, Ctrl+Shift+9, or "Edit in Draw" on an SVG in Files.
 
-- The user draws by hand: select, move and scale (double-click enters a group; Ctrl+click picks
-  inside one), rectangles, ellipses, lines and text (double-click a text to edit it), images and SVG
-  figures (Ctrl+I, drop, paste: matplotlib figures come in as a group), fill, stroke and font in the
-  side panel, group and ungroup, align and distribute, Inkscape layers (show, hide, lock, rename,
-  restack, move the selection to a layer), a pen for Bézier paths and a node tool (drag nodes and
-  handles, add and delete nodes, smooth or sharp, straight or curved segments, object to path).
-  Inkscape does the path operations (union, difference, intersection, exclusion, division, combine,
-  break apart, text and stroke to path, simplify), exports PDF and PNG at the page's size, and
-  brings in PDF pages as figures. While Draw is open, `gui_state` includes its state: the open file, page size and units, the
-  group being edited and the selection (ids and boxes in document units).
-- Open a file with `gui_open` (`space: "draw"`, `query: <path>`).
-- There are no `draw_*` tools yet (reading the drawing, edits as one undo step, screenshots, export
-  come next). Until then, do not rewrite a drawing's file while it has unsaved changes in Draw.
+The user draws by hand there: select, move, scale; rectangles, ellipses, lines, text, a pen and a node
+tool; images, SVG and PDF figures; fill, stroke and font; group, align, layers; Inkscape's path
+operations; export to PDF and PNG. You work through the `draw_*` tools:
+
+- **Start with `draw_state`.** It gives the open file, page size and units (mm for A sizes), layers,
+  and what the user has selected. "This", "these", "the selected" refer to it.
+- **Read before you change.** `draw_read` lists the tree with ids, Inkscape labels, boxes {x, y, w, h}
+  in document units, text, colours and fonts. Start at depth 2, then read parts by id. Posters
+  exported from slides often hold everything in one group: read into it. `markup: true` shows one
+  element's exact SVG.
+- **Change with `draw_apply` ops,** never by rewriting the file while it is open: add SVG markup,
+  set attributes or style, replace a text's lines, move or place boxes, group, order, align,
+  distribute, layers, insert files, and Inkscape path operations (union, difference, text to path…).
+  All ops are one undo step for the user, and a failing op undoes the whole batch.
+- **Look at the result** with `draw_shot` (the page, one element, or a region).
+- **Point at things** with `draw_select` before a change the user should confirm.
+- `draw_export` writes a vector PDF (or a PNG at a chosen dpi) next to the drawing.
+- `draw_new` makes a new drawing (A0 to A4 or 16:9) with one Inkscape layer.
 
 ## Notes (a Notion-like notebook)
 
