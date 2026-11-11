@@ -259,7 +259,7 @@ test("writing files: scopes, confinement, atomic writes, lost-update guard, edit
   const trashed = await call(addon, "POST", "/v1/fs/trash", { path: doc });
   assert.equal(trashed.status, 200, JSON.stringify(trashed.value));
   const info = await readFile(join(home, "trash", "info", `${trashed.value.trashed}.trashinfo`), "utf8");
-  assert.match(info, new RegExp(`Path=${doc.replace(/[/.]/g, "\\$&")}`));
+  assert.equal(decodeURIComponent(/^Path=(.*)$/m.exec(info)[1]), doc);
   assert.equal((await call(addon, "GET", "/v1/fs/trash")).value.entries[0].path, doc);
   assert.equal((await call(addon, "POST", "/v1/fs/restore", { name: trashed.value.trashed })).status, 200);
   assert.equal(await readFile(doc, "utf8"), "c b z\n");
