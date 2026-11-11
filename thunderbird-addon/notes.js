@@ -8,6 +8,7 @@
 // type, with the same lost-update guard and live merging of outside edits as the Writer.
 import { host, HOST_ENDPOINT } from "./shared/broker.js";
 import { icon } from "./shared/icons.js";
+import { dirOf, isAbsolutePath, nameOf, resolvePath, tildePath, toSlash } from "./shared/paths.js";
 import { $, h, iconButton, contextMenu, background, toast, registerPage, ask } from "./shared/page.js";
 import { DocTabs } from "./shared/doctabs.js";
 import { createWriter, merge3, splitPage, setProperties } from "./vendor/writer/writer.mjs";
@@ -37,8 +38,6 @@ let expanded = new Set();
 let favourites = [];
 let watchToken = 0;
 
-const nameOf = (path) => path.split("/").pop();
-const dirOf = (path) => path.replace(/\/[^/]+$/, "") || "/";
 const titleOf = (path) => nameOf(path).replace(/\.md$/i, "");
 const folderOf = (path) => path.replace(/\.md$/i, "");
 const inVault = (path) => Boolean(vault) && path.startsWith(`${vault}/`) && /\.md$/i.test(path);
@@ -50,8 +49,8 @@ const load = async (key, fallback) => (await browser.storage.local.get(`notes.${
 
 /** Relative path from a folder to a file (for image links in pages). */
 function relativePath(fromDir, to) {
-  const a = fromDir.split("/").filter(Boolean);
-  const b = to.split("/").filter(Boolean);
+  const a = toSlash(fromDir).split("/").filter(Boolean);
+  const b = toSlash(to).split("/").filter(Boolean);
   let i = 0;
   while (i < a.length && i < b.length - 1 && a[i] === b[i]) i++;
   return [...a.slice(i).map(() => ".."), ...b.slice(i)].join("/");
@@ -74,7 +73,7 @@ async function refreshTree() {
     }
   };
   walk(treeData, null);
-  ui.vault.textContent = vault.replace(/^\/home\/[^/]+/, "~");
+  ui.vault.textContent = tildePath(vault);
   renderTree();
   renderCrumbs();
 }
@@ -285,7 +284,7 @@ const imageUrls = new Map();
 async function resolveImage(tab, src) {
   if (/^(https?:|data:|blob:)/.test(src)) return src;
   if (!tab.path) return null;
-  const full = src.startsWith("/") ? src : `${dirOf(tab.path)}/${decodeURI(src).replace(/^\.\//, "")}`;
+  const full = resolvePath(dirOf(tab.path), isAbsolutePath(src) ? src : decodeURI(src));
   if (imageUrls.has(full)) return imageUrls.get(full);
   const link = await host("/v1/links", { method: "POST", body: JSON.stringify({ path: full }) }).catch(() => null);
   const url = link ? `${HOST_ENDPOINT}${link.url}` : null;
@@ -1122,7 +1121,7 @@ async function showStart() {
   ui.start.replaceChildren(
     h("div.start-icon", {}, icon("notes", { size: 44 })),
     h("h2", {}, "Notes"),
-    h("p", {}, "Pages, links and databases, kept as Markdown files in ", h("code", {}, vault.replace(/^\/home\/[^/]+/, "~")), ". Type / in a page for blocks, [[ to link a page."),
+    h("p", {}, "Pages, links and databases, kept as Markdown files in ", h("code", {}, tildePath(vault)), ". Type / in a page for blocks, [[ to link a page."),
     h("div.buttons", {}, h("button.btn.primary", { type: "button", onclick: () => void newPage({}) }, icon("add", { size: 18 }), "New page"), h("button.btn", { type: "button", onclick: () => void quickSwitch() }, icon("search", { size: 18 }), "Find a page")),
     ...(recent.length ? [h("h3", {}, "Recently opened"), h("div.recent", {}, ...recent.map((path) => {
       const node = byPath.get(path);
@@ -1133,7 +1132,7 @@ async function showStart() {
 }
 
 async function chooseVault() {
-  const path = await ask({ title: "Notes folder", message: "The folder that holds your pages (an Obsidian vault works too)", value: vault.replace(/^\/home\/[^/]+/, "~"), ok: "Use this folder" });
+  const path = await ask({ title: "Notes folder", message: "The folder that holds your pages (an Obsidian vault works too)", value: tildePath(vault), ok: "Use this folder" });
   if (!path) return;
   try {
     for (const tab of [...tabs.tabs]) await tabs.close(tab);
@@ -1192,7 +1191,7 @@ registerPage("notes", {
       if (!target && title) target = (await host(`/v1/notes/resolve?${new URLSearchParams({ target: title })}`)).path;
       if (target && !target.includes("/") && !/\.md$/i.test(target)) target = (await host(`/v1/notes/resolve?${new URLSearchParams({ target })}`).catch(() => ({}))).path ?? target;
       if (!target) throw new Error("No such page");
-      return open_(target.startsWith("~") || target.startsWith("/") ? target : `${vault}/${target}`);
+      return open_(target.startsWith("~") || isAbsolutePath(target) ? target : `${vault}/${target}`);
     },
     new: async ({ title, parent, folder, body }) => newPage({ title: title || "Untitled", parent, folder, body }),
     rename: async ({ path, title }) => {

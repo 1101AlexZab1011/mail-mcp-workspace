@@ -2,6 +2,8 @@
 // over a VS Code-style tree with Material Icon Theme icons.
 import { host, HOST_ENDPOINT } from "./shared/broker.js";
 import { icon } from "./shared/icons.js";
+import { accel } from "./shared/keys.js";
+import { badName, dirOf, nameOf, rootOf } from "./shared/paths.js";
 import { $, h, iconButton, contextMenu, background, toast, formatSize, registerPage, watchDockWidth, ask } from "./shared/page.js";
 import { FILES_SIDE, sideIcon } from "./shared/docks.js";
 
@@ -75,7 +77,7 @@ async function load(path, { force = false } = {}) {
 async function navigate(path) {
   const info = await host(`/v1/fs/stat?path=${encodeURIComponent(path)}`).catch((error) => { toast(error.message); return null; });
   if (!info) return;
-  if (!info.directory) { await navigate(info.path.replace(/\/[^/]+$/, "") || "/"); select(info.path); return; }
+  if (!info.directory) { await navigate(dirOf(info.path)); select(info.path); return; }
   state.root = info.path;
   state.expanded.clear();
   state.selected.clear();
@@ -97,16 +99,18 @@ async function refresh() {
 
 function renderCrumbs() {
   crumbs.replaceChildren();
-  const parts = state.root === "/" ? [""] : state.root.split("/");
+  // The first crumb is the root: "/", or a drive ("C:/") on Windows.
+  const root = rootOf(state.root) || "/";
+  const parts = [root, ...state.root.slice(root.length).split("/").filter(Boolean)];
   parts.forEach((part, index) => {
-    const path = parts.slice(0, index + 1).join("/") || "/";
+    const path = root + parts.slice(1, index + 1).join("/");
     const home = path === state.home;
     if (index > 0) { const sep = icon("chevron_right", { size: 14 }); sep.classList.add("sep"); crumbs.append(sep); }
     crumbs.append(h(`button.crumb${index === parts.length - 1 ? ".current" : ""}`, {
       type: "button",
       title: path,
       onclick: (event) => { event.stopPropagation(); void navigate(path); },
-    }, index === 0 ? "/" : home ? "~" : part));
+    }, index === 0 ? root.replace(/(.)\/$/, "$1") : home ? "~" : part));
   });
   crumbs.append(h("span.fill", { title: "Type a path" }));
   crumbs.scrollLeft = crumbs.scrollWidth;
@@ -206,7 +210,7 @@ function openFile(path, { viewer = false } = {}) {
 
 // ------------------------------------------------------------ file edits --
 
-const parentOf = (path) => path.replace(/\/[^/]+$/, "") || "/";
+const parentOf = dirOf;
 
 async function hostWrite(path, init, done) {
   try { const result = await host(path, init); await refresh(); if (done) done(result); return result; }
@@ -216,14 +220,14 @@ async function hostWrite(path, init, done) {
 async function newFolder(where) {
   const name = await ask({ title: "New folder", message: where, value: "", placeholder: "Folder name", ok: "Create" });
   if (!name) return;
-  if (name.includes("/")) return toast("A folder name cannot contain /");
+  if (badName(name)) return toast(`A folder name ${badName(name)}`);
   await hostWrite("/v1/fs/mkdir", { method: "POST", body: JSON.stringify({ path: `${where}/${name}` }) }, async (result) => { state.expanded.add(where); await load(where, { force: true }); select(result.path); });
 }
 
 async function newDocument(where) {
   const name = await ask({ title: "New document", message: `A Quarto document in ${where}`, value: "untitled.qmd", ok: "Create", select: [0, 8] });
   if (!name) return;
-  if (name.includes("/")) return toast("A file name cannot contain /");
+  if (badName(name)) return toast(`A file name ${badName(name)}`);
   const file = /\.[a-z0-9]+$/i.test(name) ? name : `${name}.qmd`;
   const title = file.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
   const text = /\.qmd$/i.test(file) ? `---\ntitle: "${title.replace(/"/g, "'")}"\n---\n\n` : `# ${title}\n\n`;
@@ -238,7 +242,7 @@ async function newDocument(where) {
 async function newPresentation(where) {
   const name = await ask({ title: "New presentation", message: `A slide deck in ${where}`, value: "untitled.slides.json", ok: "Create", select: [0, 8] });
   if (!name) return;
-  if (name.includes("/")) return toast("A file name cannot contain /");
+  if (badName(name)) return toast(`A file name ${badName(name)}`);
   const file = name.endsWith(".slides.json") ? name : `${name.replace(/\.json$/i, "")}.slides.json`;
   await hostWrite("/v1/slides/new", { method: "POST", body: JSON.stringify({ path: `${where}/${file}` }) }, async (result) => {
     state.expanded.add(where);
@@ -252,12 +256,12 @@ async function rename(entry) {
   const dot = entry.directory ? -1 : entry.name.lastIndexOf(".");
   const name = await ask({ title: `Rename ${entry.directory ? "folder" : "file"}`, value: entry.name, ok: "Rename", select: [0, dot > 0 ? dot : entry.name.length] });
   if (!name || name === entry.name) return;
-  if (name.includes("/")) return toast("A name cannot contain /");
+  if (badName(name)) return toast(`A name ${badName(name)}`);
   await hostWrite("/v1/fs/move", { method: "POST", body: JSON.stringify({ from: entry.path, to: `${parentOf(entry.path)}/${name}` }) }, (result) => select(result.path));
 }
 
 async function trash(paths) {
-  const what = paths.length === 1 ? `“${paths[0].split("/").pop()}”` : `${paths.length} items`;
+  const what = paths.length === 1 ? `“${nameOf(paths[0])}”` : `${paths.length} items`;
   if (!await ask({ title: `Move ${what} to the Trash?`, message: "You can restore it from the Trash in your file manager.", ok: "Move to Trash", danger: true })) return;
   let moved = 0;
   for (const path of paths) { if (await host("/v1/fs/trash", { method: "POST", body: JSON.stringify({ path }) }).then(() => true, (error) => { toast(error.message); return false; })) moved++; }
@@ -325,7 +329,7 @@ tree.addEventListener("contextmenu", (event) => {
     "-",
     { label: "Copy path", icon: "content_copy", run: async () => { await navigator.clipboard.writeText(paths.join("\n")); toast("Path copied"); } },
     { label: "Copy name", icon: "text_snippet", run: () => navigator.clipboard.writeText(entry.name) },
-    ...(entry.directory ? [] : [{ label: "Open containing folder as root", icon: "arrow_upward", run: () => navigate(entry.path.replace(/\/[^/]+$/, "") || "/") }]),
+    ...(entry.directory ? [] : [{ label: "Open containing folder as root", icon: "arrow_upward", run: () => navigate(dirOf(entry.path)) }]),
   ]);
 });
 
@@ -395,7 +399,7 @@ pathInput.addEventListener("keydown", (event) => {
   }
 });
 pathInput.addEventListener("blur", () => setTimeout(stopEditing, 120));
-addEventListener("keydown", (event) => { if (event.ctrlKey && event.key.toLowerCase() === "l") { event.preventDefault(); editPath(); } });
+addEventListener("keydown", (event) => { if (accel(event) && event.key.toLowerCase() === "l") { event.preventDefault(); editPath(); } });
 
 filterInput.addEventListener("input", () => { state.filter = filterInput.value.trim(); render(); });
 filterInput.addEventListener("keydown", (event) => { if (event.key === "Escape") { filterInput.value = state.filter = ""; render(); tree.focus(); } if (event.key === "ArrowDown") { tree.focus(); } });

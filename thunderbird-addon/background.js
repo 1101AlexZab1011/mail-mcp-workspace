@@ -3,6 +3,7 @@
 import { ensurePaired, host } from "./shared/broker.js";
 import { startGuiBridge } from "./background/gui-bridge.js";
 import { CHAT_SIDE, FILES_SIDE } from "./shared/docks.js";
+import { keyHint } from "./shared/keys.js";
 
 const SPACES = [
   { name: "viewer", title: "File viewer (Ctrl+7)", url: "viewer.html", icon: "preview" },
@@ -17,7 +18,7 @@ const SPACES = [
 async function installSpaces() {
   for (const space of SPACES) {
     const props = {
-      title: space.title,
+      title: keyHint(space.title),
       defaultIcons: `icons/${space.icon}.svg`,
     };
     try {

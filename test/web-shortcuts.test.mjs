@@ -64,3 +64,18 @@ test("other keys are left to the page and to Thunderbird", () => {
   assert.equal(press(letter("L", { ctrlKey: true, altKey: true })), null);
   assert.equal(press(letter("L", { metaKey: true, ctrlKey: true })), null);
 });
+
+test("on macOS, ⌘ does what Ctrl does, and hints say so", () => {
+  const mac = (event) => scope.webShortcut(event, true)?.command ?? null;
+  assert.equal(mac(letter("L", { metaKey: true })), "address");
+  assert.equal(mac(letter("T", { metaKey: true, shiftKey: true })), "reopen-tab");
+  assert.equal(mac({ key: "[", code: "BracketLeft", metaKey: true }), "back");
+  assert.equal(mac(letter("U", { metaKey: true, altKey: true })), "view-source");
+  assert.equal(mac(letter("L", { ctrlKey: true })), null, "Ctrl+L is not the address bar on macOS");
+  assert.equal(mac({ key: "1", code: "Digit1", metaKey: true }), null, "⌘1… stay Thunderbird's");
+  assert.equal(scope.keyHint("Writer (Ctrl+Shift+6)", true), "Writer (⇧⌘6)");
+  assert.equal(scope.keyHint("Hide terminal (Ctrl+`)", true), "Hide terminal (Ctrl+`)");
+  assert.equal(scope.keyHint("Writer (Ctrl+Shift+6)", false), "Writer (Ctrl+Shift+6)");
+  assert.equal(scope.accelKey({ metaKey: true, ctrlKey: false }, true), true);
+  assert.equal(scope.accelKey({ metaKey: true, ctrlKey: false }, false), false);
+});

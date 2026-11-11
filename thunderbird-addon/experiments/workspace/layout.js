@@ -6,7 +6,7 @@
    Each dock hosts an extension page in its own <browser>. A dock is "open"
    (resizable width), "minimized" (a narrow rail: the page switches to its
    rail layout by width) or "maximized" (fills the content area). */
-/* global Services, ChromeUtils, ExtensionParent */
+/* global Services, ChromeUtils, ExtensionParent, accelKey */
 
 var XHTML = "http://www.w3.org/1999/xhtml";
 var PREF_ROOT = "extensions.mailworkspace.";
@@ -190,14 +190,15 @@ function applyLayout(window, ctx) {
   observer.observe(container);
 
   // Keyboard: Ctrl+5 toggles chat (right), Ctrl+6 files (left); Ctrl+7/8/9 open the add-on spaces,
-  // Ctrl+Shift+6 the Writer, Ctrl+Shift+7 Slides, Ctrl+Shift+8 Notes, Ctrl+Shift+9 Draw.
+  // Ctrl+Shift+6 the Writer, Ctrl+Shift+7 Slides, Ctrl+Shift+8 Notes, Ctrl+Shift+9 Draw (⌘ for Ctrl on macOS).
   const onKey = (event) => {
-    if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && ["Digit6", "Digit7", "Digit8", "Digit9"].includes(event.code)) {
+    // Ctrl+` toggles the terminal, on macOS too (⌘` switches windows there).
+    if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.code === "Backquote") { event.preventDefault(); event.stopPropagation(); setTerminal(window, ctx, { toggle: true }); return; }
+    if (!accelKey(event) || event.altKey) return;
+    if (event.shiftKey && ["Digit6", "Digit7", "Digit8", "Digit9"].includes(event.code)) {
       event.preventDefault(); event.stopPropagation(); ctx.shortcut({ Digit6: "writer", Digit7: "slides", Digit8: "notes", Digit9: "draw" }[event.code]); return;
     }
-    if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
-    // Ctrl+` toggles the terminal (handled before the dock/space shortcuts).
-    if (event.code === "Backquote") { event.preventDefault(); event.stopPropagation(); setTerminal(window, ctx, { toggle: true }); return; }
+    if (event.shiftKey) return;
     const map = { Digit5: "dock:right", Digit6: "dock:left", Digit7: "space:viewer", Digit8: "space:artifacts", Digit9: "space:paint" };
     const name = map[event.code];
     if (!name) return;

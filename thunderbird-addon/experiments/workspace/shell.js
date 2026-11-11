@@ -1,7 +1,7 @@
 /* Mail Workspace window shell: space management between panels, sidebar
    buttons, the Ctrl+F search overlay, one-window behaviour for messages and
    tooltip hygiene. Loaded into the Experiment scope after layout.js. */
-/* global Services, ChromeUtils, readDock, writeDock, applyDock, MIN_WIDTH, RAIL */
+/* global Services, ChromeUtils, keyHint, readDock, writeDock, applyDock, MIN_WIDTH, RAIL */
 
 // ------------------------------------------------------ space management --
 //
@@ -138,7 +138,7 @@ function makeSpaceButton(document, { id, title, icon, onclick }) {
   const button = document.createElementNS("http://www.w3.org/1999/xhtml", "button");
   button.id = id;
   button.className = "spaces-toolbar-button mw-space-button";
-  button.title = title;
+  button.title = keyHint(title);
   button.setAttribute("aria-label", title);
   button.dataset.icon = icon;
   const img = document.createElementNS("http://www.w3.org/1999/xhtml", "img");

@@ -6,12 +6,14 @@
 // agent's, another editor's) reload a clean tab live and merge line by line into a modified one.
 import { host, HOST_ENDPOINT } from "./shared/broker.js";
 import { icon } from "./shared/icons.js";
+import { accel } from "./shared/keys.js";
+import { dirOf, nameOf, resolvePath, tildePath } from "./shared/paths.js";
 import { $, h, iconButton, contextMenu, background, toast, registerPage, ask } from "./shared/page.js";
 import { DocTabs } from "./shared/doctabs.js";
 import { createWriter, merge3, labels } from "./vendor/writer/writer.mjs";
 
 const GRAMMAR_DELAY = 1800;
-const BACKUPS = "~/.local/state/mail-workspace/writer-backups";
+const BACKUPS = "@state/writer-backups";
 
 const ui = {
   title: $("#title"), subtitle: $("#subtitle"), state: $("#state"), actions: $("#actions"), render: $("#render"),
@@ -37,8 +39,6 @@ const imageUrls = new Map();
 
 // -------------------------------------------------------------- helpers --
 
-const dirOf = (path) => path.replace(/\/[^/]+$/, "") || "/";
-const nameOf = (path) => path.split("/").pop();
 const isDocument = (path) => /\.(qmd|md|markdown|rmd)$/i.test(path);
 const isQuarto = () => /\.qmd$/i.test(doc.path ?? "");
 
@@ -98,7 +98,7 @@ ui.editorRoot.addEventListener("click", onGrammarClick);
 async function resolveImage(tab, src) {
   if (/^(https?:|data:|blob:)/.test(src)) return src;
   if (!tab.path) return null;
-  const full = src.startsWith("/") ? src : `${dirOf(tab.path)}/${src.replace(/^\.\//, "")}`;
+  const full = resolvePath(dirOf(tab.path), src);
   if (imageUrls.has(full)) return imageUrls.get(full);
   const link = await host("/v1/links", { method: "POST", body: JSON.stringify({ path: full }) }).catch(() => null);
   const url = link ? `${HOST_ENDPOINT}${link.url}` : null;
@@ -146,7 +146,7 @@ const tabs = new DocTabs({
       ui.statusbar.hidden = false;
       ui.render.hidden = false;
       ui.title.textContent = nameOf(tab.path);
-      ui.subtitle.textContent = dirOf(tab.path).replace(/^\/home\/[^/]+/, "~");
+      ui.subtitle.textContent = tildePath(dirOf(tab.path));
       document.title = `${nameOf(tab.path)} · Writer`;
       ui.page.classList.toggle("readonly", !tab.safe);
       editor.view.setProps({ editable: () => tab.safe });
@@ -775,7 +775,7 @@ ui.editorRoot.addEventListener("contextmenu", (event) => {
   ]);
 });
 addEventListener("keydown", (event) => {
-  if (event.ctrlKey && event.altKey && event.key.toLowerCase() === "r") { event.preventDefault(); void reviewSelection(); return; }
+  if (accel(event) && event.altKey && event.code === "KeyR") { event.preventDefault(); void reviewSelection(); return; }
   if (event.key !== "Escape" || !editor) return;
   if (document.querySelector(".dialog-backdrop, .menu")) return;
   if (!editor.reviews().regions.length) return;

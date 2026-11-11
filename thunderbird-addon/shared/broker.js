@@ -7,7 +7,7 @@ export const HOST_ENDPOINT = "http://127.0.0.1:47810";
 // What the add-on needs: chat, the GUI command channel, workspace files,
 // artifacts, grants, and blobs. Tokens paired before these existed are replaced.
 export const REQUIRED_SCOPES = ["publish:mail/**", "read:mail/**", "subscribe:mail/gui/**", "blobs"];
-export const PAIR_COMMAND = (origin) => `listener-mcp pair --name thunderbird --origin ${origin} --scopes '${REQUIRED_SCOPES.join(",")}'`;
+export const PAIR_COMMAND = (origin) => `listener-mcp pair --name thunderbird --origin ${origin} --scopes "${REQUIRED_SCOPES.join(",")}"`;
 
 let settings = null;
 

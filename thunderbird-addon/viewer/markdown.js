@@ -1,6 +1,7 @@
 // Markdown: rendered (marked + DOMPurify + KaTeX), or its highlighted source.
 /* global marked, DOMPurify, katex */
 import { codeTheme, paintCode } from "./code-theme.js";
+import { resolvePath } from "../shared/paths.js";
 export async function render(stage, file, { host, linkFor, setToolbar, h }) {
   const { text, truncated } = await host(`/v1/fs/read?path=${encodeURIComponent(file.path)}&limit=${4 * 1024 * 1024}`);
   const folder = file.path.replace(/\/[^/]+$/, "");
@@ -23,7 +24,7 @@ export async function render(stage, file, { host, linkFor, setToolbar, h }) {
       if (href.startsWith("#")) continue;
       link.addEventListener("click", (event) => {
         event.preventDefault();
-        const target = href.startsWith("/") ? href : `${folder}/${href}`;
+        const target = resolvePath(folder, href);
         browser.runtime.sendMessage({ to: "background", type: "open-file", path: decodeURI(target.split("#")[0]) });
       });
     }
@@ -32,7 +33,7 @@ export async function render(stage, file, { host, linkFor, setToolbar, h }) {
       const src = img.getAttribute("src") ?? "";
       if (/^(https?:|data:)/.test(src)) continue;
       img.removeAttribute("src");
-      const target = decodeURI(src.startsWith("/") ? src : `${folder}/${src}`);
+      const target = decodeURI(resolvePath(folder, src));
       linkFor(target).then((link) => { img.src = link.url; }, () => img.replaceWith(h("em", {}, `[missing image: ${img.alt || src}]`)));
     }
     return body;

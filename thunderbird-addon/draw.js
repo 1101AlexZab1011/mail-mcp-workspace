@@ -11,6 +11,7 @@
 // (draw/history.js). Each tab keeps its frame, undo and view while another tab is shown.
 import { host, HOST_ENDPOINT } from "./shared/broker.js";
 import { icon } from "./shared/icons.js";
+import { dirOf, nameOf, tildePath } from "./shared/paths.js";
 import { $, h, iconButton, background, toast, registerPage, ask, contextMenu } from "./shared/page.js";
 import { DocTabs } from "./shared/doctabs.js";
 import { History } from "./draw/history.js";
@@ -22,7 +23,7 @@ import {
   SVG_NS, XLINK_NS, XML_NS, INKSCAPE_NS, SODIPODI_NS, ensureNamespace, takenIds, appendIndented, createElement, setAttributes,
   copyWithFreshIds, declareNamespaces, removeTidy, freshenIds, setProperty, setsProperty, textLines, setTextLines, importSvg,
 } from "./draw/content.js";
-const BACKUPS = "~/.local/state/mail-workspace/draw-backups";
+const BACKUPS = "@state/draw-backups";
 const RECENT_KEY = "draw.recent";
 const MAX_FILE = 50 * 1024 * 1024;
 const ZOOM_MIN = 0.02;
@@ -92,9 +93,7 @@ const selected = () => (tab ? [...tab.selection].filter((el) => el.isConnected) 
 // ------------------------------------------------------------- the file --
 
 const readFile = (path) => host(`/v1/fs/read?path=${encodeURIComponent(path)}&limit=${MAX_FILE}`);
-const nameOf = (path) => path.split("/").pop();
-const dirOf = (path) => path.replace(/\/[^/]+$/, "") || "/";
-const tilde = (path) => path.replace(/^\/home\/[^/]+/, "~");
+const tilde = tildePath;
 
 /** Load SVG text into a sandboxed frame; resolves with the frame once its document is up. */
 async function loadFrame(text) {
@@ -2084,7 +2083,7 @@ function newDrawingDialog() {
     backdrop.addEventListener("keydown", (e) => { if (e.key === "Escape") close(null); if (e.key === "Enter") void create(); e.stopPropagation(); });
     document.body.append(backdrop);
     pathInput.focus();
-    pathInput.setSelectionRange(pathInput.value.lastIndexOf("/") + 1, pathInput.value.length - 4);
+    pathInput.setSelectionRange(Math.max(pathInput.value.lastIndexOf("/"), pathInput.value.lastIndexOf("\\")) + 1, pathInput.value.length - 4);
   });
 }
 

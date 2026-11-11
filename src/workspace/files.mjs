@@ -1,11 +1,13 @@
 // Filesystem access for the file browser and viewer: listing, stat with a
-// "viewer kind", and bounded text reads. Paths are absolute; "~" expands.
+// "viewer kind", and bounded text reads. Paths are absolute; "~" expands to the
+// home folder and "@state" to the workspace's state folder (editor backups).
 import { createHash } from "node:crypto";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, extname, join, resolve } from "node:path";
+import { appDirs } from "../platform.mjs";
 
-export const expand = (path) => resolve(String(path ?? "").replace(/^~(?=$|[\\/])/, homedir()));
+export const expand = (path) => resolve(String(path ?? "").replace(/^~(?=$|[\\/])/, homedir()).replace(/^@state(?=$|[\\/])/, appDirs("mail-workspace").state));
 
 const kinds = {
   pdf: ["pdf"],

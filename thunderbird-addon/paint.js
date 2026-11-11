@@ -15,6 +15,7 @@
 //            Ctrl+C / Ctrl+X copy / cut it, dragging it lifts it into a movable image.
 import { broker, host, HOST_ENDPOINT, json } from "./shared/broker.js";
 import { icon } from "./shared/icons.js";
+import { nameOf } from "./shared/paths.js";
 import { $, h, iconButton, toast, background, registerPage, ask } from "./shared/page.js";
 import { DocTabs } from "./shared/doctabs.js";
 
@@ -913,7 +914,7 @@ function newCanvas() { void tabs.openNew(); }
 async function addImageFromPath(path) {
   const { url } = await host("/v1/links", json({ path }));
   const blob = await (await fetch(`${HOST_ENDPOINT}${url}`)).blob();
-  await addImage(await fileToDataUrl(blob), { name: path.split("/").pop() });
+  await addImage(await fileToDataUrl(blob), { name: nameOf(path) });
 }
 
 addEventListener("paste", async (event) => {
@@ -1008,7 +1009,7 @@ async function saveTab(tab, { as = false } = {}) {
   let type = path ? SAVE_TYPES[path.split(".").pop().toLowerCase()] : null;
   if (!path || as || !type) {
     const suggestion = path ? path.replace(/\.[^.]+$/, ".png") : `~/Pictures/${tab.title.toLowerCase()}.png`;
-    const chosen = await ask({ title: as || !path ? "Save picture as" : "Save as PNG", message: path && !type ? `${path.split("/").pop()} cannot be written in its format; save a PNG instead.` : "PNG, JPEG or WebP, by the file's extension", value: suggestion, ok: "Save" });
+    const chosen = await ask({ title: as || !path ? "Save picture as" : "Save as PNG", message: path && !type ? `${nameOf(path)} cannot be written in its format; save a PNG instead.` : "PNG, JPEG or WebP, by the file's extension", value: suggestion, ok: "Save" });
     if (!chosen) return false;
     path = /\.(png|jpe?g|webp)$/i.test(chosen) ? chosen : `${chosen}.png`;
     type = SAVE_TYPES[path.split(".").pop().toLowerCase()];

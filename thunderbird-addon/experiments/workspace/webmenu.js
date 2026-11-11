@@ -8,7 +8,7 @@
    by all sessions (saved logins are per site, not per container); after a login the tab offers to save
    it. The agent never sees a password: the offer, the password manager and anything that wipes data are
    the user's alone (data-user-only, and agent input is ignored). */
-/* global Services, ChromeUtils, Cc, Ci, IOUtils, PathUtils, ExtensionParent, MW_XHTML, isWebTab, webTabs, sessionOfTab, readSessions,
+/* global Services, ChromeUtils, Cc, Ci, IOUtils, PathUtils, ExtensionParent, keyHint, isMac, MW_XHTML, isWebTab, webTabs, sessionOfTab, readSessions,
    currentSession, openWeb, openTabIn, webTabs, ABOUT_LOGINS, showBrowser, createSession, renameSession, deleteSession, webSessionName, agentActing,
    webIcon, renderWebChrome, isRecordable, addHistoryVisit, setHistoryTitle, searchHistory, parseHistory */
 
@@ -320,7 +320,7 @@ function openWebMenu(window, info, view = "main") {
     if (userOnly) row.setAttribute("data-user-only", "");
     const img = icon ? webIcon(document, icon) : html("span", "mw-web-menu-noicon");
     row.append(img, html("span", "mw-web-menu-label", label));
-    if (key) row.append(html("span", "mw-web-menu-key", key));
+    if (key) row.append(html("span", "mw-web-menu-key", keyHint(key)));
     if (submenu) row.append(webIcon(document, "chevron_right"));
     row.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -357,9 +357,9 @@ function openWebMenu(window, info, view = "main") {
     const row = html("div", "mw-web-menu-zoom");
     const value = html("span", "mw-web-menu-zoom-value", `${Math.round(window.ZoomManager.getZoomForBrowser(info.browser) * 100)}%`);
     const zoom = () => html("button", "mw-web-menu-zoom-btn");
-    const minus = zoom(); minus.title = "Zoom out (Ctrl+−)"; minus.append(webIcon(document, "remove"));
-    const plus = zoom(); plus.title = "Zoom in (Ctrl+=)"; plus.append(webIcon(document, "add"));
-    value.title = "Reset (Ctrl+0)";
+    const minus = zoom(); minus.title = keyHint("Zoom out (Ctrl+−)"); minus.append(webIcon(document, "remove"));
+    const plus = zoom(); plus.title = keyHint("Zoom in (Ctrl+=)"); plus.append(webIcon(document, "add"));
+    value.title = keyHint("Reset (Ctrl+0)");
     const update = () => { value.textContent = `${Math.round(window.ZoomManager.getZoomForBrowser(info.browser) * 100)}%`; };
     minus.addEventListener("click", (e) => { e.stopPropagation(); window.ZoomManager.reduce(info.browser); update(); });
     plus.addEventListener("click", (e) => { e.stopPropagation(); window.ZoomManager.enlarge(info.browser); update(); });
@@ -376,8 +376,8 @@ function openWebMenu(window, info, view = "main") {
       return [
         name, separator(),
         item("New tab", { icon: "tab", key: "Ctrl+T", run: done(() => void openWeb(window, "", { newTab: true, session: session?.id })) }),
-        item("History", { icon: "history", key: "Ctrl+H", submenu: true, run: go("history") }),
-        item("Downloads", { icon: "download", key: "Ctrl+Shift+Y", submenu: true, run: go("downloads") }),
+        item("History", { icon: "history", key: isMac() ? "⌘Y" : "Ctrl+H", submenu: true, run: go("history") }),
+        item("Downloads", { icon: "download", key: isMac() ? "⇧⌘J" : "Ctrl+Shift+Y", submenu: true, run: go("downloads") }),
         item("Passwords", { icon: "key", userOnly: true, run: done(() => openLogins(window, info)) }),
         separator(),
         item("Print…", { icon: "print", key: "Ctrl+P", run: done(() => window.PrintUtils?.startPrintWindow(info.browser.browsingContext)) }),

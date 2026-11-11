@@ -6,6 +6,7 @@ import { FitAddon } from "./vendor/xterm/addon-fit.mjs";
 import { WebLinksAddon } from "./vendor/xterm/addon-web-links.mjs";
 import { host, HOST_ENDPOINT, json } from "./shared/broker.js";
 import { icon } from "./shared/icons.js";
+import { accel } from "./shared/keys.js";
 import { $, h, iconButton, toast, background, registerPage } from "./shared/page.js";
 
 const area = $("#area");
@@ -236,7 +237,7 @@ function renderActions() {
 }
 
 addEventListener("keydown", (event) => {
-  if (!(event.ctrlKey && event.shiftKey)) return;
+  if (!(accel(event) && event.shiftKey)) return;
   const key = event.key.toLowerCase();
   const actions = { t: () => newTab(), w: () => closePane(), 5: () => split("row"), "%": () => split("row"), e: () => split("col"), pageup: () => { active = (active - 1 + tabs.length) % tabs.length; render(); }, pagedown: () => { active = (active + 1) % tabs.length; render(); } };
   const action = actions[key] ?? actions[event.code === "Digit5" ? 5 : ""];

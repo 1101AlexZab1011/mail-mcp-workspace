@@ -11,11 +11,12 @@
 //   untitled?           a title for new, unsaved documents ("Untitled"), if the editor has them
 import { h } from "./page.js";
 import { icon } from "./icons.js";
+import { dirOf as parentDir, nameOf as baseName } from "./paths.js";
 
 const DRAFT_DELAY = 1200;
 let nextId = 1;
-const nameOf = (path) => path?.split("/").pop() ?? "";
-const dirOf = (path) => path?.replace(/\/[^/]+$/, "") ?? "";
+const nameOf = (path) => (path ? baseName(path) : "");
+const dirOf = (path) => (path ? parentDir(path) : "");
 
 export class DocTabs {
   constructor({ page, mount, adapter, icon: tabIcon = "description", onEmpty = () => {}, onChange = () => {} }) {
@@ -241,7 +242,7 @@ export class DocTabs {
           this.render();
           this.persist();
         },
-      }, icon(this.tabIcon, { size: 15 }), h("span.dt-name", {}, tab.title), same ? h("span.dt-dir", {}, dirOf(tab.path).split("/").pop()) : null, close);
+      }, icon(this.tabIcon, { size: 15 }), h("span.dt-name", {}, tab.title), same ? h("span.dt-dir", {}, nameOf(dirOf(tab.path))) : null, close);
       el.addEventListener("contextmenu", (e) => this.menu(e, tab));
       return el;
     }));

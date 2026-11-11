@@ -13,7 +13,7 @@
    each web tab's toolbox gets a strip of the open web tabs, and its toolbar an editable address bar,
    reload/stop and a new-tab button. The agent reads and fills pages through the add-on's content
    script (background/web.js); clicks are sent from here, as real mouse input. */
-/* global Services, ChromeUtils, Cc, Ci, ExtensionParent, parseAddress, webShortcut, makeSpaceButton, GROUP_FLYOUTS,
+/* global Services, ChromeUtils, Cc, Ci, ExtensionParent, parseAddress, webShortcut, accelKey, keyHint, makeSpaceButton, GROUP_FLYOUTS,
    WEB_SESSIONS_PREF, parseWebSessions, serializeWebSessions, findWebSession, webSessionName, newWebSessionId,
    WEB_MENU, ABOUT_LOGINS, openWebMenu, closeWebMenu, recordVisit, recordTitle, noteSiteIcon, dropSessionHistory, savePage, prepareWebPrefs */
 
@@ -319,8 +319,8 @@ function webIcon(document, name) {
 function webButton(document, { className, title, icon, onclick }) {
   const button = document.createElementNS(MW_XHTML, "button");
   button.className = `mw-web-btn ${className}`;
-  button.title = title;
-  button.setAttribute("aria-label", title);
+  button.title = keyHint(title);
+  button.setAttribute("aria-label", keyHint(title));
   button.append(webIcon(document, icon));
   button.addEventListener("click", onclick);
   return button;
@@ -360,7 +360,7 @@ function enhanceWebTab(window, info) {
       event.preventDefault();
       // As in Firefox: Ctrl+Enter completes a bare word to www.….com, Shift+Enter to .net; Alt+Enter opens a new tab.
       const word = urlbar.value.trim();
-      const tld = /^[\p{L}\p{N}-]+$/u.test(word) && !event.altKey ? (event.ctrlKey ? ".com" : event.shiftKey ? ".net" : "") : "";
+      const tld = /^[\p{L}\p{N}-]+$/u.test(word) && !event.altKey ? (accelKey(event) ? ".com" : event.shiftKey ? ".net" : "") : "";
       const input = tld ? `www.${word}${tld}` : urlbar.value;
       if (event.altKey) { void openWeb(window, input, { newTab: true, session: sessionOfTab(info)?.id }); return; }
       const url = await resolveAddress(input);
@@ -459,7 +459,7 @@ function renderWebChrome(window) {
       if (reload) {
         const loading = Boolean(info.browser?.webProgress?.isLoadingDocument);
         reload.replaceChildren(webIcon(document, loading ? "close" : "refresh"));
-        reload.title = loading ? "Stop (Esc)" : "Reload (Ctrl+R)";
+        reload.title = loading ? "Stop (Esc)" : keyHint("Reload (Ctrl+R)");
       }
     }
     document.getElementById(WEB_BUTTON)?.classList.toggle("current", isWebTab(tabmail?.currentTabInfo));
@@ -678,7 +678,7 @@ function installWeb(window) {
 
   // Ctrl+Shift+9 opens the Browser; in a web tab, Firefox's shortcuts (shortcuts.js) win over Thunderbird's.
   const onKey = (event) => {
-    if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && event.code === "Digit9") { event.preventDefault(); event.stopPropagation(); void showBrowser(window); return; }
+    if (accelKey(event) && event.shiftKey && !event.altKey && event.code === "Digit9") { event.preventDefault(); event.stopPropagation(); void showBrowser(window); return; }
     const info = tabmail.currentTabInfo;
     if (!isWebTab(info)) return;
     const shortcut = webShortcut(event);

@@ -4,6 +4,7 @@
 // local HTTP, files) goes through this page, which enforces the user's grants.
 import { host, HOST_ENDPOINT, json } from "./shared/broker.js";
 import { icon } from "./shared/icons.js";
+import { tildePath } from "./shared/paths.js";
 import { $, h, iconButton, contextMenu, toast, background, registerPage, agentIsActing } from "./shared/page.js";
 import { openSession } from "./shared/sessions.js";
 
@@ -29,7 +30,7 @@ async function loadTree() {
   const { root, tree } = await host("/v1/artifacts/tree");
   state.tree = tree;
   state.root = root;
-  $("#root-path").textContent = root.replace(/^\/home\/[^/]+/, "~");
+  $("#root-path").textContent = tildePath(root);
   $("#root-path").title = root;
   renderTree();
   return tree;

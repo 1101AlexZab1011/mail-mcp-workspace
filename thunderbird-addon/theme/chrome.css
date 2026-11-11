@@ -189,7 +189,7 @@
   box-shadow: none !important;
 }
 :root[mw-workspace] #navigation-toolbox { border-bottom: 1px solid var(--mw-border) !important; }
-:root[mw-workspace] #unifiedToolbarContainer toolbarbutton,
+:root[mw-workspace] #unifiedToolbarContainer toolbarbutton:not(.titlebar-button),
 :root[mw-workspace] #unifiedToolbarContainer .unified-toolbar-button {
   border-radius: 10px !important;
 }

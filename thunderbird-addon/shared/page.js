@@ -2,6 +2,9 @@
 // the agent-facing basics (state, snapshot, act) answered from inside the page.
 import { icon } from "./icons.js";
 import "./theme.js";
+import { followKeyHints } from "./keys.js";
+
+followKeyHints();
 
 const handlers = new Map();
 let agentInputUntil = 0;

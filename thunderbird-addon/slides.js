@@ -9,11 +9,12 @@
 // step for the user) and through the host otherwise (src/workspace/slides.mjs).
 import { host, HOST_ENDPOINT } from "./shared/broker.js";
 import { icon } from "./shared/icons.js";
+import { dirOf, isAbsolutePath, nameOf, resolvePath, tildePath } from "./shared/paths.js";
 import { $, h, iconButton, background, toast, registerPage, ask } from "./shared/page.js";
 import { DocTabs } from "./shared/doctabs.js";
 import { applyOps, isDeckPath, isRelativeMedia, mapMedia, mergeDecks, newDeck, parseDeck, serializeDeck, summarize, extensionForMime, EXTENSION } from "./vendor/slides-core/slides-core.mjs";
 
-const BACKUPS = "~/.local/state/mail-workspace/slides-backups";
+const BACKUPS = "@state/slides-backups";
 const SHOTS = "~/.cache/mail-workspace/slides-shots";
 
 const ui = { app: $("#app"), start: $("#start"), bar: $("#bar") };
@@ -35,12 +36,10 @@ const mediaRef = new Map(); // blob URL → reference as written in the file
 
 // ---------------------------------------------------------------- helpers --
 
-const dirOf = (path) => path.replace(/\/[^/]+$/, "") || "/";
-const nameOf = (path) => path.split("/").pop();
-const tilde = (path) => path.replace(/^\/home\/[^/]+/, "~");
+const tilde = tildePath;
 const deckName = (path) => nameOf(path).replace(/\.slides\.json$/i, "");
-const isLocal = (ref) => isRelativeMedia(ref) || (typeof ref === "string" && (ref.startsWith("/") || ref.startsWith("~/")));
-const absolute = (ref) => (ref.startsWith("/") || ref.startsWith("~/") ? ref : `${dirOf(doc.path)}/${ref.replace(/^\.\//, "")}`);
+const isLocal = (ref) => isRelativeMedia(ref) || (typeof ref === "string" && (isAbsolutePath(ref) || ref.startsWith("~/")));
+const absolute = (ref) => resolvePath(dirOf(doc.path), ref);
 
 async function waitForEditor() {
   while (!window.pptist) await new Promise((r) => setTimeout(r, 30));
@@ -482,7 +481,7 @@ pptist.hooks.ask = async (context) => {
 // scripts written here (in the editor, or by the agent through this page) are trusted as they are saved.
 
 const deckDir = () => dirOf(doc.path);
-const scriptPath = (src) => (src.startsWith("/") ? src : `${deckDir()}/${src.replace(/^\.\//, "")}`);
+const scriptPath = (src) => resolvePath(deckDir(), src);
 async function hashText(text) {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
   return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -498,7 +497,7 @@ async function trust(hashes) {
 }
 const readScript = async (src) => (await host(`/v1/fs/read?path=${encodeURIComponent(scriptPath(src))}`)).text;
 async function writeScript(src, code) {
-  if (!/\.js$/i.test(src) || src.startsWith("/") || src.split("/").includes("..")) throw new Error("A script's src is a .js path inside the deck's folder");
+  if (!/\.js$/i.test(src) || isAbsolutePath(src) || src.startsWith("~") || src.split(/[\\/]/).includes("..")) throw new Error("A script's src is a .js path inside the deck's folder");
   await host("/v1/fs/file", { method: "PUT", body: JSON.stringify({ path: scriptPath(src), text: code, createDirs: true }) });
   await trust([await hashText(code)]);
   return src;

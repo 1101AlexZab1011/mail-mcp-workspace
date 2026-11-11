@@ -1,9 +1,10 @@
 // Agent chat, docked on the left. It holds several sessions; each is a listener-mcp
 // channel mail/chat/<id>, and the agent's answers come back on the same channel.
 import { icon } from "./shared/icons.js";
+import { nameOf } from "./shared/paths.js";
 import { registerPage, watchDockWidth, iconButton, h, agentIsActing, toast, ask } from "./shared/page.js";
 import { DEFAULT_SESSION, DEFAULT_SESSIONS, SESSIONS_CHANNEL, chatChannel, newSessionId, nextName, openSession, rememberOpenSession, sessionOfChannel, sessionOfGroup, sessionsFrom } from "./shared/sessions.js";
-import { HOST_ENDPOINT } from "./shared/broker.js";
+import { HOST_ENDPOINT, PAIR_COMMAND } from "./shared/broker.js";
 import { CHAT_SIDE, sideIcon } from "./shared/docks.js";
 
 const messages = document.querySelector("#messages");
@@ -242,10 +243,10 @@ function splitAttachments(text) {
   return { body: text.slice(0, match.index).trimEnd(), files };
 }
 // Blob files are named "<id>.<name>", so the path a message carries leads back to its blob.
-const blobId = (path) => path.split("/").pop().match(/^(blob_[A-Za-z0-9_-]+)\./)?.[1];
+const blobId = (path) => nameOf(path).match(/^(blob_[A-Za-z0-9_-]+)\./)?.[1];
 async function hydrateAttachment(tile, file) {
   const id = blobId(file.path);
-  const name = id ? file.path.split("/").pop().slice(id.length + 1) : file.path.split("/").pop();
+  const name = id ? nameOf(file.path).slice(id.length + 1) : nameOf(file.path);
   tile.title = [name, file.type, file.size].filter(Boolean).join(" · ");
   tile.addEventListener("click", () => browser.runtime.sendMessage({ to: "background", type: "open-file", path: file.path }));
   try {
@@ -343,7 +344,7 @@ async function loadSettings() {
 async function ensureSettings() {
   if (settings?.token) return;
   try { await loadSettings(); } catch { settings = { endpoint: defaultEndpoint, token: "" }; }
-  if (!settings?.token) throw new Error(`Not paired · run: listener-mcp pair --name thunderbird --origin ${location.origin} --scopes 'publish:mail/chat/**,read:mail/chat/**,blobs'`);
+  if (!settings?.token) throw new Error(`Not paired · run: ${PAIR_COMMAND(location.origin)}`);
 }
 async function api(path, init = {}) {
   if (!settings?.token) throw new Error("Open Settings and add the local listener token.");
@@ -748,7 +749,7 @@ async function attachExisting(files, { focus } = {}) {
     if (file.type?.startsWith("image/")) {
       try {
         await ensureSettings();
-        const blobId = file.path.split("/").pop().match(/^(blob_[A-Za-z0-9_-]+)\./)?.[1];
+        const blobId = nameOf(file.path).match(/^(blob_[A-Za-z0-9_-]+)\./)?.[1];
         const response = blobId
           ? await fetch(`${settings.endpoint}/v1/blobs/${blobId}`, { headers: { authorization: `Bearer ${settings.token}` } })
           : await fetch(`${HOST_ENDPOINT}${(await (await fetch(`${HOST_ENDPOINT}/v1/links`, { method: "POST", headers: { authorization: `Bearer ${settings.token}`, "content-type": "application/json" }, body: JSON.stringify({ path: file.path }) })).json()).url}`);

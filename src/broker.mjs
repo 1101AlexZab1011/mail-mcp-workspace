@@ -18,7 +18,7 @@ export async function brokerToken(env = process.env) {
   const name = env.MAIL_WATCHER_CREDENTIAL ?? DEFAULT_CREDENTIAL;
   try { return (await readFile(credentialPath(name, env), "utf8")).trim(); }
   catch (error) {
-    if (error.code === "ENOENT") throw new Error(`No listener-mcp credential "${name}". Create it with: listener-mcp token create --name ${name} --scopes 'publish:mail/replies/**,read:mail/chat/sessions' --save`);
+    if (error.code === "ENOENT") throw new Error(`No listener-mcp credential "${name}". Create it with: listener-mcp token create --name ${name} --scopes "publish:mail/replies/**,read:mail/chat/sessions" --save`);
     throw error;
   }
 }
