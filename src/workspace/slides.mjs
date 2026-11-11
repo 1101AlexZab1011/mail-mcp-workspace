@@ -1,16 +1,14 @@
 // Host side of the Slides space: reading and editing deck files that are not open in the editor,
 // the system's font list, image sizes, and agent rewrites of slide text.
-import { execFile } from "node:child_process";
 import { open as openFile } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
-import { promisify } from "node:util";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { isDeckPath, newDeck, parseDeck, serializeDeck, summarize } from "../slides/deck.mjs";
 import { applyOps } from "../slides/ops.mjs";
+import { fontFamilies } from "../platform.mjs";
 import { readText } from "./files.mjs";
 import { FsError } from "./writes.mjs";
 import { runClaude } from "./writer.mjs";
 
-const run = promisify(execFile);
 const DECK_LIMIT = 50 * 1024 * 1024;
 
 const REWRITE_SCHEMA = { type: "object", properties: { text: { type: "string" } }, required: ["text"] };
@@ -90,7 +88,7 @@ export class Slides {
     const sizeOf = (src) => (/^[a-z]+:/i.test(src) ? null : imageSize(isAbsolute(src) ? src : join(base, src)));
     let result;
     const writeScript = async (src, code) => {
-      if (!/\.js$/i.test(src) || isAbsolute(src) || src.split("/").includes("..")) throw new Error("A script's src is a .js path inside the deck's folder");
+      if (!/\.js$/i.test(src) || isAbsolute(src) || src.split(/[\\/]/).includes("..")) throw new Error("A script's src is a .js path inside the deck's folder");
       await this.files.write(join(base, src), { text: code, createDirs: true });
       return src;
     };
@@ -103,7 +101,7 @@ export class Slides {
   async create(path, { title } = {}) {
     const full = await this.files.target(path);
     if (!isDeckPath(full)) throw new FsError(400, "bad_request", "A deck's name ends in .slides.json");
-    const name = title ?? full.split("/").pop().replace(/\.slides\.json$/i, "").replace(/[-_]+/g, " ");
+    const name = title ?? basename(full).replace(/\.slides\.json$/i, "").replace(/[-_]+/g, " ");
     const written = await this.files.write(full, { text: serializeDeck(newDeck({ title: name })), expect: "absent", createDirs: true });
     return { path: full, hash: written.hash };
   }
@@ -118,16 +116,10 @@ export class Slides {
     return file.text;
   }
 
-  /** Installed font families (fontconfig), sorted. */
+  /** Installed font families, sorted. */
   async fonts() {
     if (this.fontList) return this.fontList;
-    const { stdout } = await run("fc-list", [":", "family"], { maxBuffer: 8 * 1024 * 1024 }).catch(() => ({ stdout: "" }));
-    const families = new Set();
-    for (const line of stdout.split("\n")) {
-      const family = line.split(",")[0].trim();
-      if (family && !family.startsWith(".")) families.add(family);
-    }
-    this.fontList = [...families].sort((a, b) => a.localeCompare(b));
+    this.fontList = (await fontFamilies()).sort((a, b) => a.localeCompare(b));
     return this.fontList;
   }
 

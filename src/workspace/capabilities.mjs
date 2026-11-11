@@ -8,15 +8,15 @@
 //     "agent": true                                         send messages to the agent chat
 //   }
 // The user approves that exact declaration once; any later change to it needs
-// approval again. Grants live in ~/.config/mail-workspace/grants.json.
+// approval again. Grants live in grants.json in the workspace's config folder.
 import { spawn } from "node:child_process";
 import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
+import { appDirs, commandShell, killTree, sessionShell } from "../platform.mjs";
 import { expand } from "./files.mjs";
 
-export const DEFAULT_GRANTS = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "mail-workspace", "grants.json");
+export const DEFAULT_GRANTS = join(appDirs("mail-workspace").config, "grants.json");
 
 const fail = (status, code, message, extra = {}) => Object.assign(new Error(message), { status, code, ...extra });
 
@@ -108,14 +108,16 @@ export class Capabilities {
     if (typeof command !== "string" || !command.trim()) throw fail(400, "bad_request", "command is required");
     const dir = this.#cwd(caps, cwd);
     return new Promise((resolvePromise) => {
-      const child = spawn("bash", ["-lc", command], { cwd: dir, env: { ...process.env, ...(env ?? {}) } });
+      const shell = commandShell(command);
+      const child = spawn(shell.file, shell.args, { cwd: dir, env: { ...process.env, ...(env ?? {}) }, windowsHide: true });
       let stdout = "";
       let stderr = "";
       const cap = 2 * 1024 * 1024;
       child.stdout.on("data", (chunk) => { if (stdout.length < cap) stdout += chunk; });
       child.stderr.on("data", (chunk) => { if (stderr.length < cap) stderr += chunk; });
-      const timer = setTimeout(() => child.kill("SIGKILL"), Math.min(Number(timeout) || 60_000, 600_000));
-      child.on("close", (code, signal) => { clearTimeout(timer); resolvePromise({ code, signal, stdout, stderr }); });
+      const timer = setTimeout(() => killTree(child, "SIGKILL"), Math.min(Number(timeout) || 60_000, 600_000));
+      child.on("error", (error) => { clearTimeout(timer); resolvePromise({ code: null, signal: null, stdout, stderr: `${stderr}${error.message}`, shell: shell.shell }); });
+      child.on("close", (code, signal) => { clearTimeout(timer); resolvePromise({ code, signal, stdout, stderr, shell: shell.shell }); });
       if (stdin) child.stdin.end(String(stdin)); else child.stdin.end();
     });
   }
@@ -123,7 +125,8 @@ export class Capabilities {
   #shellOpen(caps, artifact, { cwd }) {
     const dir = this.#cwd(caps, cwd);
     const id = randomUUID();
-    const child = spawn("bash", ["--norc", "--noprofile", "--noediting", "-i"], { cwd: dir, env: { ...process.env, PS1: "\\w $ ", TERM: "dumb" } });
+    const shell = sessionShell();
+    const child = spawn(shell.file, shell.args, { cwd: dir, env: { ...process.env, ...shell.env }, windowsHide: true });
     const chunks = [];
     let waiters = [];
     let closed = false;
@@ -141,15 +144,15 @@ export class Capabilities {
     });
     child.on("close", (code) => { closed = true; clearTimeout(idle); push("exit", String(code)); setTimeout(() => this.sessions.delete(id), 60_000).unref(); });
     // Sessions nobody touches for 30 minutes are ended.
-    const arm = () => setTimeout(() => child.kill("SIGHUP"), 30 * 60_000).unref();
+    const arm = () => setTimeout(() => killTree(child, "SIGHUP"), 30 * 60_000).unref();
     let idle = arm();
     const touch = () => { clearTimeout(idle); idle = arm(); };
     const session = {
       artifact,
-      kill: () => child.kill("SIGKILL"),
+      kill: () => killTree(child, "SIGKILL"),
       write: (data) => { touch(); if (!closed) child.stdin.write(data); return { ok: true }; },
       signal: (signal) => { touch(); child.kill(signal); return { ok: true }; },
-      close: () => { child.kill("SIGHUP"); return { ok: true }; },
+      close: () => { killTree(child, "SIGHUP"); return { ok: true }; },
       read: async (offset, wait) => {
         touch();
         if (offset >= chunks.length && !closed && wait > 0) {

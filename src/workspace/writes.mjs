@@ -1,23 +1,30 @@
 // Writing files for the add-on and the agent: atomic writes with a lost-update
-// guard, exact-match edits, folders, moves, and deletion into the freedesktop
-// Trash (restorable from any file manager).
+// guard, exact-match edits, folders, moves, and deletion into the system Trash
+// (restorable from the system's file manager too; see trash.mjs).
 //
 // Everything is confined to one root (the home folder by default), checked on
 // the real path so a symlink cannot lead outside it, and credential folders are
 // refused outright.
 import { createHash, randomBytes } from "node:crypto";
-import { constants } from "node:fs";
-import { cp, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, open, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isMac, isWindows } from "../platform.mjs";
 import { expand } from "./files.mjs";
+import { systemTrash } from "./trash.mjs";
 
 export class FsError extends Error {
   constructor(status, code, message, extra = {}) { super(message); this.status = status; this.code = code; Object.assign(this, extra); }
 }
 
-/** Paths under the root that are never written, moved or trashed. */
-export const DENIED = [".ssh", ".gnupg", ".pki", ".password-store", ".config/listener-mcp", ".local/share/keyrings", ".local/share/Trash"];
+/** Paths under the root that are never written, moved or trashed: keys, credentials, the Trash itself. */
+export const DENIED = isWindows
+  ? [".ssh", ".gnupg", "AppData/Roaming/listener-mcp", "AppData/Roaming/Microsoft/Credentials", "AppData/Local/Microsoft/Credentials", "AppData/Roaming/Microsoft/Protect"]
+  : isMac
+    ? [".ssh", ".gnupg", ".password-store", "Library/Application Support/listener-mcp", "Library/Keychains", ".Trash"]
+    : [".ssh", ".gnupg", ".pki", ".password-store", ".config/listener-mcp", ".local/share/keyrings", ".local/share/Trash"];
+// Windows and macOS file names ignore case, so a different spelling must not slip past.
+const fold = (path) => (isWindows || isMac ? path.toLowerCase() : path);
 
 export const hashOf = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
@@ -31,8 +38,8 @@ export async function versionOf(full) {
 export class FileWriter {
   constructor({ root = homedir(), trashDir, denied = DENIED } = {}) {
     this.root = resolve(root);
-    this.trashDir = trashDir ?? join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local/share"), "Trash");
-    this.denied = denied;
+    this.bin = systemTrash(trashDir);
+    this.denied = denied.map((path) => fold(path.split("/").join(sep)));
     this.realRoot = null;
   }
 
@@ -57,9 +64,10 @@ export class FileWriter {
     const root = await this.#realRoot();
     const inside = relative(root, real);
     if (inside === "" ) throw new FsError(403, "forbidden", "The home folder itself cannot be changed");
-    if (inside.startsWith("..") || inside.startsWith(sep) || resolve(root, inside) !== real) throw new FsError(403, "forbidden", `${path} is outside ${this.root}`);
+    if (inside.startsWith("..") || inside.startsWith(sep) || isAbsolute(inside) || resolve(root, inside) !== real) throw new FsError(403, "forbidden", `${path} is outside ${this.root}`);
+    const folded = fold(inside);
     for (const denied of this.denied) {
-      if (inside === denied || inside.startsWith(denied + sep)) throw new FsError(403, "forbidden", `${path} is in a protected folder (~/${denied})`);
+      if (folded === denied || folded.startsWith(denied + sep)) throw new FsError(403, "forbidden", `${path} is in a protected folder (~/${denied})`);
     }
     return real;
   }
@@ -127,51 +135,28 @@ export class FileWriter {
     return { path: destination, moved: true, from: source };
   }
 
-  /** Move to the freedesktop Trash: files/<name> plus info/<name>.trashinfo. */
+  /** Move to the system Trash. */
   async trash(path) {
     const full = await this.target(path);
     await lstat(full).catch(() => { throw new FsError(404, "not_found", `${path} does not exist`); });
-    const files = join(this.trashDir, "files");
-    const info = join(this.trashDir, "info");
-    await mkdir(files, { recursive: true, mode: 0o700 });
-    await mkdir(info, { recursive: true, mode: 0o700 });
-    const name = await uniqueName(files, basename(full));
-    const record = `[Trash Info]\nPath=${encodePath(full)}\nDeletionDate=${localIso(new Date())}\n`;
-    // Claim the name with the .trashinfo first (O_EXCL), as the spec requires.
-    const handle = await open(join(info, `${name}.trashinfo`), constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
-    try { await handle.writeFile(record); } finally { await handle.close(); }
-    try { await rename(full, join(files, name)); } catch (error) {
-      if (error.code !== "EXDEV") { await rm(join(info, `${name}.trashinfo`), { force: true }); throw error; }
-      await cp(full, join(files, name), { recursive: true, preserveTimestamps: true });
-      await rm(full, { recursive: true, force: true });
-    }
-    return { path: full, trashed: name };
+    return { path: full, trashed: await this.bin.put(full) };
   }
 
   /** Put a trashed item back where it came from. */
   async restore(name) {
-    if (typeof name !== "string" || !name || name.includes("/") || name.startsWith(".")) throw new FsError(400, "bad_request", "A trash entry name is required");
-    const infoFile = join(this.trashDir, "info", `${name}.trashinfo`);
-    const record = await readFile(infoFile, "utf8").catch(() => { throw new FsError(404, "not_found", `No trash entry ${name}`); });
-    const original = decodeURIComponent(/^Path=(.*)$/m.exec(record)?.[1] ?? "");
-    const target = await this.target(original);
+    if (typeof name !== "string" || !name || /[\\/]/.test(name) || name.startsWith(".")) throw new FsError(400, "bad_request", "A trash entry name is required");
+    const entry = await this.bin.entry(name).catch((error) => { throw error.status ? new FsError(error.status, error.code, error.message) : error; });
+    const target = await this.target(entry.path);
     if (await lstat(target).catch(() => null)) throw new FsError(409, "exists", `${target} exists again; move it away first`);
     await mkdir(dirname(target), { recursive: true });
-    await rename(join(this.trashDir, "files", name), target);
-    await rm(infoFile, { force: true });
+    await rename(entry.location, target);
+    await this.bin.forget(name);
     return { path: target, restored: true };
   }
 
   /** Trash entries, newest first. */
   async trashed({ limit = 50 } = {}) {
-    const info = join(this.trashDir, "info");
-    const names = (await readdir(info).catch(() => [])).filter((n) => n.endsWith(".trashinfo"));
-    const out = [];
-    for (const file of names) {
-      const record = await readFile(join(info, file), "utf8").catch(() => "");
-      out.push({ name: file.slice(0, -".trashinfo".length), path: decodeURIComponent(/^Path=(.*)$/m.exec(record)?.[1] ?? ""), deleted: /^DeletionDate=(.*)$/m.exec(record)?.[1] ?? "" });
-    }
-    return out.sort((a, b) => b.deleted.localeCompare(a.deleted)).slice(0, limit);
+    return (await this.bin.list()).sort((a, b) => b.deleted.localeCompare(a.deleted)).slice(0, limit);
   }
 }
 
@@ -188,23 +173,6 @@ async function atomicWrite(full, bytes, mode) {
   }
   await handle.close();
   try { await rename(temp, full); } catch (error) { await rm(temp, { force: true }); throw error; }
-}
-
-async function uniqueName(folder, name) {
-  const ext = extname(name);
-  const stem = ext ? name.slice(0, -ext.length) : name;
-  for (let i = 0; ; i++) {
-    const candidate = i ? `${stem}.${i + 1}${ext}` : name;
-    const taken = await lstat(join(folder, candidate)).then(() => true, () => false)
-      || await lstat(join(folder, "..", "info", `${candidate}.trashinfo`)).then(() => true, () => false);
-    if (!taken) return candidate;
-  }
-}
-
-const encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
-function localIso(date) {
-  const p = (n) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}:${p(date.getSeconds())}`;
 }
 
 /** Wait until the file's version differs from `since` (a hash), or `waitMs` passes. */

@@ -8,11 +8,12 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
 import { promisify } from "node:util";
+import { program } from "../platform.mjs";
 import { FsError, versionOf } from "./writes.mjs";
 
 const run = promisify(execFile);
 
-export const inkscape = () => process.env.MAIL_WORKSPACE_INKSCAPE ?? "inkscape";
+export const inkscape = () => program("inkscape", "MAIL_WORKSPACE_INKSCAPE");
 
 /** Draw's names for Inkscape's actions. */
 export const OPERATIONS = {
@@ -37,7 +38,7 @@ export class Draw {
 
   async #inkscape(args, timeout = 180_000) {
     try {
-      return await run(inkscape(), args, { timeout, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, SELF_CALL: "1" } });
+      return await run(inkscape(), args, { timeout, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, SELF_CALL: "1" }, windowsHide: true });
     } catch (error) {
       if (error.code === "ENOENT") throw new FsError(501, "no_inkscape", "Inkscape is not installed (it does this part of Draw's work)");
       const detail = String(error.stderr ?? error.message).split("\n").filter((line) => line && !/^\s*$|Gtk-|dbus|Fontconfig/i.test(line)).slice(-3).join(" ");

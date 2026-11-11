@@ -1,6 +1,7 @@
 import { lstat, realpath, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import { basename, isAbsolute, relative } from "node:path";
+import { paths as listenerPaths } from "listener-mcp/config";
+import { appDirs, emailMcpDir } from "./platform.mjs";
 import nodemailer from "nodemailer";
 import { ImapFlow } from "imapflow";
 
@@ -8,7 +9,7 @@ const MAX_ATTACHMENTS = 10;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 function inside(path, parent) { const value = relative(parent, path); return value === "" || (!value.startsWith("..") && !isAbsolute(value)); }
-function protectedPaths() { const home = homedir(); return [resolve(home, ".config/email-mcp"), resolve(home, ".config/mail-mcp-workspace")]; }
+function protectedPaths() { return [emailMcpDir(), appDirs("mail-mcp-workspace").config, appDirs("mail-workspace").config, listenerPaths().config]; }
 export async function validateAttachments(attachments) {
   // A reply often carries no file, and sending it here rather than through the mail
   // server's own reply tool is what gets a copy filed in Sent.

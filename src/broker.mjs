@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { files } from "listener-mcp/config";
 
 // The watcher publishes with its own listener-mcp credential, scoped to
 // publish:mail/replies/** and read:mail/chat/sessions, so it can announce replies
@@ -10,7 +10,7 @@ export const DEFAULT_CREDENTIAL = "mail-watcher";
 
 export function credentialPath(name, env = process.env) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) throw new Error(`Invalid credential name ${JSON.stringify(name)}`);
-  return join(env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "listener-mcp", "credentials", `${name}.token`);
+  return join(files(env).credentials, `${name}.token`);
 }
 
 export async function brokerToken(env = process.env) {

@@ -5,7 +5,7 @@ import { open, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, extname, join, resolve } from "node:path";
 
-export const expand = (path) => resolve(String(path ?? "").replace(/^~(?=$|\/)/, homedir()));
+export const expand = (path) => resolve(String(path ?? "").replace(/^~(?=$|[\\/])/, homedir()));
 
 const kinds = {
   pdf: ["pdf"],

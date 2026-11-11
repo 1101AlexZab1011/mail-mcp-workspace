@@ -5,6 +5,7 @@
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import pty from "node-pty";
+import { terminalShell } from "../platform.mjs";
 import { expand } from "./files.mjs";
 
 const BUFFER_LIMIT = 2 * 1024 * 1024; // characters kept per session for late viewers and the agent
@@ -29,7 +30,7 @@ export class Terminals {
     this.counter = 0;
   }
 
-  create({ cwd, cols = 100, rows = 30, shell = process.env.SHELL ?? "/bin/bash", args = [], title } = {}) {
+  create({ cwd, cols = 100, rows = 30, shell = terminalShell(), args = [], title } = {}) {
     const id = `t${++this.counter}_${randomBytes(4).toString("hex")}`;
     const dir = cwd ? expand(cwd) : homedir();
     const proc = pty.spawn(shell, Array.isArray(args) ? args.map(String) : [], {
@@ -39,7 +40,7 @@ export class Terminals {
       cwd: dir,
       env: { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor", MAIL_WORKSPACE_TERMINAL: id },
     });
-    const session = { id, proc, cwd: dir, shell, title: title ?? shell.split("/").pop(), buffer: "", total: 0, subscribers: new Set(), waiters: new Set(), exited: null, created: new Date().toISOString(), cols, rows };
+    const session = { id, proc, cwd: dir, shell, title: title ?? shell.split(/[\\/]/).pop().replace(/\.exe$/i, ""), buffer: "", total: 0, subscribers: new Set(), waiters: new Set(), exited: null, created: new Date().toISOString(), cols, rows };
     proc.onData((data) => {
       // Programs ask the terminal questions (device attributes, version, cursor
       // position) and wait for answers. With no terminal attached, answer the

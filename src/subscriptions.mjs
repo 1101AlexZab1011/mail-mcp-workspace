@@ -1,11 +1,11 @@
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { workflowDirs } from "./config.mjs";
 
 // Reply subscriptions live in their own file rather than state.json: the MCP tools
 // and the watcher both change them, and routeInbox holds state.json in memory for a
 // whole poll, so sharing that file would let one writer drop the other's changes.
-export const defaultSubscriptionsPath = resolve(homedir(), ".local/state/mail-mcp-workspace/subscriptions.json");
+export const defaultSubscriptionsPath = join(workflowDirs.state, "subscriptions.json");
 export const DEFAULT_DAYS = 30;
 const LOCK_STALE_MS = 10_000;
 

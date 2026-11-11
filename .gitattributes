@@ -1,0 +1,17 @@
+# Check out with LF on every system: the editors save byte-for-byte, and tests
+# compare exact text, so Windows must not turn line endings into CRLF.
+* text=auto eol=lf
+# The vendored Slides sources keep the line endings they came with.
+slides/** -text
+*.png binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.icc binary
+*.woff2 binary
+*.ttf binary
+*.pfb binary
+*.bcmap binary
+*.wasm binary
+*.pdf binary
+*.xpi binary

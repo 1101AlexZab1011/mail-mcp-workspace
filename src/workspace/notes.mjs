@@ -4,7 +4,7 @@
 // Obsidian's, git's) are seen at once without a watcher.
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative, sep } from "node:path";
 import {
   DATABASE_SUFFIX, databaseFileOf, folderOf, inlineTags, isPage, markdownLinks, newDatabase, pageText, parseDatabase,
   queryRows, renameLinks, setProperties, splitPage, titleOf, wikilinks,
@@ -77,13 +77,13 @@ export class Notes {
     const name = String(target).replace(/\.md$/i, "").trim().toLowerCase();
     if (!name) return null;
     if (name.includes("/")) {
-      for (const page of this.pages.values()) if (relative(this.root, page.path).replace(/\.md$/i, "").toLowerCase() === name) return page.path;
+      for (const page of this.pages.values()) if (relative(this.root, page.path).split(sep).join("/").replace(/\.md$/i, "").toLowerCase() === name) return page.path;
     }
     const tail = name.split("/").pop();
     const candidates = [...this.pages.values()].filter((page) => page.title.toLowerCase() === tail);
     if (!candidates.length) return null;
     // Closest to the linking page first (most shared folders), then the shortest path.
-    const shared = (a) => { const x = a.split("/"); const y = (from ?? "").split("/"); let n = 0; while (n < x.length && x[n] === y[n]) n++; return n; };
+    const shared = (a) => { const x = a.split(/[\\/]/); const y = (from ?? "").split(/[\\/]/); let n = 0; while (n < x.length && x[n] === y[n]) n++; return n; };
     candidates.sort((a, b) => shared(b.path) - shared(a.path) || a.path.length - b.path.length);
     return candidates[0].path;
   }

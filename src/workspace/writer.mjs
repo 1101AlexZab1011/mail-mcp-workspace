@@ -4,10 +4,11 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { basename, delimiter, dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { appDirs, isMac, isWindows, killTree, program, spawnProgram } from "../platform.mjs";
 import { FsError } from "./writes.mjs";
 
-const QUARTO = process.env.QUARTO ?? "quarto";
+const QUARTO = program("quarto", "QUARTO");
 // The supervisor review runs Claude Code headless: no tools, no MCP servers, a
 // JSON schema for the answer. WRITER_REVIEW_CMD swaps the command (tests use a stub).
 const REVIEW_CMD = process.env.WRITER_REVIEW_CMD ?? "claude";
@@ -56,9 +57,14 @@ How to comment:
 - summary: one or two sentences: your overall judgement of the passage.
 - Keep the author's spelling variant (British or American) as in the text.`;
 const LANGUAGETOOL_URL = process.env.LANGUAGETOOL_URL ?? "http://127.0.0.1:8081";
-const LANGUAGETOOL_JARS = ["/usr/share/java/languagetool", "/usr/share/languagetool", "/opt/languagetool"];
-const LANGUAGETOOL_LAUNCHERS = ["/usr/bin/languagetool", "/usr/local/bin/languagetool"];
+// LANGUAGETOOL_HOME names an unpacked LanguageTool download (the folder with languagetool-server.jar).
+const LANGUAGETOOL_JARS = [process.env.LANGUAGETOOL_HOME, "/usr/share/java/languagetool", "/usr/share/languagetool", "/opt/languagetool"].filter(Boolean);
+// Arch's launcher takes --http; Homebrew's languagetool-server is the server already.
+const LANGUAGETOOL_LAUNCHERS = [["/usr/bin/languagetool", ["--http"]], ["/usr/local/bin/languagetool", ["--http"]], ["/opt/homebrew/bin/languagetool-server", []], ["/usr/local/bin/languagetool-server", []]];
 const LANGUAGETOOL_DATA = ["/usr/share/languagetool"];
+const LANGUAGETOOL_INSTALL = isWindows
+  ? "Download LanguageTool from languagetool.org, unpack it and set LANGUAGETOOL_HOME to its folder (Java is needed)"
+  : isMac ? "Install it with: brew install languagetool" : "Install it with: sudo pacman -S languagetool";
 const WRITABLE_DOCUMENTS = new Set([".qmd", ".md", ".markdown", ".rmd"]);
 
 /**
@@ -68,12 +74,12 @@ const WRITABLE_DOCUMENTS = new Set([".qmd", ".md", ".markdown", ".rmd"]);
 export async function runClaude({ prompt, schema, system, cwd = homedir(), model = REVIEW_MODEL, who = "agent", timeoutMs = 180_000 }) {
   const args = ["-p", "--output-format", "json", "--json-schema", JSON.stringify(schema), "--model", String(model), "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--append-system-prompt", system];
   const output = await new Promise((resolveRun, reject) => {
-    const child = spawn(process.env.WRITER_REVIEW_CMD ?? REVIEW_CMD, args, { cwd: existsSync(cwd) ? cwd : homedir(), env: process.env });
+    const child = spawnProgram(process.env.WRITER_REVIEW_CMD ?? REVIEW_CMD, args, { cwd: existsSync(cwd) ? cwd : homedir(), env: process.env });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
-    const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
+    const timer = setTimeout(() => killTree(child), timeoutMs);
     child.on("error", (error) => { clearTimeout(timer); reject(new FsError(503, "review_unavailable", `Could not start the ${who} (${error.message})`)); });
     child.on("close", (code) => { clearTimeout(timer); code === 0 ? resolveRun(stdout) : reject(new FsError(502, "review_failed", (stderr || stdout).trim().slice(-400) || `The ${who} exited with ${code}`)); });
     child.stdin.end(prompt);
@@ -91,7 +97,7 @@ export class Writer {
     this.files = files;
     this.log = log;
     this.cacheDir = cacheDir;
-    this.configDir = configDir ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "mail-workspace");
+    this.configDir = configDir ?? appDirs("mail-workspace").config;
     this.renders = new Map(); // path → { running, promise, result }
     this.languagetool = null; // spawned server, if we started one
     this.starting = null;
@@ -108,11 +114,11 @@ export class Writer {
     if (current?.running) return current.promise;
     const entry = { running: true, started: new Date().toISOString(), log: "" };
     entry.promise = new Promise((resolveRender) => {
-      const child = spawn(QUARTO, ["render", basename(full), "--to", to], { cwd: dirname(full), env: { ...process.env, QUARTO_PRINT_STACK: "false" } });
+      const child = spawnProgram(QUARTO, ["render", basename(full), "--to", to], { cwd: dirname(full), env: { ...process.env, QUARTO_PRINT_STACK: "false" } });
       const take = (chunk) => { entry.log += chunk.toString(); if (entry.log.length > 400_000) entry.log = entry.log.slice(-300_000); };
       child.stdout.on("data", take);
       child.stderr.on("data", take);
-      const timer = setTimeout(() => child.kill("SIGTERM"), 10 * 60_000);
+      const timer = setTimeout(() => killTree(child), 10 * 60_000);
       child.on("error", (error) => { entry.log += `\n${error.message}`; });
       child.on("close", async (code) => {
         clearTimeout(timer);
@@ -188,20 +194,20 @@ export class Writer {
       const port = new URL(LANGUAGETOOL_URL).port || "8081";
       // The package's launcher knows its own class path (the server jar alone is not enough: Arch splits
       // LanguageTool over several jars and a data folder); without it, build the path the same way.
-      const launcher = LANGUAGETOOL_LAUNCHERS.find((path) => existsSync(path));
+      const launcher = LANGUAGETOOL_LAUNCHERS.find(([path]) => existsSync(path));
       let command;
       let args;
-      if (launcher) [command, args] = [launcher, ["--http", "--port", port]];
+      if (launcher) [command, args] = [launcher[0], [...launcher[1], "--port", port]];
       else {
         const jar = await findLanguageToolJar();
-        if (!jar) throw new FsError(503, "grammar_unavailable", "LanguageTool is not installed. Install it with: sudo pacman -S languagetool");
+        if (!jar) throw new FsError(503, "grammar_unavailable", `LanguageTool is not installed. ${LANGUAGETOOL_INSTALL}`);
         const dir = dirname(jar);
         const jars = (await readdir(dir).catch(() => [])).filter((n) => n.endsWith(".jar")).map((n) => join(dir, n));
-        const classPath = [...LANGUAGETOOL_DATA.filter((d) => existsSync(d)), ...jars, join(dir, "libs", "*")].join(":");
-        [command, args] = ["java", ["-cp", classPath, "org.languagetool.server.HTTPServer", "--port", port]];
+        const classPath = [...LANGUAGETOOL_DATA.filter((d) => existsSync(d)), ...jars, join(dir, "libs", "*")].join(delimiter);
+        [command, args] = [program("java", "LANGUAGETOOL_JAVA"), ["-cp", classPath, "org.languagetool.server.HTTPServer", "--port", port]];
       }
       this.log(`starting LanguageTool server on port ${port}`);
-      this.languagetool = spawn(command, args, { stdio: "ignore" });
+      this.languagetool = spawn(command, args, { stdio: "ignore", windowsHide: true });
       this.languagetool.on("exit", () => { this.languagetool = null; });
       for (let i = 0; i < 60; i++) {
         await new Promise((r) => setTimeout(r, 500));

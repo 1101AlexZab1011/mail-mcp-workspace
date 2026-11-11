@@ -126,8 +126,11 @@ test("capabilities: nothing runs before the user approves, and an agent cannot a
   assert.equal((await call(agent, "POST", "/v1/artifacts/call", { path: "shell", method: "exec", args: { command: "echo hi" } })).status, 403, "agents cannot run capabilities");
 
   assert.equal((await call(addon, "POST", "/v1/artifacts/grant", { path: "shell", declared: { exec: { cwd: work } } })).status, 200);
-  const ran = await call(addon, "POST", "/v1/artifacts/call", { path: "shell", method: "exec", args: { command: "pwd && echo hi" } });
-  assert.equal(ran.value.stdout.trim(), `${work}\nhi`);
+  // Commands run in bash, and in PowerShell on Windows.
+  const command = process.platform === "win32" ? "(Get-Location).Path; 'hi'" : "pwd && echo hi";
+  const ran = await call(addon, "POST", "/v1/artifacts/call", { path: "shell", method: "exec", args: { command } });
+  assert.equal(ran.value.stdout.trim().replace(/\r\n/g, "\n"), `${work}\nhi`);
+  assert.equal(ran.value.shell, process.platform === "win32" ? "powershell" : "bash");
   assert.equal((await call(addon, "POST", "/v1/artifacts/call", { path: "shell", method: "exec", args: { command: "pwd", cwd: "/" } })).status, 403);
   assert.equal((await call(addon, "POST", "/v1/artifacts/call", { path: "shell", method: "fs.read", args: { path: "/etc/passwd" } })).status, 403);
 
@@ -168,7 +171,8 @@ test("terminals: a real shell the add-on and the agent share", async (t) => {
   const created = await call(addon, "POST", "/v1/term", { cwd: home, cols: 90, rows: 20 });
   assert.equal(created.status, 200, JSON.stringify(created.value));
   const id = created.value.id;
-  const ran = await call(addon, "POST", `/v1/term/${id}/run`, { command: "echo hello-42; tput cols", idleMs: 600, timeoutMs: 10000 });
+  const columns = process.platform === "win32" ? "$Host.UI.RawUI.WindowSize.Width" : "tput cols";
+  const ran = await call(addon, "POST", `/v1/term/${id}/run`, { command: `echo hello-42; ${columns}`, idleMs: process.platform === "win32" ? 2000 : 600, timeoutMs: 20000 });
   assert.match(ran.value.output, /hello-42/);
   assert.match(ran.value.output, /\b90\b/, "the pty has the requested size");
   const read = await call(addon, "GET", `/v1/term/${id}/read?lines=50`);

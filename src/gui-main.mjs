@@ -9,8 +9,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readFile } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 import { z } from "zod";
 import { ListenerClient } from "listener-mcp/client";
+import { wirePaths } from "./platform.mjs";
 
 const HOST = process.env.MAIL_WORKSPACE_HOST ?? "http://127.0.0.1:47810";
 const CREDENTIAL = process.env.MAIL_GUI_CREDENTIAL ?? "email-agent";
@@ -24,7 +26,7 @@ const tool = (fn) => async (params) => { try { return await fn(params); } catch 
 /** Run a GUI command in Thunderbird and return its result. */
 async function gui(command, args = {}, { timeoutMs = 120_000 } = {}) {
   const c = await connect();
-  const sent = await c.publish({ channel: "mail/gui/commands", type: "command", data: { command, args }, ttlMs: timeoutMs, waitReplyMs: timeoutMs });
+  const sent = await c.publish({ channel: "mail/gui/commands", type: "command", data: { command, args: wirePaths(args) }, ttlMs: timeoutMs, waitReplyMs: timeoutMs });
   const reply = sent.replies?.[0]?.data;
   if (!reply) throw new Error("Thunderbird did not answer. Is it running with the Mail Workspace add-on?");
   if (!reply.ok) throw new Error(reply.error);
@@ -560,7 +562,7 @@ register("notes_search", "Search Notes pages by words in their title, tags, prop
 
 async function notesPath(page) {
   if (!page) return null;
-  if (page.startsWith("/") || page.startsWith("~")) return page;
+  if (isAbsolute(page) || page.startsWith("~")) return page;
   const { path } = await hostCall(`/v1/notes/resolve?${notesQuery({ target: page })}`);
   if (!path) throw new Error(`No page “${page}”`);
   return path;

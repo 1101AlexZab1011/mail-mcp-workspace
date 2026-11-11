@@ -1,19 +1,12 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { chmod, mkdir, writeFile } from "node:fs/promises";
-import { execFile } from "node:child_process";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { homedir } from "node:os";
-import { promisify } from "node:util";
 import { z } from "zod";
 import { accountPolicy, defaultStatePath, initPolicy, loadEmailConfig, loadPolicy } from "./config.mjs";
+import { watcherService } from "./services.mjs";
 import { defaultSubscriptionsPath, list as listSubscriptions, listWatches, subscribe, unsubscribe, unwatch, watch } from "./subscriptions.mjs";
 import { classifyMailbox, fileReviewedMessage, overrideStatus, reviewPending, routeInbox, searchStatuses, undoLastRun, watchReplies } from "./workflow.mjs";
 
-const execFileAsync = promisify(execFile);
-const watcherService = "mail-mcp-workflow-watcher.service";
 // The Agent Chat session whose agent a notification wakes; the skill passes its own.
 const chatParam = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional().describe("Agent Chat session id to wake (default: Agent 1, id \"default\")");
 
@@ -40,14 +33,8 @@ async function sync(accountName, dryRun = true) {
 async function installWatcherService(account, seconds) {
   if (!account || !Number.isFinite(seconds) || seconds < 30) throw new Error("Usage: mail-workflow-mcp install-watcher-service <account> [seconds, minimum 30]");
   await select(account);
-  const unitPath = resolve(process.env.XDG_CONFIG_HOME ?? resolve(homedir(), ".config"), `systemd/user/${watcherService}`);
-  const scriptPath = fileURLToPath(import.meta.url);
-  await mkdir(dirname(unitPath), { recursive: true, mode: 0o700 });
-  await writeFile(unitPath, `[Unit]\nDescription=Mail MCP workflow watcher\n\n[Service]\nWorkingDirectory=${resolve(dirname(scriptPath), "..")}\nExecStart=${process.execPath} ${scriptPath} watch ${account} ${seconds} --apply\nRestart=on-failure\nRestartSec=15\n\n[Install]\nWantedBy=default.target\n`, { mode: 0o600 });
-  await chmod(unitPath, 0o600);
-  await execFileAsync("systemctl", ["--user", "daemon-reload"]);
-  await execFileAsync("systemctl", ["--user", "enable", "--now", watcherService]);
-  return { service: watcherService, account, interval_seconds: seconds, unit_path: unitPath };
+  const installed = await watcherService(account, seconds).install();
+  return { service: "mail-mcp-workflow-watcher", account, interval_seconds: seconds, ...installed };
 }
 
 async function runMcp() {

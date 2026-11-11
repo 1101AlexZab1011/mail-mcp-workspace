@@ -5,13 +5,15 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { access, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { program } from "../platform.mjs";
 
 const run = promisify(execFile);
 let queue = Promise.resolve();
 
 export function soffice() {
-  return process.env.MAIL_WORKSPACE_SOFFICE ?? "soffice";
+  return program("soffice", "MAIL_WORKSPACE_SOFFICE");
 }
 
 export async function toPdf(path, cacheDir) {
@@ -25,9 +27,9 @@ export async function toPdf(path, cacheDir) {
     await mkdir(work, { recursive: true, mode: 0o700 });
     try {
       await run(soffice(), [
-        `-env:UserInstallation=file://${join(cacheDir, "lo-profile")}`,
+        `-env:UserInstallation=${pathToFileURL(join(cacheDir, "lo-profile")).href}`,
         "--headless", "--norestore", "--nologo", "--convert-to", "pdf", "--outdir", work, path,
-      ], { timeout: 180_000, maxBuffer: 4 * 1024 * 1024 });
+      ], { timeout: 180_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true });
       const produced = (await readdir(work)).find((name) => name.toLowerCase().endsWith(".pdf"));
       if (!produced) throw new Error(`LibreOffice produced no PDF for ${basename(path)}`);
       await rename(join(work, produced), target);

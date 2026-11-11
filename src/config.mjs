@@ -1,11 +1,12 @@
 import { readFile, copyFile, mkdir, access } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { parse } from "smol-toml";
+import { appDirs, emailMcpDir } from "./platform.mjs";
 
-export const defaultEmailConfigPath = resolve(homedir(), ".config/email-mcp/config.toml");
-export const defaultPolicyPath = resolve(homedir(), ".config/mail-mcp-workspace/policy.toml");
-export const defaultStatePath = resolve(homedir(), ".local/state/mail-mcp-workspace/state.json");
+export const workflowDirs = appDirs("mail-mcp-workspace");
+export const defaultEmailConfigPath = join(emailMcpDir(), "config.toml");
+export const defaultPolicyPath = join(workflowDirs.config, "policy.toml");
+export const defaultStatePath = join(workflowDirs.state, "state.json");
 export const examplePolicyPath = new URL("../config/policy.example.toml", import.meta.url);
 
 export async function loadEmailConfig(path = process.env.MAIL_WORKFLOW_EMAIL_CONFIG ?? defaultEmailConfigPath) {

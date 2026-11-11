@@ -23,6 +23,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { matches } from "listener-mcp";
+import { appDirs, openOnDesktop, wirePaths } from "../platform.mjs";
 import { expand, listDirectory, mimeOf, readText, statPath, complete } from "./files.mjs";
 import { CODE_THEMES, DEFAULT_CODE_THEME, highlight } from "./highlight.mjs";
 import { needsConversion, toPdf } from "./convert.mjs";
@@ -49,7 +50,7 @@ class HttpError extends Error {
 function send(response, status, value, headers = {}) {
   if (response.headersSent) return;
   response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff", ...headers });
-  response.end(JSON.stringify(value));
+  response.end(JSON.stringify(wirePaths(value)));
 }
 
 async function readJson(request, limit = 8 * 1024 * 1024) {
@@ -85,11 +86,11 @@ export async function startHost({
   port = DEFAULT_HOST_PORT,
   brokerUrl = process.env.LISTENER_MCP_URL ?? "http://127.0.0.1:47800",
   artifactsRoot = process.env.MAIL_WORKSPACE_ARTIFACTS ?? join(homedir(), "Artifacts"),
-  cacheDir = join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "mail-workspace"),
+  cacheDir = appDirs("mail-workspace").cache,
   grantsPath,
   filesRoot = process.env.MAIL_WORKSPACE_FILES_ROOT ?? homedir(),
   trashDir,
-  configDir = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "mail-workspace"),
+  configDir = appDirs("mail-workspace").config,
   log = () => {},
 } = {}) {
   await mkdir(cacheDir, { recursive: true, mode: 0o700 });
@@ -148,7 +149,7 @@ export async function startHost({
     watcher = watch(store.root, { recursive: true }, (_event, file) => {
       if (!file || file.startsWith(".trash")) return;
       version++;
-      changed.set(version, String(file).split("/").slice(0, -1).join("/"));
+      changed.set(version, String(file).split(/[\\/]/).slice(0, -1).join("/"));
       if (changed.size > 500) changed.delete(changed.keys().next().value);
       for (const wake of changeWaiters) wake();
       changeWaiters = [];
@@ -419,8 +420,7 @@ export async function startHost({
     need(principal, "publish", "mail/workspace/open");
     const full = expand((await readJson(request)).path);
     await stat(full);
-    const { spawn } = await import("node:child_process");
-    spawn(process.platform === "darwin" ? "open" : "xdg-open", [full], { detached: true, stdio: "ignore" }).unref();
+    openOnDesktop(full);
     return { opened: full };
   });
 
