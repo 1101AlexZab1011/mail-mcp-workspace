@@ -45,7 +45,10 @@ user instead of describing clicks.
 
 ## Terminal
 
-The terminal is shared with the user: whatever you type there, they see.
+The terminal is shared with the user: whatever you type there, they see. It runs
+the user's login shell, and PowerShell on Windows; check `gui_state` paths
+(`C:/Users/…`) to know which system you are on. On macOS the user's shortcuts
+use ⌘ where this skill says Ctrl.
 
 - `terminal_list` shows the open terminals. `terminal_open` starts one
   (`placement`: `tab`, `right` or `down`; `cwd`), and `terminal_panel` shows
@@ -120,7 +123,9 @@ Artifacts are React apps kept in `~/Artifacts`, organised in folders.
    `"workspace"` (`exec`, `shell`, `fetchLocal`, `readFile`, `writeFile`,
    `listDir`, `askAgent`) and declare the narrowest `capabilities`
    (`exec: {cwd}`, `fetch: {origins}`, `fs: {read, write}`, `agent: true`).
-   Tell the user they must allow them in the Artifacts space.
+   Tell the user they must allow them in the Artifacts space. `exec` and `shell`
+   run bash, but PowerShell on Windows: write commands for the user's system
+   (`exec` results say which shell ran them).
 4. If `artifact_open` reports a build error, fix it with `artifact_update`.
    The open artifact reloads by itself.
 

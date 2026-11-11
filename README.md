@@ -19,9 +19,26 @@ No account details, server addresses, passwords, OAuth tokens, or Thunderbird pr
 
 ## Requirements
 
-- Node.js 24 or newer
+Linux, macOS or Windows 10/11, with:
+
+- Node.js 24 or newer, and Git (npm fetches listener-mcp from GitHub)
 - An IMAP/SMTP mail account (an app password is recommended when supported)
-- Thunderbird, installed separately, if you want a graphical mail client
+- Thunderbird 140 or newer, installed separately, if you want a graphical mail client
+
+Optional programs, each used for one part of the workspace:
+
+| Program | Used for | Linux | macOS | Windows |
+|---------|----------|-------|-------|---------|
+| LibreOffice | viewing Word and PowerPoint files | package manager | `brew install --cask libreoffice` | `winget install TheDocumentFoundation.LibreOffice` |
+| Inkscape | Draw: path operations, PDF and PNG export | package manager | `brew install --cask inkscape` | `winget install Inkscape.Inkscape` |
+| Quarto | Writer: rendering documents | package manager | `brew install --cask quarto` | `winget install Posit.Quarto` |
+| LanguageTool (Java) | Writer: grammar checks | package manager | `brew install languagetool` | unpack the download, set `LANGUAGETOOL_HOME` |
+
+They are found on `PATH` or where their installers put them (the app bundle on
+macOS, Program Files on Windows). `MAIL_WORKSPACE_INKSCAPE`,
+`MAIL_WORKSPACE_SOFFICE` and `QUARTO` point at a program anywhere else.
+
+On Windows, run the commands below in PowerShell (or Git Bash).
 
 ## Install on another machine
 
@@ -30,7 +47,7 @@ git clone https://github.com/YOUR-GITHUB-USER/mail-mcp-workspace.git
 cd mail-mcp-workspace
 npm ci
 npm run configure
-chmod 600 ~/.config/email-mcp/config.toml
+chmod 600 ~/.config/email-mcp/config.toml   # Linux and macOS
 npm run verify
 ```
 
@@ -61,7 +78,13 @@ args = ["/absolute/path/to/mail-mcp-workspace/src/gui-main.mjs"]
 ```
 
 For Claude Code, register the same servers in user scope, so agents started in
-any directory have them:
+any directory have them. On any system:
+
+```bash
+node scripts/register-mcp.mjs     # --remove takes them out again
+```
+
+or by hand (bash):
 
 ```bash
 repo=/absolute/path/to/mail-mcp-workspace
@@ -88,7 +111,7 @@ npm run workflow:init              # create ~/.config/mail-mcp-workspace/policy.
 npm run workflow:sync -- personal  # preview routing, status classification, and filing
 npm run workflow:sync -- personal --apply
 npm run workflow:watch -- personal 300 --apply
-npm run workflow:install-watcher -- personal 60 # install/start a systemd user service
+npm run services:install -- --watch personal --every 60   # run the watcher at login
 ```
 
 Start with the generated policy's `review` mode. The supported filing modes are
@@ -118,8 +141,11 @@ routing_mode = "watcher"
 routing_source_mailboxes = ["INBOX", "Additional", "Important"]
 ```
 
-The service is named `mail-mcp-workflow-watcher.service`; manage it with
-`systemctl --user status|stop|restart mail-mcp-workflow-watcher.service`.
+`npm run services:status` shows it. The service is a systemd user unit
+`mail-mcp-workflow-watcher.service` on Linux, the launchd agent
+`dev.mail-workspace.watcher` on macOS, and the logon task
+`mail-mcp-workflow-watcher` on Windows; its log is `watcher.log` in the
+workspace's state folder (see [Files on each system](#files-on-each-system)).
 
 `mail-workflow-mcp` currently supports password-authenticated IMAP accounts
 configured by email-mcp. Providers requiring OAuth-only access need an upstream
@@ -200,15 +226,19 @@ Set it up on each machine:
 
 ```bash
 npm install -g --allow-git=root github:1101AlexZab1011/listener-mcp
-listener-mcp service install             # broker, systemd user service
+listener-mcp service install             # the broker, started at login
 npm ci                                   # add-on and host dependencies
-node src/workspace-main.mjs install-service   # workspace host, systemd user service
+npm run services:install                 # the workspace host, started at login
 listener-mcp init --user --agent claude,codex   # listener MCP server, hooks and skill for every session
-listener-mcp app add mail --credential email-agent --group 'mail-chat-{instance}' \
-  --channels 'mail/chat/{instance},mail/replies/{instance}/**' --from now --exclusive --single-instance
-listener-mcp token create --name mail-watcher --scopes 'publish:mail/replies/**,read:mail/chat/sessions' --save   # reply announcements
+listener-mcp app add mail --credential email-agent --group "mail-chat-{instance}" --channels "mail/chat/{instance},mail/replies/{instance}/**" --from now --exclusive --single-instance
+listener-mcp token create --name mail-watcher --scopes "publish:mail/replies/**,read:mail/chat/sessions" --save   # reply announcements
 npm run chat:addon                       # builds dist/agent-chat.xpi
 ```
+
+The commands are the same on every system. `service install` and
+`services:install` set up per-user services: systemd user units on Linux,
+launchd agents on macOS, logon tasks on Windows (they run hidden, and restart
+after a failure).
 
 Agent Chat holds several **sessions**, each its own conversation with its own
 agent. Click the agent icon in the chat header to switch, rename, delete or
@@ -231,7 +261,17 @@ for skill in email-start-chat email-compose email-review-pending email-summary m
 done
 ```
 
-Install `dist/agent-chat.xpi` from **Add-ons and Themes → gear menu → Install
+On Windows (PowerShell), junctions need no administrator rights:
+
+```powershell
+foreach ($skill in "email-start-chat","email-compose","email-review-pending","email-summary","mail-workspace") {
+  New-Item -ItemType Junction -Force -Path "$HOME\.claude\skills\$skill" -Target "$PWD\skills\$skill"
+}
+```
+
+Install `dist/agent-chat.xpi` (or `agent-chat.xpi` from the repository's
+[Releases](https://github.com/1101AlexZab1011/mail-mcp-workspace/releases),
+built for each version tag) from **Add-ons and Themes → gear menu → Install
 Add-on From File**. Then pair the add-on:
 
 1. Open its settings page, which shows the exact `listener-mcp pair …`
@@ -243,8 +283,7 @@ For GUI control, the agent's credential also needs the GUI and workspace
 scopes:
 
 ```bash
-listener-mcp token create --name email-agent --replace --save --scopes \
-  'subscribe:mail/chat/**,publish:mail/chat/**,read:mail/chat/**,publish:mail/gui/commands,read:mail/gui/**,read:mail/workspace/files,publish:mail/workspace/fs,publish:mail/workspace/render,publish:mail/workspace/artifacts,read:mail/workspace/artifacts,publish:mail/workspace/terminal,blobs'
+listener-mcp token create --name email-agent --replace --save --scopes "subscribe:mail/chat/**,publish:mail/chat/**,read:mail/chat/**,publish:mail/gui/commands,read:mail/gui/**,read:mail/workspace/files,publish:mail/workspace/fs,publish:mail/workspace/render,publish:mail/workspace/artifacts,read:mail/workspace/artifacts,publish:mail/workspace/terminal,blobs"
 ```
 
 The agent's token deliberately lacks `publish:mail/workspace/grants` and
@@ -258,12 +297,35 @@ file that changed since it was read. Trashing needs
 `publish:mail/workspace/fs-trash`, which only the add-on has, so the agent's
 `files_trash` always asks you in the chat first.
 
+### Files on each system
+
+| What | Linux | macOS | Windows |
+|------|-------|-------|---------|
+| Mail accounts (email-mcp) | `~/.config/email-mcp` | `~/.config/email-mcp` | `%USERPROFILE%\.config\email-mcp` |
+| Workflow policy and state | `~/.config/mail-mcp-workspace`, `~/.local/state/mail-mcp-workspace` | `~/Library/Application Support/mail-mcp-workspace` | `%APPDATA%\mail-mcp-workspace` |
+| Workspace settings, grants, logs, editor backups | `~/.config/mail-workspace`, `~/.local/state/mail-workspace` | `~/Library/Application Support/mail-workspace` | `%APPDATA%\mail-workspace` |
+| Workspace cache | `~/.cache/mail-workspace` | `~/Library/Caches/mail-workspace` | `%LOCALAPPDATA%\mail-workspace\Cache` |
+| listener-mcp tokens | `~/.config/listener-mcp` | `~/Library/Application Support/listener-mcp` | `%APPDATA%\listener-mcp` |
+
+What else differs:
+
+- **Trash.** Deleting goes to the system's Trash: the freedesktop Trash, the
+  macOS Trash, or the Recycle Bin. Restoring works from the workspace and from
+  the file manager.
+- **Shells.** The terminal opens your login shell; on Windows, PowerShell 7 if
+  it is installed, else Windows PowerShell (`MAIL_WORKSPACE_SHELL` picks
+  another). Artifact commands run in bash, and in PowerShell on Windows
+  (`MAIL_WORKSPACE_EXEC_SHELL=bash` uses Git Bash there).
+- **Shortcuts.** On macOS, <kbd>⌘</kbd> replaces <kbd>Ctrl</kbd> in the
+  workspace's shortcuts, and the hints say so. <kbd>Ctrl</kbd>+<kbd>`</kbd>
+  stays the terminal, since <kbd>⌘</kbd>+<kbd>`</kbd> switches windows.
+
 To start chatting, run `/email-start-chat <session name>` in Claude Code or
 Codex, in any directory (restart the agent after `init --user`). The `mail-workspace` skill teaches the agent the GUI
 tools. Disabling the add-on restores Thunderbird's own layout, tab bar and
 look.
 
-**Development.** Start Thunderbird with `node scripts/tb.mjs restart` (it
+**Development** (Linux). Start Thunderbird with `node scripts/tb.mjs restart` (it
 enables Marionette), then:
 
 - `node scripts/tb.mjs install` loads the add-on from its folder;
@@ -292,7 +354,7 @@ npm test            # run local workflow tests
 Credentials are deliberately kept outside the repository. Do not commit `~/.config/email-mcp/config.toml`, a Thunderbird profile, `.env` files, or MCP client configuration files. The provided `.gitignore` excludes common local credential files, but always inspect `git status` before committing.
 
 Agent Chat's tokens and conversation history belong to listener-mcp and live
-outside the repository (`~/.config/listener-mcp/`, `~/.local/state/listener-mcp/`).
+outside the repository (see [Files on each system](#files-on-each-system)).
 
 - The broker binds only to `127.0.0.1` and checks the `Host` header.
 - Every request needs a token, scoped here to `mail/chat/**`.

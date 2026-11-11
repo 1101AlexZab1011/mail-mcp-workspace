@@ -1,0 +1,22 @@
+name: release
+# A version tag (v2.9.0) builds the add-on and attaches it to a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  addon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm test
+      - run: npm run chat:addon
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/agent-chat.xpi
+          generate_release_notes: true

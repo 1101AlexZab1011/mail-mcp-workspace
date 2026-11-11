@@ -30,7 +30,7 @@ function call(method, args) {
   return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
 }
 
-/** Run a command once (needs an `exec` grant). Resolves { code, stdout, stderr }. */
+/** Run a command once (needs an `exec` grant): in bash, or PowerShell on Windows. Resolves { code, stdout, stderr, shell }. */
 export const exec = (command, { cwd, stdin, timeout, env } = {}) => call("exec", { command, cwd, stdin, timeout, env });
 
 /**
