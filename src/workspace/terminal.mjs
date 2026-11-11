@@ -3,10 +3,23 @@
 // over server-sent events and sends keystrokes back; the agent can run a
 // command and read what it printed, visibly, in the same terminal.
 import { randomBytes } from "node:crypto";
+import { chmodSync, existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import pty from "node-pty";
 import { terminalShell } from "../platform.mjs";
 import { expand } from "./files.mjs";
+
+// node-pty starts shells on macOS through a helper that npm unpacks without its execute bit
+// ("posix_spawnp failed"); give it back once.
+if (process.platform === "darwin") {
+  const prebuilds = join(dirname(createRequire(import.meta.url).resolve("node-pty/package.json")), "prebuilds");
+  for (const arch of ["darwin-arm64", "darwin-x64"]) {
+    const helper = join(prebuilds, arch, "spawn-helper");
+    try { if (existsSync(helper)) chmodSync(helper, 0o755); } catch { /* read-only install: nothing to do */ }
+  }
+}
 
 const BUFFER_LIMIT = 2 * 1024 * 1024; // characters kept per session for late viewers and the agent
 const fail = (status, code, message) => Object.assign(new Error(message), { status, code });

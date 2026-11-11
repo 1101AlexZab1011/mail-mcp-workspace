@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,8 +7,29 @@ import { startBroker } from "listener-mcp/broker";
 import { ListenerClient } from "listener-mcp/client";
 import { startHost } from "../src/workspace/host.mjs";
 
+// The host sends Windows paths with "/" (C:/Users/…, see platform.mjs); the tests compare them as
+// Windows writes them.
+const native = (value) => {
+  if (process.platform !== "win32") return value;
+  if (typeof value === "string") return /^[A-Z]:\//.test(value) && !value.includes("\n") ? value.replace(/\//g, "\\") : value;
+  if (Array.isArray(value)) return value.map(native);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, native(item)]));
+  return value;
+};
+
+/** The review stub as a command: the script, or on Windows a .cmd shim as npm writes them. */
+async function reviewStub(dir) {
+  const script = join(import.meta.dirname, "fixtures/writer/review-stub.mjs");
+  if (process.platform !== "win32") return script;
+  const { copyFile } = await import("node:fs/promises");
+  await copyFile(script, join(dir, "review-stub.mjs"));
+  await writeFile(join(dir, "review-stub.cmd"), `@ECHO off\r\nSET dp0=%~dp0\r\n"${process.execPath}" "%dp0%\\review-stub.mjs" %*\r\n`);
+  return join(dir, "review-stub.cmd");
+}
+
 async function setup(t) {
-  const home = await mkdtemp(join(tmpdir(), "mw-host-"));
+  // The real path: macOS's temp folder is behind /var → /private/var, Windows' may be a short (8.3) name.
+  const home = await realpath(await mkdtemp(join(tmpdir(), "mw-host-")));
   const env = { ...process.env, LISTENER_MCP_HOME: join(home, "listener") };
   const config = { version: 1, host: "127.0.0.1", port: 0, limits: { event_bytes: 262144, blob_bytes: 1e6, lease_ms: 60000, max_attempts: 10, retention_days: 30 } };
   const broker = await startBroker({ config, env, database: ":memory:", port: 0 });
@@ -18,11 +39,12 @@ async function setup(t) {
   const stranger = (await admin.createToken({ name: "stranger", scopes: ["publish:crm/**"] })).token;
   const host = await startHost({ port: 0, brokerUrl: broker.url, artifactsRoot: join(home, "Artifacts"), cacheDir: join(home, "cache"), grantsPath: join(home, "grants.json"), filesRoot: join(home, "files"), trashDir: join(home, "trash"), configDir: join(home, "files/.config/mail-workspace") });
   await mkdir(join(home, "files"), { recursive: true });
-  t.after(async () => { await host.close(); await broker.close(); await rm(home, { recursive: true, force: true }); });
+  // Windows frees a shell's folder a moment after the shell ends.
+  t.after(async () => { await host.close(); await broker.close(); await rm(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 }); });
   const base = `http://127.0.0.1:${host.port}`;
   const call = async (token, method, path, body) => {
     const response = await fetch(base + path, { method, headers: { authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
-    const value = await response.json().catch(() => null);
+    const value = native(await response.json().catch(() => null));
     return { status: response.status, value };
   };
   return { home, base, call, addon, agent, stranger, admin };
@@ -70,6 +92,9 @@ test("files: auth, scopes, listing, kinds, text, highlight, sheets and ranged li
 });
 
 test("office documents convert to PDF through LibreOffice", { timeout: 180_000 }, async (t) => {
+  const { soffice } = await import("../src/workspace/convert.mjs");
+  const { execFileSync } = await import("node:child_process");
+  try { execFileSync(soffice(), ["--version"], { stdio: "ignore", timeout: 60_000 }); } catch { t.skip("LibreOffice is not installed"); return; }
   const { home, base, call, addon } = await setup(t);
   const file = join(home, "letter.rtf");
   await writeFile(file, "{\\rtf1\\ansi Hello from a document.}");
@@ -272,8 +297,8 @@ test("writer: bibliography from the document header, and Quarto rendering", { ti
 });
 
 test("writer: supervisor review keeps only comments that quote the passage", async (t) => {
-  const { call, addon, agent } = await setup(t);
-  process.env.WRITER_REVIEW_CMD = join(import.meta.dirname, "fixtures/writer/review-stub.mjs");
+  const { home, call, addon, agent } = await setup(t);
+  process.env.WRITER_REVIEW_CMD = await reviewStub(home);
   t.after(() => { delete process.env.WRITER_REVIEW_CMD; });
   const text = "Grid cells fires in the frontal lobe, therefore memory fails.";
   assert.equal((await call(agent, "POST", "/v1/writer/review", { text })).status, 403, "the agent does not run reviews");
@@ -305,7 +330,7 @@ test("writer: review quotes match across whitespace and never overlap", async ()
 
 test("slides: create, read and edit a deck file through ops; fonts; rewrites", async (t) => {
   const { home, base, call, addon, agent } = await setup(t);
-  process.env.WRITER_REVIEW_CMD = join(import.meta.dirname, "fixtures/writer/review-stub.mjs");
+  process.env.WRITER_REVIEW_CMD = await reviewStub(home);
   t.after(() => { delete process.env.WRITER_REVIEW_CMD; });
   const path = join(home, "files/talk.slides.json");
   assert.equal((await call(agent, "POST", "/v1/slides/new", { path: join(home, "files/talk.json") })).status, 400, "decks end in .slides.json");

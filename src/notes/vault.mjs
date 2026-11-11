@@ -8,7 +8,7 @@ import YAML from "yaml";
 
 export const DATABASE_SUFFIX = ".base.json";
 export const isPage = (path) => /\.md$/i.test(path);
-export const titleOf = (path) => String(path).split("/").pop().replace(/\.md$/i, "");
+export const titleOf = (path) => String(path).split(/[\\/]/).pop().replace(/\.md$/i, "");
 export const folderOf = (path) => String(path).replace(/\.md$/i, ""); // Projects.md → Projects (its subpages)
 export const databaseFileOf = (path) => `${folderOf(path)}${DATABASE_SUFFIX}`;
 

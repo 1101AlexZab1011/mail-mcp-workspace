@@ -121,7 +121,8 @@ export class RecycleBin {
 
   async #dir() {
     if (!this.sid) {
-      const { stdout } = await run("whoami", ["/user", "/fo", "csv", "/nh"]);
+      // System32's whoami: Git for Windows puts a Unix whoami earlier on PATH.
+      const { stdout } = await run(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "whoami.exe"), ["/user", "/fo", "csv", "/nh"], { windowsHide: true });
       this.sid = /"(S-1-[\d-]+)"/.exec(stdout)?.[1];
       if (!this.sid) throw new Error("Could not find this user's Recycle Bin");
     }

@@ -5,9 +5,9 @@
 // Linux keeps the XDG folders it always used. macOS and Windows get their own
 // conventions (Application Support, AppData), as listener-mcp does.
 import { execFile, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { commandLine, whichWindows } from "listener-mcp/command";
 
@@ -65,9 +65,26 @@ export function program(name, envVar, env = process.env) {
   return onPath(name, env) ?? KNOWN[name]?.(env).find((path) => existsSync(path)) ?? name;
 }
 
-/** spawn() that also starts Windows .cmd shims (npm-installed CLIs such as claude). */
+/** The script an npm .cmd shim runs ("%dp0%\\node_modules\\…\\cli.js" %*), or null. */
+export function npmShimTarget(file) {
+  try {
+    const target = /"%~?dp0%?\\([^"]+\.[cm]?js)"\s+%\*/i.exec(readFileSync(file, "utf8"))?.[1];
+    return target ? join(dirname(file), target) : null;
+  } catch { return null; }
+}
+
+/**
+ * spawn() that also starts Windows .cmd shims (npm-installed CLIs such as claude). An npm shim's
+ * script runs on this node directly: through cmd.exe, arguments could not hold line breaks.
+ */
 export function spawnProgram(name, args, options = {}) {
-  const line = commandLine(name, args, options.env ?? process.env);
+  const env = options.env ?? process.env;
+  if (isWindows) {
+    const file = whichWindows(name, env);
+    const script = file && /\.cmd$/i.test(file) ? npmShimTarget(file) : null;
+    if (script) return spawn(process.execPath, [script, ...args], { windowsHide: true, ...options });
+  }
+  const line = commandLine(name, args, env);
   return spawn(line.file, line.args, { windowsHide: true, ...options, ...line.options });
 }
 
