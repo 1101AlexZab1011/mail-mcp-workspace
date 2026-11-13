@@ -155,6 +155,23 @@ function lastTabOf(window, session) {
   return tabs.includes(last) ? last : tabs.at(-1) ?? null;
 }
 
+/**
+ * The tab to show when the current web tab closes, as in Firefox: its right neighbour in the session's
+ * strip, else its left one; the session's last tab gives way to the tab the Browser was entered from.
+ * Thunderbird itself would pick the next tab of its hidden strip, which may be any space (Settings, Files).
+ */
+function tabAfterClosing(window, info) {
+  const tabmail = window.gTabmail;
+  const session = sessionOfTab(info);
+  const tabs = session ? webTabs(window, session) : webTabs(window);
+  const index = tabs.indexOf(info);
+  const next = tabs[index + 1] ?? tabs[index - 1];
+  if (next) return next;
+  const before = window.mwBeforeWebTab;
+  if (before && before !== info && tabmail.tabInfo.includes(before)) return before;
+  return tabmail.tabInfo.find((tab) => tab !== info && tab.mode?.name === "mail3PaneTab") ?? null;
+}
+
 /** Typed text → the URL to load: an address as it is, anything else through the default search engine. */
 async function resolveAddress(input) {
   const parsed = parseAddress(input);
@@ -638,8 +655,9 @@ function installWeb(window) {
   const monitor = {
     monitorName: "mailWorkspaceWeb",
     onTabTitleChanged(tab) { if (isWebTab(tab)) void recordTitle(tab); renderWebChrome(window); },
-    onTabSwitched(tab) {
+    onTabSwitched(tab, oldTab) {
       closeWebMenu(window);
+      if (oldTab && !isWebTab(oldTab) && isWebTab(tab)) window.mwBeforeWebTab = oldTab;
       if (isWebTab(tab)) {
         window.mwLastWebTab = tab;
         const state = readSessions();
@@ -663,6 +681,9 @@ function installWeb(window) {
     },
     onTabClosing(tab) {
       if (window.mwLastWebTab === tab) window.mwLastWebTab = null;
+      if (window.mwBeforeWebTab === tab) window.mwBeforeWebTab = null;
+      // closeTab selects its opener, when one is set, once the current tab is gone.
+      if (isWebTab(tab) && tabmail.currentTabInfo === tab) tabmail.mLastTabOpener = tabAfterClosing(window, tab);
       // For Ctrl+Shift+T, per session.
       const session = isWebTab(tab) ? sessionOfTab(tab) : null;
       const url = session ? tab.browser?.currentURI?.spec : null;
@@ -712,6 +733,7 @@ function installWeb(window) {
     if (window.mwWebQueued) window.cancelAnimationFrame(window.mwWebQueued);
     delete window.mwWebQueued;
     delete window.mwLastWebTab;
+    delete window.mwBeforeWebTab;
     delete window.mwLastWebTabs;
     delete window.mwClosedWebTabs;
     button.remove();
