@@ -140,7 +140,7 @@ export class Git {
     const from = Math.max(0, Number(skip) || 0);
     if (!(await this.head(root)).sha && !(await this.git(root, ["for-each-ref", "--count=1", "--format=%(refname)"])).trim()) return { root, commits: [], lanes: 0, more: false };
     const format = ["%H", "%P", "%an", "%ae", "%aI", "%D", "%s"].join(US);
-    const text = await this.git(root, ["log", "--all", "--date-order", `--format=${format}${RS}`, `--max-count=${count + 1}`, `--skip=${from}`]);
+    const text = await this.git(root, ["log", "--all", "--date-order", "--decorate=full", `--format=${format}${RS}`, `--max-count=${count + 1}`, `--skip=${from}`]);
     const rows = text.split(RS).map((r) => r.replace(/^\r?\n/, "")).filter(Boolean).map((r) => r.split(US));
     const more = rows.length > count;
     const commits = rows.slice(0, count).map(([sha, parents, author, email, date, decorations, subject]) => ({
@@ -309,15 +309,24 @@ export class Git {
 
 const CHANGE = { M: "modified", T: "type", A: "added", D: "deleted", R: "renamed", C: "copied", U: "unmerged" };
 
-/** "HEAD -> main, origin/main, tag: v1" → [{ kind, name }]. */
+/**
+ * Full decorations (git log --decorate=full) → [{ kind, name }]:
+ * "HEAD -> refs/heads/main, refs/remotes/origin/main, tag: refs/tags/v1". Full names tell a local
+ * branch with a slash (fix/x) from a remote one (origin/x).
+ */
 export function parseDecorations(text) {
   if (!text) return [];
+  const ref = (full) => {
+    if (full.startsWith("refs/heads/")) return [{ kind: "branch", name: full.slice(11) }];
+    if (full.startsWith("refs/remotes/")) return full.endsWith("/HEAD") ? [] : [{ kind: "remote", name: full.slice(13) }];
+    if (full.startsWith("refs/tags/")) return [{ kind: "tag", name: full.slice(10) }];
+    return []; // stashes, notes and other refs are not drawn
+  };
   return text.split(", ").map((part) => {
-    if (part.startsWith("HEAD -> ")) return [{ kind: "head", name: "HEAD" }, { kind: "branch", name: part.slice(8) }];
+    if (part.startsWith("HEAD -> ")) return [{ kind: "head", name: "HEAD" }, ...ref(part.slice(8))];
     if (part === "HEAD") return [{ kind: "head", name: "HEAD" }];
-    if (part.startsWith("tag: ")) return [{ kind: "tag", name: part.slice(5) }];
-    if (part.endsWith("/HEAD")) return [];
-    return [{ kind: part.includes("/") ? "remote" : "branch", name: part }];
+    if (part.startsWith("tag: ")) return ref(part.slice(5));
+    return ref(part);
   }).flat();
 }
 

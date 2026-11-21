@@ -45,8 +45,9 @@ test("graph lanes: a branch beside main, merged back", () => {
 });
 
 test("decorations become typed refs", () => {
-  assert.deepEqual(parseDecorations("HEAD -> main, origin/main, origin/HEAD, tag: v1.0, feature"), [
-    { kind: "head", name: "HEAD" }, { kind: "branch", name: "main" }, { kind: "remote", name: "origin/main" }, { kind: "tag", name: "v1.0" }, { kind: "branch", name: "feature" },
+  assert.deepEqual(parseDecorations("HEAD -> refs/heads/main, refs/remotes/origin/main, refs/remotes/origin/HEAD, tag: refs/tags/v1.0, refs/heads/fix/login, refs/stash"), [
+    { kind: "head", name: "HEAD" }, { kind: "branch", name: "main" }, { kind: "remote", name: "origin/main" }, { kind: "tag", name: "v1.0" },
+    { kind: "branch", name: "fix/login" }, // a local branch with a slash stays local
   ]);
   assert.deepEqual(parseDecorations(""), []);
 });

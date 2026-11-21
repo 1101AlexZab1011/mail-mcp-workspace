@@ -5,6 +5,7 @@
 import { h } from "../shared/page.js";
 import { icon } from "../shared/icons.js";
 
+
 export const ROW = 30;
 const LANE = 16;
 const PAD = 14;
@@ -41,10 +42,11 @@ export function refChip(ref, { lane = 0, current = false } = {}) {
 
 /**
  * Draw `graph` ({ commits, lanes, more }). `head` is the checked-out branch name (its chip is filled),
- * `selected` a sha. Callbacks: onSelect(commit), onContext(event, commit, ref?), onMore().
- * `decorate(commit)` returns extra chips for a row (plans on its branches).
+ * `selected` a sha, `names` each commit's branch (branchesOf). Callbacks: onSelect(commit),
+ * onContext(event, commit, ref?), onMore(). `decorate(commit)` returns extra chips for a row (plans on
+ * its branches). The result's `showLanes(scrollTop)` labels the lanes crossing the top edge.
  */
-export function renderGraph(graph, { head, headSha, selected, onSelect, onContext, onMore, decorate = () => [] }) {
+export function renderGraph(graph, { head, headSha, selected, names = new Map(), onSelect, onContext, onMore, decorate = () => [] }) {
   const { commits } = graph;
   const rowOf = new Map(commits.map((commit, row) => [commit.sha, row]));
   const width = PAD * 2 + Math.max(graph.lanes - 1, 0) * LANE;
@@ -90,8 +92,10 @@ export function renderGraph(graph, { head, headSha, selected, onSelect, onContex
       chip.addEventListener("contextmenu", (event) => { event.stopPropagation(); onContext(event, commit, ref); });
       return chip;
     });
+    const branch = names.get(commit.sha);
     const row = h("div.commit-row", {
-      role: "option", tabindex: "-1", "aria-selected": String(commit.sha === selected), "aria-label": `${commit.subject} · ${commit.sha.slice(0, 7)}`, dataset: { sha: commit.sha },
+      role: "option", tabindex: "-1", "aria-selected": String(commit.sha === selected), "aria-label": `${commit.subject} · ${commit.sha.slice(0, 7)}${branch ? ` · on ${branch}` : ""}`, dataset: { sha: commit.sha },
+      title: branch ? `On ${branch}` : undefined,
       style: { paddingLeft: `${width + 6}px` },
       onclick: () => onSelect(commit),
       oncontextmenu: (event) => onContext(event, commit, null),
@@ -103,8 +107,37 @@ export function renderGraph(graph, { head, headSha, selected, onSelect, onContex
     return row;
   });
 
+  // The lines in each lane, with the branch they carry: an edge to a first parent carries the
+  // commit's own branch, an edge to a merged parent that parent's.
+  const spans = commits.flatMap((commit, row) => commit.edges.map((edge) => ({
+    lane: edge.to, from: row, to: rowOf.get(edge.parent) ?? commits.length,
+    name: names.get(edge.parent === commit.parents[0] ? commit.sha : edge.parent) ?? null,
+  })));
+  // Sticky over the graph: once the branch labels have scrolled away, each lane crossing the top
+  // edge says which branch it is, in its colour.
+  const lanesBar = h("div.lane-bar", { "aria-hidden": "true" });
+  const chips = h("div.lane-chips");
+  lanesBar.append(chips);
+  let shown = "";
+  function showLanes(scrollTop) {
+    const row = Math.floor(scrollTop / ROW);
+    const at = new Map();
+    if (scrollTop > ROW / 2 && commits[row]) {
+      at.set(commits[row].lane, names.get(commits[row].sha) ?? null);
+      for (const span of spans) if (span.from < row && row < span.to && !at.has(span.lane)) at.set(span.lane, span.name);
+    }
+    const lanes = [...at].filter(([, name]) => name).sort((a, b) => a[0] - b[0]);
+    const key = JSON.stringify(lanes);
+    if (key === shown) return;
+    shown = key;
+    chips.replaceChildren(...lanes.map(([lane, name]) => h("span.lane-chip", { style: { "--lane": laneColor(lane) } }, h("span.dot"), name)));
+    lanesBar.hidden = !lanes.length;
+  }
+  showLanes(0);
+
   const box = h("div.graph", { role: "listbox", "aria-label": "Commits", style: { height: `${height}px` } }, drawing, ...rows);
-  const wrap = h("div", {}, box);
+  const wrap = h("div", {}, lanesBar, box);
   if (graph.more) wrap.append(h("div.graph-more", {}, h("button.btn", { type: "button", onclick: onMore }, "Load more commits")));
+  wrap.showLanes = showLanes;
   return wrap;
 }

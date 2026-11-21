@@ -8,6 +8,7 @@ import { tildePath } from "./shared/paths.js";
 import { pickFiles } from "./shared/filepicker.js";
 import { $, h, iconButton, contextMenu, toast, ask, registerPage } from "./shared/page.js";
 import { renderGraph, refChip } from "./loom/graph.js";
+import { branchesOf } from "./loom/branches.js";
 import { createPlans } from "./loom/plans.js";
 import { createAgents } from "./loom/agents.js";
 
@@ -380,12 +381,21 @@ function renderContent() {
   (views[state.view] ?? views.graph).render(content);
 }
 
+/** Each commit's branch, worked out once per graph. */
+let names = { graph: null, head: null, map: new Map() };
+function branchNames() {
+  const head = state.summary?.head.branch ?? null;
+  if (names.graph !== state.graph || names.head !== head) names = { graph: state.graph, head, map: branchesOf(state.graph?.commits ?? [], head) };
+  return names.map;
+}
+
 function renderGraphView(content) {
   if (!state.graph) { content.replaceChildren(h("div.empty-state", {}, h("p", {}, "Loading…"))); return; }
   const pane = h("div.graph-pane", { tabindex: "0", onkeydown: onGraphKey });
   if (!state.graph.commits.length) pane.append(h("div.empty-state", {}, icon("commit"), h("h2", {}, "No commits yet"), h("p", {}, "The graph fills in with the first commit.")));
-  else pane.append(renderGraph(state.graph, {
-    head: state.summary?.head.branch, headSha: state.summary?.head.sha, selected: state.selected,
+  let drawn = null;
+  if (state.graph.commits.length) pane.append(drawn = renderGraph(state.graph, {
+    head: state.summary?.head.branch, headSha: state.summary?.head.sha, selected: state.selected, names: branchNames(),
     onSelect: (commit) => select(commit.sha),
     onContext: (event, commit, ref) => { select(commit.sha); commitMenu(event, commit, ref); },
     onMore: () => { state.limit += LIMIT_STEP; void reload(); },
@@ -395,6 +405,12 @@ function renderGraphView(content) {
   const scroll = document.querySelector(".graph-pane")?.scrollTop ?? 0;
   content.replaceChildren(pane, side);
   pane.scrollTop = scroll;
+  if (drawn) {
+    // Which branch each lane is, once its label has scrolled out of sight.
+    let frame = 0;
+    pane.addEventListener("scroll", () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => drawn.showLanes(pane.scrollTop)); });
+    drawn.showLanes(pane.scrollTop);
+  }
   renderSide();
 }
 
@@ -465,6 +481,7 @@ function commitCard(commit) {
     h("h2", {}, commit.subject),
     h("div", { style: { display: "flex", gap: "4px", flexWrap: "wrap" } }, ...commit.refs.filter((r) => r.kind !== "head").map((r) => refChip(r, { lane: commit.lane, current: r.name === currentBranch() }))),
     h("dl.meta", {},
+      ...(branchNames().get(commit.sha) ? [h("dt", {}, "Branch"), h("dd", {}, branchNames().get(commit.sha))] : []),
       h("dt", {}, "Commit"), h("dd.mono", { title: commit.sha }, commit.sha.slice(0, 12)),
       h("dt", {}, "Author"), h("dd", { title: commit.email }, commit.author),
       h("dt", {}, "Date"), h("dd", {}, new Date(commit.date).toLocaleString()),
@@ -477,15 +494,17 @@ function renderStatus() {
   const status = state.status;
   if (!state.project || !status) { bar.replaceChildren(); return; }
   const changes = status.staged.length + status.changed.length + status.conflicts.length;
+  // Each item is an icon and its text on one line; the worktree's path gives way first.
+  const item = (cls, props, glyph, text) => h(`span.item${cls}`, props, icon(glyph), h("span.label", {}, text));
   const parts = [
-    h("span", { title: worktreePath() }, icon("folder_open"), " ", tildePath(worktreePath())),
-    h("span", {}, icon(status.branch ? "call_split" : "commit"), " ", status.branch ?? `detached at ${status.sha?.slice(0, 7) ?? "nothing"}`),
+    item(".branch", { title: status.branch ? `On ${status.branch}` : "Not on a branch" }, status.branch ? "call_split" : "commit", status.branch ?? `detached at ${status.sha?.slice(0, 7) ?? "nothing"}`),
   ];
-  if (status.upstream) parts.push(h("span", { title: `Tracking ${status.upstream}` }, `↑${status.ahead} ↓${status.behind} · ${status.upstream}`));
+  if (status.upstream) parts.push(item("", { title: `Tracking ${status.upstream}: ${status.ahead} to push, ${status.behind} to pull` }, "cloud_upload", `↑${status.ahead} ↓${status.behind} ${status.upstream}`));
   parts.push(changes || status.untracked.length
-    ? h("span.dirty", { title: [...status.staged.map((f) => `staged: ${f.path}`), ...status.changed.map((f) => `changed: ${f.path}`), ...status.untracked.map((f) => `new: ${f.path}`)].slice(0, 40).join("\n") },
+    ? item(".dirty", { title: [...status.staged.map((f) => `staged: ${f.path}`), ...status.changed.map((f) => `changed: ${f.path}`), ...status.untracked.map((f) => `new: ${f.path}`)].slice(0, 40).join("\n") }, "edit",
       [status.staged.length && `${status.staged.length} staged`, status.changed.length && `${status.changed.length} changed`, status.untracked.length && `${status.untracked.length} new`, status.conflicts.length && `${status.conflicts.length} conflicted`].filter(Boolean).join(" · "))
-    : h("span.clean", {}, icon("check"), " Clean"));
+    : item(".clean", {}, "check", "Clean"));
+  parts.push(item(".path", { title: worktreePath() }, "folder_open", tildePath(worktreePath())));
   bar.replaceChildren(...parts);
 }
 
