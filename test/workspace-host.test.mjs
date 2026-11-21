@@ -527,12 +527,16 @@ test("loom tools: an agent with Loom's scopes plans, moves steps and branches, f
     if (!response.ok) throw new Error(value.error.message);
     return value;
   };
-  const tools = loomTools({ call: hostCall, cwd: join(repo, "src"), who: () => "Ivy" });
+  const tools = loomTools({ call: hostCall, cwd: join(repo, "src") });
   const run = (name, params = {}) => tools[name].run(params);
 
   await assert.rejects(run("loom_status"), /is not in a Loom project/);
   const project = await run("loom_project_add", { path: repo });
   assert.equal((await run("loom_projects")).current, project.id, "the working folder picks the project");
+  await assert.rejects(run("loom_inbox"), /Join Loom first/);
+  const joined = await run("loom_join", { name: "Ivy", session: "claude:one" });
+  assert.deepEqual(joined.agent, { name: "Ivy", session: "claude:one", projects: [project.id] }, "joined to the project it works in");
+  assert.deepEqual(joined.questions, []);
 
   const plan = await run("loom_plan_create", { title: "Offline mode", steps: ["Cache", "Sync"], branch: "offline" });
   assert.equal(plan.status, "Queued");
@@ -556,4 +560,26 @@ test("loom tools: an agent with Loom's scopes plans, moves steps and branches, f
   assert.equal(status.commits[0].subject, "First");
   await assert.rejects(run("loom_git", { action: "delete_branch", name: "offline" }), /checked out|current|cannot delete/i);
   await assert.rejects(run("loom_plans", { project: "Nope" }), /No Loom project "Nope"/);
+  assert.deepEqual(status.agents, [{ name: "Ivy", connected: true, working: [{ plan: "Offline mode", branch: "offline", stage: "Cache" }] }]);
+
+  // The user asks Ivy while she is away; she finds the question when she joins again, and answers.
+  const asked = await call(addon, "POST", "/v1/loom/inbox", { agent: "ivy", project: project.id, plan: "Offline mode", step: "s2", question: "Last write wins?" });
+  assert.equal(asked.status, 200, JSON.stringify(asked.value));
+  const again = loomTools({ call: hostCall, cwd: repo });
+  const back = await again.loom_join.run({ name: "IVY", session: "claude:two" });
+  assert.equal(back.agent.name, "Ivy", "the same name is the same agent");
+  assert.deepEqual(back.questions.map((x) => [x.plan, x.step, x.question]), [["Offline mode", "s2", "Last write wins?"]]);
+  const answered = await again.loom_inbox.run({ answer: { id: asked.value.id, text: "Yes, per field." } });
+  assert.deepEqual(answered.questions, [], "nothing open any more");
+  const history = await call(addon, "GET", `/v1/loom/inbox?plan=${encodeURIComponent("Offline mode")}&all`);
+  assert.deepEqual(history.value.questions.map((x) => [x.answer, x.by]), [["Yes, per field.", "Ivy"]]);
+  assert.equal((await call(addon, "POST", "/v1/loom/inbox", { agent: "Nobody", project: project.id, question: "?" })).status, 404);
+
+  // The user assigns projects and renames agents; a session joining under another name leaves the old one.
+  await again.loom_join.run({ name: "Kai", session: "claude:two" });
+  const agents = (await call(addon, "GET", "/v1/loom/agents")).value.agents;
+  assert.deepEqual(agents.map((a) => [a.name, a.session]), [["Ivy", null], ["Kai", "claude:two"]]);
+  assert.deepEqual((await call(addon, "PATCH", "/v1/loom/agents", { name: "Kai", projects: [], rename: "Kai Lee" })).value.projects, []);
+  assert.equal((await call(addon, "PATCH", "/v1/loom/agents", { name: "Kai Lee", rename: "ivy" })).status, 409);
+  assert.deepEqual((await call(addon, "DELETE", "/v1/loom/agents?name=Kai%20Lee")).value, { removed: "Kai Lee" });
 });

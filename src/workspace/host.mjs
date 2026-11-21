@@ -14,9 +14,9 @@
 //   publish:mail/workspace/review      supervisor review of a passage (runs Claude Code headless)
 //   read:mail/workspace/git            repositories: branches, worktrees, the commit graph, status
 //   publish:mail/workspace/git         checkout, branches, merge, fetch, pull, push (git.mjs)
-//   read:mail/workspace/loom           Loom's projects, their plans and their change feed
-//   publish:mail/workspace/loom        add, rename, open and remove Loom projects (loom.mjs); create
-//                                      and change plans and their steps (plans.mjs)
+//   read:mail/workspace/loom           Loom's projects, plans, agents, inbox and change feed
+//   publish:mail/workspace/loom        add, rename, open and remove Loom projects, agents joining and
+//                                      their inbox (loom.mjs); plans and their steps (plans.mjs)
 //
 // The add-on's token has all of them. The agent's GUI credential lacks grants and
 // capabilities, so an agent can write an artifact but never approve what it may
@@ -476,6 +476,19 @@ export async function startHost({
     const p = url.searchParams;
     return loom.changes(p.get("project"), { since: Number(p.get("since") ?? 0), wait: Number(p.get("wait") ?? 0) });
   });
+  // Agents: Loom's own list (name, the session it is connected as, its projects), and the inbox of
+  // questions the user asked an agent who was not connected.
+  route("GET", "/v1/loom/agents", async ({ principal }) => { loomRead(principal); return { agents: await loom.agents() }; });
+  route("POST", "/v1/loom/agents/join", async ({ request, principal }) => { loomWrite(principal); return loom.join(await readJson(request)); });
+  route("PATCH", "/v1/loom/agents", async ({ request, principal }) => { loomWrite(principal); const { name, ...changes } = await readJson(request); return loom.updateAgent(name, changes); });
+  route("DELETE", "/v1/loom/agents", async ({ url, principal }) => { loomWrite(principal); return loom.removeAgent(url.searchParams.get("name")); });
+  route("GET", "/v1/loom/inbox", async ({ url, principal }) => {
+    loomRead(principal);
+    const p = url.searchParams;
+    return { questions: await loom.questions({ agent: p.get("agent") ?? undefined, project: p.get("project") ?? undefined, plan: p.get("plan") ?? undefined, all: p.has("all") }) };
+  });
+  route("POST", "/v1/loom/inbox", async ({ request, principal }) => { loomWrite(principal); return loom.ask(await readJson(request)); });
+  route("POST", "/v1/loom/inbox/answer", async ({ request, principal }) => { loomWrite(principal); const { id, ...answer } = await readJson(request); return loom.answer(id, answer); });
   // Plans: pages of the project's Plans database in the Notes vault. `plan` is a title or a page path.
   route("GET", "/v1/loom/plans", async ({ url, principal }) => { loomRead(principal); return plans.list(url.searchParams.get("project")); });
   route("GET", "/v1/loom/plan", async ({ url, principal }) => { loomRead(principal); return plans.get(url.searchParams.get("project"), url.searchParams.get("plan")); });

@@ -15,6 +15,20 @@ The `loom` MCP server gives you the same things the screen has. Plans are
 Markdown pages in the user's Notes vault (`Loom/<project>/Plans/`), so they can
 also be read and edited there.
 
+## Join first
+
+Once per session, before changing plans: `loom_join` with your **name** (the
+one the user calls you; the same name later is the same agent, so plans and
+questions find you again), your **session** id (the listener-mcp agent id from
+your session context, `claude:…` or `codex:…`), and the projects you work on
+(default: the one your working folder is in). Your changes are then signed with
+your name, and the user's **Ask** reaches you: in Agent Chat when you are
+attached to a chat session, otherwise as a question in Loom's inbox.
+
+`loom_join` returns the questions waiting for you. Answer each with
+`loom_inbox` (`answer: { id, text }`); the answer shows on the plan. Check
+`loom_inbox` again when you finish a step.
+
 ## The project
 
 Tools take `project` (id, name or folder); left out, it is the project your

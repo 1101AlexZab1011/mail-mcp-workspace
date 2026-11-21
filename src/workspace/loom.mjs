@@ -5,8 +5,16 @@
 // because most changes come from programs that know nothing about Loom; and the project's folder of
 // plans in the vault (`watchAlso`), which Notes, Obsidian or an agent may edit directly.
 //
-// Stored in <configDir>/loom.json: { projects: [{ id, name, path, added, opened }] }.
-import { createHash } from "node:crypto";
+// Loom also keeps its own list of agents, independent of any one agent system: an agent is a name
+// (what plans say in their Agent field), the listener-mcp session it is connected as right now, and
+// the projects it is assigned to. Agents join through the loom MCP server. Questions the user asks
+// an agent who is not connected wait in Loom's inbox until it joins and answers.
+//
+// Stored in <configDir>/loom.json:
+//   { projects: [{ id, name, path, added, opened }],
+//     agents:   [{ name, session, projects: [id], joined, seen }],
+//     inbox:    [{ id, agent, project, plan, step, question, asked, answer, answered, by }] }
+import { createHash, randomUUID } from "node:crypto";
 import { watch } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
@@ -34,6 +42,8 @@ export class Loom {
       this.data = {};
     }
     this.data.projects ??= [];
+    this.data.agents ??= [];
+    this.data.inbox ??= [];
     return this.data;
   }
 
@@ -88,6 +98,8 @@ export class Loom {
     const data = await this.#load();
     const project = await this.project(id);
     data.projects = data.projects.filter((p) => p !== project);
+    for (const agent of data.agents) agent.projects = agent.projects.filter((p) => p !== id);
+    data.inbox = data.inbox.filter((q) => q.project !== id);
     await this.#save();
     this.#unwatch(id);
     return { removed: id };
@@ -100,7 +112,110 @@ export class Loom {
     return project;
   }
 
+  // -------------------------------------------------------------------------------------- agents --
+
+  /** The agents, by name. */
+  async agents() {
+    const { agents } = await this.#load();
+    return [...agents].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async agent(name) {
+    const wanted = String(name ?? "").trim().toLowerCase();
+    const agent = (await this.#load()).agents.find((a) => a.name.toLowerCase() === wanted);
+    if (!agent) throw new LoomError(404, "no_agent", `Loom has no agent ${name}`);
+    return agent;
+  }
+
+  /**
+   * An agent session says who it is: its name, its listener-mcp agent id (the session), and the
+   * projects it works on (added to those it already has). A name already in use is the same agent
+   * in a new session. Returns the agent and the questions waiting for it.
+   */
+  async join({ name, session, projects = [] } = {}) {
+    const title = String(name ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+    if (!title) throw new LoomError(400, "bad_request", "An agent needs a name");
+    const data = await this.#load();
+    for (const id of projects) await this.project(id);
+    const now = new Date().toISOString();
+    let agent = data.agents.find((a) => a.name.toLowerCase() === title.toLowerCase());
+    if (!agent) data.agents.push(agent = { name: title, session: null, projects: [], joined: now, seen: now });
+    // One session is one agent: a session that joins under a new name leaves its old one.
+    if (session) for (const other of data.agents) if (other !== agent && other.session === session) other.session = null;
+    Object.assign(agent, { session: session || null, joined: now, seen: now, projects: [...new Set([...agent.projects, ...projects])] });
+    await this.#save();
+    this.#touchAll();
+    return { agent, questions: data.inbox.filter((q) => q.agent.toLowerCase() === agent.name.toLowerCase() && !q.answered) };
+  }
+
+  /** The user assigns projects to an agent, renames it, or forgets it. */
+  async updateAgent(name, { projects, rename: newName } = {}) {
+    const data = await this.#load();
+    const agent = await this.agent(name);
+    if (projects) { for (const id of projects) await this.project(id); agent.projects = [...new Set(projects)]; }
+    if (newName !== undefined) {
+      const title = String(newName).replace(/\s+/g, " ").trim().slice(0, 60);
+      if (!title) throw new LoomError(400, "bad_request", "An agent needs a name");
+      if (data.agents.some((a) => a !== agent && a.name.toLowerCase() === title.toLowerCase())) throw new LoomError(409, "conflict", `There is already an agent ${title}`);
+      for (const q of data.inbox) if (q.agent === agent.name) q.agent = title;
+      agent.name = title;
+    }
+    await this.#save();
+    this.#touchAll();
+    return agent;
+  }
+
+  async removeAgent(name) {
+    const data = await this.#load();
+    const agent = await this.agent(name);
+    data.agents = data.agents.filter((a) => a !== agent);
+    await this.#save();
+    this.#touchAll();
+    return { removed: agent.name };
+  }
+
+  // --------------------------------------------------------------------------------------- inbox --
+
+  /** Questions, newest first: an agent's open ones by default; `all` includes answered ones. */
+  async questions({ agent, project, plan, all = false } = {}) {
+    const { inbox } = await this.#load();
+    const same = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+    return inbox.filter((q) => (!agent || same(q.agent, agent)) && (!project || q.project === project) && (!plan || same(q.plan, plan)) && (all || !q.answered))
+      .sort((a, b) => b.asked.localeCompare(a.asked));
+  }
+
+  /** The user asks an agent about a project, a plan or one of its steps. */
+  async ask({ agent, project, plan = null, step = null, question } = {}) {
+    const text = String(question ?? "").trim();
+    if (!text) throw new LoomError(400, "bad_request", "Ask something");
+    const data = await this.#load();
+    const who = await this.agent(agent);
+    await this.project(project);
+    const entry = { id: randomUUID().slice(0, 8), agent: who.name, project, plan, step, question: text, asked: new Date().toISOString(), answer: null, answered: null, by: null };
+    data.inbox.push(entry);
+    await this.#save();
+    this.touch(project);
+    return entry;
+  }
+
+  async answer(id, { answer, by } = {}) {
+    const text = String(answer ?? "").trim();
+    if (!text) throw new LoomError(400, "bad_request", "An empty answer");
+    const data = await this.#load();
+    const entry = data.inbox.find((q) => q.id === id);
+    if (!entry) throw new LoomError(404, "no_question", `There is no question ${id}`);
+    Object.assign(entry, { answer: text, answered: new Date().toISOString(), by: by ?? entry.agent });
+    // Answered questions are kept for a while, then dropped (the plan's page shows recent ones).
+    const month = Date.now() - 30 * 86_400_000;
+    data.inbox = data.inbox.filter((q) => !q.answered || Date.parse(q.answered) > month);
+    await this.#save();
+    this.touch(entry.project);
+    return entry;
+  }
+
   // -------------------------------------------------------------------------------- change feed --
+
+  #touchAll() { for (const id of this.feeds.keys()) this.touch(id); }
 
   /** Something in a project changed (Loom's own writes call this; the watcher does for git). */
   touch(id) {

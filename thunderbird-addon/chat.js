@@ -820,7 +820,13 @@ registerPage("chat", {
     attach: ({ files, focus }) => attachExisting(files ?? [], { focus }),
     confirm: (request) => confirmAction(request),
     focus: () => { text.focus(); return { ok: true }; },
-    draft: ({ text: value }) => { text.value = value ?? ""; autosize(); renderPreview(); text.focus(); return { ok: true }; },
+    // A draft for the user to finish and send; `session` opens that session first (Loom's Ask).
+    draft: async ({ text: value, session }) => {
+      if (session && session !== current && sessions.some((item) => item.id === session)) await switchTo(session);
+      text.value = value ?? ""; autosize(); renderPreview(); text.focus();
+      text.setSelectionRange(text.value.length, text.value.length);
+      return { ok: true, session: current };
+    },
   },
 });
 autosize();

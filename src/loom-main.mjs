@@ -28,7 +28,7 @@ async function call(method, path, body) {
 }
 
 const server = new McpServer({ name: "loom", version: "1.0.0" });
-const tools = loomTools({ call, cwd: process.cwd(), who: () => process.env.LOOM_AGENT || null });
+const tools = loomTools({ call, cwd: process.cwd() });
 for (const [name, { description, input, readOnly, run }] of Object.entries(tools)) {
   server.registerTool(name, { description, inputSchema: input, annotations: readOnly ? { readOnlyHint: true } : {} }, async (params) => {
     try {

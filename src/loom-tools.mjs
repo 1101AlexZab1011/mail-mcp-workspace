@@ -14,10 +14,11 @@ const plan = z.string().describe("The plan's title (or its page path)");
 
 /**
  * The tools, as { name: { description, input, readOnly, run(params) } }.
- * `call(method, path, body)` reaches the workspace host; `cwd` picks the default project; `who()` is
- * the name this session signs its changes with (null until it says).
+ * `call(method, path, body)` reaches the workspace host; `cwd` picks the default project. One server
+ * process serves one agent session: loom_join says who it is, and its changes are signed with that name.
  */
-export function loomTools({ call, cwd = process.cwd(), who = () => null }) {
+export function loomTools({ call, cwd = process.cwd() }) {
+  let me = null; // the agent this session joined as
   const q = (params) => new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null))).toString();
   const inside = (folder, path) => { const a = resolve(folder).toLowerCase(); const b = resolve(path).toLowerCase(); return b === a || b.startsWith(a.endsWith(sep) ? a : a + sep); };
 
@@ -37,11 +38,40 @@ export function loomTools({ call, cwd = process.cwd(), who = () => null }) {
     throw new Error(`${cwd} is not in a Loom project. Name one (${all.map((p) => p.name).join(", ") || "none yet"}) or add it with loom_project_add`);
   }
 
-  const by = () => who() ?? undefined;
+  const by = () => me?.name;
+  const needJoin = () => { if (!me) throw new Error("Join Loom first: loom_join with your name and session id"); return me; };
   const brief = (p) => ({ title: p.title, status: p.status, stage: p.stage || null, progress: p.progress || null, branch: p.branch, agent: p.agent, priority: p.priority, updated: p.updated });
   const full = (p) => ({ ...brief(p), path: p.path, description: p.description, steps: p.steps.map((s) => ({ id: s.id, state: s.state, text: s.text, ...(s.details ? { details: s.details } : {}) })), log: p.log.slice(-15) });
 
   return {
+    loom_join: {
+      description: "Say who you are in Loom, once per session, before changing plans: your name (the user sees it on plans and in Loom's agent list; the same name later means the same agent), your session id (the listener-mcp agent id from your session context, e.g. claude:1234…, so the user's Ask reaches this session), and the projects you work on (default: the one your working folder is in). Returns questions the user left for you while you were away: answer them with loom_inbox.",
+      input: {
+        name: z.string().describe("Your name, e.g. the one the user calls you"),
+        session: z.string().optional().describe("Your listener-mcp agent id, e.g. claude:<session uuid>"),
+        projects: z.array(z.string()).optional().describe("Projects (id, name or folder) you are assigned to"),
+      },
+      run: async ({ name, session, projects: wanted }) => {
+        const ids = wanted?.length ? await Promise.all(wanted.map(async (w) => (await find(w)).id)) : await find().then((p) => [p.id], () => []);
+        const { agent, questions } = await call("POST", "/v1/loom/agents/join", { name, session, projects: ids });
+        me = agent;
+        return { agent: { name: agent.name, session: agent.session, projects: agent.projects }, questions };
+      },
+    },
+
+    loom_inbox: {
+      description: "Questions the user asked you through Loom while you were not connected (each about a project, a plan or a step). Answer one with `answer` and its `id`; the answer shows on the plan in Loom. Questions asked while you are connected come through the chat instead.",
+      input: {
+        answer: z.object({ id: z.string(), text: z.string() }).optional(),
+        all: z.boolean().optional().describe("Include answered questions"),
+      },
+      run: async ({ answer, all }) => {
+        const agent = needJoin();
+        if (answer) await call("POST", "/v1/loom/inbox/answer", { id: answer.id, answer: answer.text, by: agent.name });
+        return { questions: (await call("GET", `/v1/loom/inbox?${q({ agent: agent.name, all: all ? 1 : undefined })}`)).questions };
+      },
+    },
+
     loom_projects: {
       description: "The projects in Loom (git repositories the user added), and which one this session's working folder belongs to.",
       input: {}, readOnly: true,
@@ -59,16 +89,19 @@ export function loomTools({ call, cwd = process.cwd(), who = () => null }) {
     },
 
     loom_status: {
-      description: "Where a project stands: the checked-out branch and its worktree state, every branch (ahead/behind, which worktree has it), worktrees, recent commits, and the plans that are not finished.",
+      description: "Where a project stands: the checked-out branch and its worktree state, every branch (ahead/behind, which worktree has it), worktrees, recent commits, the plans that are not finished, and which agents work on what.",
       input: { project, commits: z.number().int().min(0).max(100).optional().describe("Recent commits to include (default 10)") }, readOnly: true,
       run: async ({ project: wanted, commits = 10 }) => {
         const p = await find(wanted);
-        const [summary, status, graph, plans] = await Promise.all([
+        const [summary, status, graph, plans, agents] = await Promise.all([
           call("GET", `/v1/git/repo?${q({ path: p.path })}`),
           call("GET", `/v1/git/status?${q({ path: p.path })}`),
           commits ? call("GET", `/v1/git/graph?${q({ path: p.path, limit: commits })}`) : { commits: [] },
           call("GET", `/v1/loom/plans?${q({ project: p.id })}`),
+          call("GET", "/v1/loom/agents"),
         ]);
+        const working = plans.plans.filter((x) => ["In progress", "Blocked"].includes(x.status));
+        const mine = (a, x) => x.agent?.toLowerCase() === a.name.toLowerCase();
         return {
           project: { id: p.id, name: p.name, path: p.path },
           head: summary.head,
@@ -77,6 +110,9 @@ export function loomTools({ call, cwd = process.cwd(), who = () => null }) {
           worktrees: summary.worktrees.map((w) => ({ path: w.path, branch: w.branch ?? null, main: w.main })),
           commits: graph.commits.map((c) => ({ sha: c.sha.slice(0, 10), subject: c.subject, author: c.author, date: c.date, refs: c.refs.filter((r) => r.kind !== "head").map((r) => r.name) })),
           plans: plans.plans.filter((x) => !["Done", "Dropped"].includes(x.status)).map(brief),
+          // Who works where: the project's agents, with the plans they are on and those plans' branches.
+          agents: agents.agents.filter((a) => a.projects.includes(p.id) || working.some((x) => mine(a, x)))
+            .map((a) => ({ name: a.name, connected: Boolean(a.session), working: working.filter((x) => mine(a, x)).map((x) => ({ plan: x.title, branch: x.branch, stage: x.stage })) })),
         };
       },
     },

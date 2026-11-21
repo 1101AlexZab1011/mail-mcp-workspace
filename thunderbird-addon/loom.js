@@ -9,6 +9,7 @@ import { pickFiles } from "./shared/filepicker.js";
 import { $, h, iconButton, contextMenu, toast, ask, registerPage } from "./shared/page.js";
 import { renderGraph, refChip } from "./loom/graph.js";
 import { createPlans } from "./loom/plans.js";
+import { createAgents } from "./loom/agents.js";
 
 const LIMIT_STEP = 400;
 const state = {
@@ -25,7 +26,17 @@ const state = {
   error: null,
   busy: false,
 };
+const agents = createAgents({
+  project: () => state.project,
+  showError: (title, message) => showError(title, message),
+  // Presence changes often: redraw what shows it, but never under the user's typing.
+  rerender: () => {
+    renderSide();
+    if (state.view === "plans" && !document.activeElement?.matches("input, textarea")) renderContent();
+  },
+});
 const plans = createPlans({
+  agents,
   project: () => state.project,
   branches: () => state.summary?.branches.map((b) => b.name) ?? [],
   rerender: () => { renderContent(); renderActions(); },
@@ -80,6 +91,7 @@ async function reload() {
       host(`/v1/git/graph?${q({ path: project.path, limit: state.limit })}`),
       host(`/v1/git/status?${q({ path: worktreePath() })}`),
       plans.load(),
+      agents.load(),
     ]);
     if (state.project !== project) return;
     Object.assign(state, { summary, graph, status, error: null });
@@ -408,6 +420,8 @@ function renderSide() {
   const parts = [];
   const commit = state.graph?.commits.find((c) => c.sha === state.selected);
   if (commit) parts.push(commitCard(commit));
+  const people = agents.section(plans.list());
+  if (people) parts.push(people);
 
   const branch = (b) => h("button.item" + (b.current ? ".current" : ""), {
     type: "button", title: b.subject,
@@ -488,6 +502,7 @@ registerPage("loom", {
     merging: state.status?.merging ?? false,
     projects: state.projects.map((p) => ({ id: p.id, name: p.name, path: p.path })),
     ...plans.state(),
+    ...agents.state(),
   }),
   commands: {
     // openSpace("loom", { project, view }) from the background or the agent.

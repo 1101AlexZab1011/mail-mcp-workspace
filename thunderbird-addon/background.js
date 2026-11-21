@@ -120,9 +120,9 @@ const pageRequests = {
     if (sender?.tab?.id === undefined) return { ignored: true };
     return browser.workspace.offerLogin(sender.tab.id, { origin, formActionOrigin, username, password });
   },
-  "chat-draft": async ({ text }) => {
+  "chat-draft": async ({ text, session }) => {
     await browser.workspace.setDock(CHAT_SIDE, { state: "open" });
-    return deliver("chat", { type: "draft", text });
+    return deliver("chat", { type: "draft", text, session });
   },
   "files-reveal": async ({ path }) => {
     const docks = await browser.workspace.getDocks();

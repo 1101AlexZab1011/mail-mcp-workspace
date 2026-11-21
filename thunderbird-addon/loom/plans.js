@@ -27,7 +27,8 @@ const percent = (progress) => { const [done, all] = String(progress || "0/0").sp
 
 /**
  * ctx: project() the open project, branches() its local branch names, rerender() redraw the view and
- * its buttons, showError(title, message), showBranch(name) show a branch in the graph, showView(id).
+ * its buttons, showError(title, message), showBranch(name) show a branch in the graph, showView(id),
+ * agents (loom/agents.js: names, dot, ask, questionsFor).
  */
 export function createPlans(ctx) {
   const s = { list: [], database: null, open: null, plan: null, expanded: new Set(), loaded: false };
@@ -84,6 +85,7 @@ export function createPlans(ctx) {
   function planMenu(event, plan) {
     contextMenu(event, [
       { label: "Open", icon: "assignment", run: () => void open(plan.path) },
+      ...(plan.agent ? [{ label: `Ask ${plan.agent}…`, icon: "chat", run: () => void ctx.agents.ask(plan.agent, { plan }) }] : []),
       { label: "Open in Notes", icon: "description", run: () => openInNotes(plan.path) },
       ...(plan.branch ? [{ label: `Show ${plan.branch} in the graph`, icon: "account_tree", run: () => ctx.showBranch(plan.branch) }] : []),
       "-",
@@ -101,7 +103,7 @@ export function createPlans(ctx) {
       plan.status === "Dropped" ? h("span.pill", {}, "Dropped") : null,
       plan.priority === "High" ? h("span.pill.high", { title: "High priority" }, icon("flag"), "High") : null,
       plan.branch ? h("span.ref.branch", { style: { "--lane": "var(--lane-0)" }, title: plan.branch }, icon("call_split"), h("span.name", {}, plan.branch)) : null,
-      plan.agent ? h("span.agent", { title: `Agent: ${plan.agent}` }, icon("person"), plan.agent) : null,
+      plan.agent ? h("span.agent", { title: `Agent: ${plan.agent}` }, ctx.agents.dot(plan.agent), plan.agent) : null,
     ].filter(Boolean);
     return h(`div.plan-card${plan.status === "Blocked" ? ".blocked" : ""}${plan.status === "Dropped" ? ".dropped" : ""}`, {
       role: "button", tabindex: "0", draggable: "true", "aria-label": `${plan.title} · ${plan.status}${plan.progress ? ` · ${plan.progress}` : ""}`,
@@ -154,6 +156,7 @@ export function createPlans(ctx) {
       ...Object.keys(STEP_ICON).filter((state) => state !== item.state).map((state) => ({ label: STEP_LABEL[state], icon: STEP_ICON[state], run: setState(state) })),
       "-",
       { label: "Add a note…", icon: "edit", run: async () => { const note = await ask({ title: `Note on: ${item.text}`, value: "", ok: "Add" }); if (note) await step(plan.path, { step: item.id ?? String(index + 1), note }); } },
+      ...(plan.agent ? [{ label: `Ask ${plan.agent} about this step…`, icon: "chat", run: () => void ctx.agents.ask(plan.agent, { plan, step: item }) }] : []),
     ]);
     return h(`div.step.${item.state}`, { dataset: { step: item.id ?? "" } },
       h("button.state", { type: "button", title: `${STEP_LABEL[item.state]}: change`, "aria-label": `${item.text}: ${STEP_LABEL[item.state]}`, onclick: menu }, icon(STEP_ICON[item.state])),
@@ -176,13 +179,14 @@ export function createPlans(ctx) {
         iconButton("arrow_back", "All plans", close),
         h("h1", { title: "Double-click to rename", ondblclick: async () => { const title = await ask({ title: "Rename plan", value: plan.title, ok: "Rename" }); if (title) await update(plan.path, { title }); } }, plan.title),
         h("span.spacer"),
+        plan.agent ? h("button.btn", { type: "button", onclick: () => void ctx.agents.ask(plan.agent, { plan }) }, icon("chat"), `Ask ${plan.agent}`) : null,
         h("button.btn", { type: "button", onclick: () => openInNotes(plan.path) }, icon("description"), "Open in Notes")),
       h("div.plan-fields", {},
         field("Status", dropdown(STATUSES.map((v) => [v, v]), plan.status, (status) => void update(plan.path, { status }), { label: "Status" })),
         field("Branch", h("span.with-button", {},
           dropdown(branchOptions, plan.branch ?? "", (branch) => void update(plan.path, { branch }), { label: "Branch" }),
           plan.branch ? iconButton("account_tree", "Show in the graph", () => ctx.showBranch(plan.branch), { small: true }) : null)),
-        field("Agent", h("button.btn.dropdown", { type: "button", "aria-label": "Agent", onclick: async () => { const agent = await ask({ title: "Who works on this plan?", value: plan.agent ?? "", placeholder: "Agent name (empty: nobody)", ok: "Save" }); if (agent !== null) await update(plan.path, { agent }); } }, icon("person"), h("span", {}, plan.agent ?? "Nobody"))),
+        field("Agent", h("span.with-button", {}, plan.agent ? ctx.agents.dot(plan.agent) : null, agentPicker(plan))),
         field("Priority", dropdown(PRIORITIES.map((v) => [v, v]), plan.priority, (priority) => void update(plan.path, { priority }), { label: "Priority" })),
         plan.progress ? field("Progress", h("div.progress.wide", {}, h("div.bar", {}, h("span", { style: { width: `${percent(plan.progress)}%` } })), h("span.stage", {}, `${plan.progress} · ${plan.stage}`))) : null),
       plan.description ? markdown(plan.description) : h("p.hint", {}, "No description yet: write it in Notes."),
@@ -197,8 +201,34 @@ export function createPlans(ctx) {
           await change("Add step", "POST", "/v1/loom/plan/steps", { plan: plan.path, steps: [text] });
           document.querySelector(".add-step input")?.focus();
         } }, icon("add"), addStep, h("button.btn", { type: "submit" }, "Add step"))),
+      questions(plan),
       plan.log.length ? h("section.history", {}, h("h3", {}, "History"), h("ul", {}, ...[...plan.log].reverse().map((line) => h("li", {}, line)))) : null);
     content.replaceChildren(page);
+  }
+
+  /** The agents Loom knows, nobody, or a name typed in (an agent that has not joined yet). */
+  function agentPicker(plan) {
+    const names = [...new Set([...(plan.agent ? [plan.agent] : []), ...ctx.agents.names()])];
+    return dropdown([["", "Nobody"], ...names.map((n) => [n, n]), ["\u0000other", "Someone else…"]], plan.agent ?? "", async (agent) => {
+      if (agent === "\u0000other") {
+        const name = await ask({ title: "Who works on this plan?", value: "", placeholder: "Agent name", ok: "Save" });
+        if (name) await update(plan.path, { agent: name });
+        else ctx.rerender();
+        return;
+      }
+      await update(plan.path, { agent });
+    }, { label: "Agent" });
+  }
+
+  /** Questions the user left for the plan's agent, and their answers. */
+  function questions(plan) {
+    const list = ctx.agents.questionsFor(plan);
+    if (!list.length) return null;
+    const when = (iso) => new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    return h("section.questions", {}, h("h3", {}, "Questions", h("span.count", {}, String(list.length))),
+      ...list.map((q) => h(`div.question${q.answered ? ".answered" : ""}`, {},
+        h("div.q", {}, icon("help"), h("span", {}, q.question), h("span.when", {}, `${q.step ? `${q.step} · ` : ""}${when(q.asked)}`)),
+        q.answered ? h("div.a", {}, h("strong", {}, `${q.by ?? q.agent}: `), markdown(q.answer)) : h("div.a.waiting", {}, `Waiting for ${q.agent} to join`))));
   }
 
   const field = (label, control) => h("label.field", {}, h("span.label", {}, label), control);
@@ -209,6 +239,7 @@ export function createPlans(ctx) {
     reset,
     load,
     open,
+    list: () => s.list,
     state: () => ({ plans: s.list.map(({ path, title, status, branch, agent, stage, progress }) => ({ path, title, status, branch, agent, stage, progress })), open: s.plan ? { path: s.plan.path, title: s.plan.title, status: s.plan.status } : null }),
     render: (content) => (s.open && s.plan ? renderPlan(content) : renderBoard(content)),
     actions: () => [
