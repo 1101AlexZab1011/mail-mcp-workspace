@@ -34,6 +34,11 @@
   .setting-hint { grid-column: 1; font-size: 12.5px; color: var(--mw-text-2); }
   .setting-control { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 8px; }
   .setting-control input[type="number"] { width: 72px; }
+  .tool-group + .tool-group { margin-top: 14px; }
+  .tool-group h3 { margin: 0 0 2px; font-size: 12.5px; font-weight: 650; color: var(--mw-text-2); text-transform: uppercase; letter-spacing: 0.04em; }
+  .tool-group h3 .tool-group-note { margin-left: 8px; text-transform: none; letter-spacing: 0; font-weight: 500; }
+  .tool-label { display: flex; align-items: center; gap: 10px; }
+  .tool-label svg { flex: none; color: var(--mw-text-2); }
   .switch { appearance: none; width: 38px; height: 22px; border-radius: 11px; background: var(--mw-border-strong); position: relative; cursor: pointer; transition: background var(--mw-fast, .15s); margin: 0; }
   .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform var(--mw-fast, .15s); }
   .switch:checked { background: var(--mw-primary); }
@@ -46,6 +51,7 @@
   <h1><img src="icons/thoth.svg" alt="">Settings</h1>
   <nav class="toc" aria-label="Sections">
     <a href="#appearance-section">Appearance</a>
+    <a href="#tools-section">Tools</a>
     <a href="#mail-section">Mail</a>
     <a href="#writing-section">Writing</a>
     <a href="#calendar-section">Calendar</a>
@@ -61,6 +67,11 @@
     <h2>Appearance</h2>
     <p>Light, dark, or follow the system. The whole app switches with it.</p>
     <div id="appearance" class="segmented" role="radiogroup" aria-label="Appearance"></div>
+  </section>
+  <section id="tools-section">
+    <h2>Tools</h2>
+    <p>Choose the tools in the side bar. A tool you turn off leaves its group, the ☰ New menu and its shortcut, but still opens its own files: a PDF attachment still opens in PDF. Turning off every tool of a group hides the group.</p>
+    <div id="tools"></div>
   </section>
   <section id="mail-section" data-settings="mail"><h2>Mail</h2></section>
   <section id="writing-section" data-settings="writing"><h2>Writing</h2></section>

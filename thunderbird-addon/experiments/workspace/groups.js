@@ -47,6 +47,27 @@ const TOOL_GROUPS = [
   },
 ];
 
+// Tools turned off in Settings → Tools, as { groupId: [toolId…] }. A tool that is off leaves the space
+// bar, its group's flyout, the ☰ New menu and Thoth's shortcuts, but its space still opens its own
+// files (a PDF attachment still opens in PDF). A group with every tool off leaves the bar. Mail stays.
+const TOOLS_PREF = "extensions.mailworkspace.tools";
+const ALWAYS_ON = new Set(["mail"]);
+
+function disabledTools() {
+  try {
+    const value = JSON.parse(Services.prefs.getStringPref(TOOLS_PREF, "{}"));
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch { return {}; }
+}
+
+/** Is this tool (by id: "paint", "files", "browser"…) shown? Unknown ids are. */
+function toolEnabled(toolId) {
+  if (ALWAYS_ON.has(toolId)) return true;
+  const group = TOOL_GROUPS.find((g) => g.tools.some((t) => t.id === toolId));
+  const off = group ? disabledTools()[group.id] : null;
+  return !(Array.isArray(off) && off.includes(toolId));
+}
+
 const GROUPS_PREF = "extensions.mailworkspace.toolGroups";
 const FLYOUT_DELAY = 350; // resting on a button this long opens its flyout
 const HOLD_DELAY = 450; // and so does holding it down
@@ -101,7 +122,7 @@ function installToolGroups(window) {
   let closeTimer = 0;
   let active = -1;
 
-  const toolsOf = (group) => group.tools.filter((tool) => original(tool));
+  const toolsOf = (group) => group.tools.filter((tool) => original(tool) && toolEnabled(tool.id));
   const currentTool = (group) => group.tools.find((tool) => {
     const el = original(tool);
     return el && (tool.dock ? false : el.classList.contains("current"));
@@ -203,7 +224,7 @@ function installToolGroups(window) {
     button.addEventListener("click", (event) => {
       if (held) { held = false; return; } // the press opened the flyout
       if (event.target === corner) { if (openGroup === group) close(); else open(group); return; }
-      const tool = group.tools.find((t) => t.id === last[group.id] && original(t)) ?? toolsOf(group)[0];
+      const tool = toolsOf(group).find((t) => t.id === last[group.id]) ?? toolsOf(group)[0];
       if (tool) activate(group, tool);
     });
     button.addEventListener("contextmenu", (event) => { event.preventDefault(); event.stopPropagation(); open(group); });
@@ -245,7 +266,9 @@ function installToolGroups(window) {
       if (files && isOpen && dockWasOpen.get(group.id) === false && last[group.id] !== files.id) { last[group.id] = files.id; changed = true; }
       if (files) dockWasOpen.set(group.id, isOpen);
       const dockOpen = files && last[group.id] === files.id && original(files)?.classList.contains("mw-active");
-      const tool = group.tools.find((t) => t.id === last[group.id] && original(t)) ?? toolsOf(group)[0] ?? group.tools[0];
+      const shown = toolsOf(group);
+      button.hidden = !shown.length; // every tool of the group turned off
+      const tool = shown.find((t) => t.id === last[group.id]) ?? shown[0] ?? group.tools[0];
       const src = iconUrl(tool.icon);
       const img = button.querySelector("img");
       if (img.getAttribute("src") !== src) img.setAttribute("src", src);
@@ -273,10 +296,14 @@ function installToolGroups(window) {
     queue();
   });
   observer.observe(document.getElementById("spacesToolbar") ?? top, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "hidden", "title"], characterData: true });
+  // Settings → Tools: the bar and an open flyout follow at once.
+  const toolsObserver = { observe() { close(); queue(); } };
+  Services.prefs.addObserver(TOOLS_PREF, toolsObserver);
   refresh();
 
   return () => {
     observer.disconnect();
+    Services.prefs.removeObserver(TOOLS_PREF, toolsObserver);
     window.removeEventListener("keydown", onKey, true);
     window.removeEventListener("pointerdown", onDown, true);
     window.removeEventListener("blur", close);

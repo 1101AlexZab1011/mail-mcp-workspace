@@ -121,6 +121,7 @@
   [id$="spacesButton-viewer"], [id$="spacesButton-artifacts"], [id$="spacesButton-notes"], [id$="spacesButton-paint"],
   [id$="spacesButton-writer"], [id$="spacesButton-slides"], [id$="spacesButton-draw"], [id$="spacesButton-pdf"], #mw-browser-button) { display: none !important; }
 :root[mw-workspace] #spacesToolbar .mw-group-button { position: relative; }
+:root[mw-workspace] #spacesToolbar .mw-group-button[hidden] { display: none !important; } /* every tool of the group turned off */
 :root[mw-workspace] #spacesToolbar .mw-group-button + .mw-group-button { margin-top: 2px; }
 :root[mw-workspace] #spacesToolbar .mw-group-button.mw-active { background: var(--mw-hover) !important; color: var(--mw-text) !important; }
 :root[mw-workspace] #spacesToolbar .mw-group-button.mw-flyout-open { background: var(--mw-hover) !important; }

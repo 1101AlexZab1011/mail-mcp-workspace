@@ -1,6 +1,7 @@
 import { PAIR_COMMAND, forgetToken, ensurePaired, host, json } from "./shared/broker.js";
 import { APPEARANCES, setAppearance } from "./shared/theme.js";
 import { dropdown, h } from "./shared/page.js";
+import { icon } from "./shared/icons.js";
 import { DEFAULT_CODE_THEME } from "./viewer/code-theme.js";
 import { checkForUpdates, installUpdate, skipUpdate } from "./background/updates.js";
 
@@ -80,6 +81,53 @@ async function renderCodeTheme() {
   await preview(codeTheme);
 }
 void renderCodeTheme();
+
+// ---- tools in the side bar: those turned off, { groupId: [toolId…] }, in one pref the space bar
+// follows (experiments/workspace/groups.js, TOOL_GROUPS and TOOLS_PREF; a test keeps the ids the same).
+const TOOLS_PREF = "extensions.mailworkspace.tools";
+const TOOL_SETTINGS = [
+  { id: "communicate", label: "Mail and calendar", tools: [["mail", "Mail", "mail"], ["addressbook", "Address book", "contacts"], ["calendar", "Calendar", "calendar_month"], ["tasks", "Tasks", "task_alt"]] },
+  { id: "files", label: "Files", tools: [["files", "File browser", "folder_open"], ["viewer", "File viewer", "preview"], ["artifacts", "Artifacts", "artifact"]] },
+  { id: "create", label: "Create", tools: [["notes", "Notes", "notes"], ["writer", "Writer", "writer"], ["pdf", "PDF", "picture_as_pdf"], ["paint", "Paint", "brush"], ["slides", "Slides", "slides"], ["draw", "Draw", "shape_line"]] },
+  { id: "web", label: "Browser", tools: [["browser", "Browser", "public"]] },
+];
+const ALWAYS_SHOWN = new Set(["mail"]); // Thoth's home; the group keeps it
+
+async function renderTools() {
+  const box = document.querySelector("#tools");
+  let off;
+  try {
+    const raw = (await browser.workspace.getSettings([TOOLS_PREF]))[TOOLS_PREF];
+    off = JSON.parse(raw || "{}");
+    if (!off || typeof off !== "object" || Array.isArray(off)) off = {};
+  } catch (error) {
+    console.warn("Tools settings unavailable:", error);
+    box.replaceChildren(h("p.settings-unavailable", {}, "These settings can't be read right now."));
+    return;
+  }
+  const save = async (groupId, toolId, shown) => {
+    const list = new Set(off[groupId] ?? []);
+    if (shown) list.delete(toolId); else list.add(toolId);
+    const next = { ...off, [groupId]: [...list] };
+    if (!next[groupId].length) delete next[groupId];
+    try { await browser.workspace.setSetting(TOOLS_PREF, JSON.stringify(next)); } catch (error) { console.warn(error); }
+    await renderTools();
+  };
+  box.replaceChildren(...TOOL_SETTINGS.map((group) => {
+    const isOff = (id) => !ALWAYS_SHOWN.has(id) && (off[group.id] ?? []).includes(id);
+    const hidden = group.tools.every(([id]) => isOff(id));
+    return h("div.tool-group", {},
+      h("h3", {}, group.label, hidden ? h("span.tool-group-note", {}, "Hidden from the side bar") : null),
+      ...group.tools.map(([id, label, iconName]) => {
+        const locked = ALWAYS_SHOWN.has(id);
+        return h("div.setting", {},
+          h("div.setting-label.tool-label", {}, icon(iconName, { size: 18 }), label),
+          locked ? h("div.setting-hint", {}, "Always shown") : null,
+          h("div.setting-control", {}, h("input.switch", { type: "checkbox", role: "switch", "aria-label": `Show ${label}`, checked: !isOff(id), disabled: locked, onchange: (event) => void save(group.id, id, event.target.checked) })));
+      }));
+  }));
+}
+void renderTools();
 
 // ---- curated mail, writing and calendar settings (read and written through the add-on's allow-list)
 const WEEKDAYS = [[1, "Monday"], [0, "Sunday"], [6, "Saturday"]];

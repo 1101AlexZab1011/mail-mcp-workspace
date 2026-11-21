@@ -9,6 +9,8 @@
 
 // The settings the page may read and write, with their types. Nothing else passes.
 var SETTINGS_PREFS = {
+  // Tools: those turned off, { groupId: [toolId…] } as JSON (groups.js, TOOLS_PREF)
+  "extensions.mailworkspace.tools": "string",
   // Mail
   "mail.threadpane.listview": "int", // 0 cards, 1 table
   "mail.threadpane.cardsview.rowcount": "int",

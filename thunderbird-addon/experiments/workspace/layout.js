@@ -6,7 +6,7 @@
    Each dock hosts an extension page in its own <browser>. A dock is "open"
    (resizable width), "minimized" (a narrow rail: the page switches to its
    rail layout by width) or "maximized" (fills the content area). */
-/* global Services, ChromeUtils, ExtensionParent, accelKey */
+/* global Services, ChromeUtils, ExtensionParent, accelKey, toolEnabled */
 
 var XHTML = "http://www.w3.org/1999/xhtml";
 var PREF_ROOT = "extensions.mailworkspace.";
@@ -211,13 +211,18 @@ function applyLayout(window, ctx) {
     // Ctrl+` toggles the terminal, on macOS too (⌘` switches windows there).
     if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.code === "Backquote") { event.preventDefault(); event.stopPropagation(); setTerminal(window, ctx, { toggle: true }); return; }
     if (!accelKey(event) || event.altKey) return;
+    // A tool turned off in Settings → Tools (groups.js) has no shortcut either.
     if (event.shiftKey && ["Digit6", "Digit7", "Digit8", "Digit9", "Digit0"].includes(event.code)) {
-      event.preventDefault(); event.stopPropagation(); ctx.shortcut({ Digit6: "writer", Digit7: "slides", Digit8: "notes", Digit9: "draw", Digit0: "pdf" }[event.code]); return;
+      const tool = { Digit6: "writer", Digit7: "slides", Digit8: "notes", Digit9: "draw", Digit0: "pdf" }[event.code];
+      if (!toolEnabled(tool)) return;
+      event.preventDefault(); event.stopPropagation(); ctx.shortcut(tool); return;
     }
     if (event.shiftKey) return;
     const map = { Digit5: "dock:right", Digit6: "dock:left", Digit7: "space:viewer", Digit8: "space:artifacts", Digit9: "space:paint" };
     const name = map[event.code];
     if (!name) return;
+    const tool = name.startsWith("space:") ? name.slice(6) : name.slice(5) === ctx.filesSide ? "files" : null;
+    if (tool && !toolEnabled(tool)) return;
     event.preventDefault();
     event.stopPropagation();
     if (name.startsWith("dock:")) ctx.update(name.slice(5), { state: "toggle" });

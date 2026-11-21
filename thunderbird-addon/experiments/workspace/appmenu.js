@@ -3,7 +3,7 @@
    licences, troubleshooting) and Quit. Thunderbird's own commands do the work. It draws with the
    browser menu's styles (.mw-web-menu…), so the two menus look alike.
    Loaded into the Experiment's scope after shell.js and webmenu.js. */
-/* global Services, ChromeUtils, keyHint, isMac, MW_XHTML, webIcon, openSpace */
+/* global Services, ChromeUtils, keyHint, isMac, MW_XHTML, webIcon, openSpace, toolEnabled */
 
 var APP_MENU = "mw-app-menu";
 var THOTH_ADDON_ID = "agent-chat@mail-mcp-workspace.local";
@@ -84,19 +84,25 @@ function openAppMenu(window, view = "main") {
       separator(),
       item("Quit", { icon: "power_settings_new", key: `${mod}Q`, run: done(() => window.goQuitApplication()) }),
     ],
-    new: () => [
-      header("New"),
-      item("Message", { icon: "mail", key: `${mod}N`, run: cmd("cmd_newMessage") }),
-      item("Event", { icon: "event", key: `${mod}I`, run: cmd("calendar_new_event_command") }),
-      item("Task", { icon: "task_alt", key: `${mod}D`, run: cmd("calendar_new_todo_command") }),
-      item("Contact", { icon: "person_add", run: cmd("cmd_newCard") }),
-      separator(),
-      item("Document", { icon: "description", run: done(() => openAddonSpace(window, "writer")) }),
-      item("Drawing", { icon: "draw", run: done(() => openAddonSpace(window, "draw")) }),
-      item("PDF", { icon: "picture_as_pdf", run: done(() => openAddonSpace(window, "pdf")) }),
-      item("Slides", { icon: "slideshow", run: done(() => openAddonSpace(window, "slides")) }),
-      item("Note", { icon: "sticky_note_2", run: done(() => openAddonSpace(window, "notes")) }),
-    ],
+    new: () => {
+      // Tools turned off in Settings → Tools (groups.js) have no "New" entry.
+      const when = (tool, entry) => (toolEnabled(tool) ? [entry] : []);
+      const create = [
+        ...when("writer", item("Document", { icon: "description", run: done(() => openAddonSpace(window, "writer")) })),
+        ...when("draw", item("Drawing", { icon: "draw", run: done(() => openAddonSpace(window, "draw")) })),
+        ...when("pdf", item("PDF", { icon: "picture_as_pdf", run: done(() => openAddonSpace(window, "pdf")) })),
+        ...when("slides", item("Slides", { icon: "slideshow", run: done(() => openAddonSpace(window, "slides")) })),
+        ...when("notes", item("Note", { icon: "sticky_note_2", run: done(() => openAddonSpace(window, "notes")) })),
+      ];
+      return [
+        header("New"),
+        item("Message", { icon: "mail", key: `${mod}N`, run: cmd("cmd_newMessage") }),
+        ...when("calendar", item("Event", { icon: "event", key: `${mod}I`, run: cmd("calendar_new_event_command") })),
+        ...when("tasks", item("Task", { icon: "task_alt", key: `${mod}D`, run: cmd("calendar_new_todo_command") })),
+        ...when("addressbook", item("Contact", { icon: "person_add", run: cmd("cmd_newCard") })),
+        ...(create.length ? [separator(), ...create] : []),
+      ];
+    },
     accounts: () => [
       header("Accounts"),
       item("Account settings", { icon: "manage_accounts", run: done(() => window.MsgAccountManager(null)) }),
