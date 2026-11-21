@@ -68,6 +68,12 @@ test("reading: summary, graph, status and worktrees of a real repository", async
   assert.deepEqual(summary.branches.map((b) => [b.name, b.current]).sort(), [["feature", false], ["main", true]]);
   assert.equal(summary.branches.find((b) => b.name === "feature").worktree, join(home, "project-wt"));
   assert.deepEqual(summary.tags.map((tag) => tag.name), ["v1"]);
+  assert.equal(summary.mainline, "main");
+  assert.equal(summary.branches.find((b) => b.name === "feature").merged, false, "feature has work main lacks");
+  await sh(repo, "branch", "done-fix", "HEAD~1");
+  assert.equal((await git.summary(repo)).branches.find((b) => b.name === "done-fix").merged, true, "a branch main already contains is merged");
+  assert.equal((await git.summary(repo)).branches.find((b) => b.name === "main").merged, false, "the main line itself is not");
+  await sh(repo, "branch", "-q", "-D", "done-fix");
   assert.deepEqual(summary.worktrees.map((w) => [w.path, w.branch, w.main]), [[repo, "main", true], [join(home, "project-wt"), "feature", false]]);
 
   const graph = await git.graph(repo);

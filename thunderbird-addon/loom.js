@@ -224,6 +224,20 @@ const actions = {
     }
     await reload();
   },
+  /** Delete the local branches already in the main line (git's safe delete: it refuses unmerged work). */
+  deleteMerged: async () => {
+    const names = deletableMerged().map((b) => b.name);
+    if (!names.length) return;
+    const mainline = state.summary.mainline;
+    if (!(await ask({ title: `Delete ${names.length} merged branch${names.length > 1 ? "es" : ""}?`, message: `Everything on ${names.join(", ")} is already in ${mainline}, so no work is lost. Remote branches stay as they are.`, ok: "Delete", danger: true }))) return;
+    const failed = [];
+    for (const name of names) {
+      try { await host(`/v1/git/branch?${q({ path: worktreePath(), name })}`, { method: "DELETE" }); } catch (error) { failed.push(`${name}: ${error.message}`); }
+    }
+    if (failed.length) showError("Delete merged branches", failed.join("\n"));
+    else toast(`Deleted ${names.length} merged branch${names.length > 1 ? "es" : ""}`);
+    await reload();
+  },
   fetch: () => act({ title: "Fetch from all remotes?", message: "Downloads new commits and branches; your branches and files don't change.", ok: "Fetch", run: () => host("/v1/git/fetch", json({ path: worktreePath() })), done: "Fetched" }),
   pull: () => {
     const status = state.status;
@@ -395,7 +409,7 @@ function renderGraphView(content) {
   if (!state.graph.commits.length) pane.append(h("div.empty-state", {}, icon("commit"), h("h2", {}, "No commits yet"), h("p", {}, "The graph fills in with the first commit.")));
   let drawn = null;
   if (state.graph.commits.length) pane.append(drawn = renderGraph(state.graph, {
-    head: state.summary?.head.branch, headSha: state.summary?.head.sha, selected: state.selected, names: branchNames(),
+    head: state.summary?.head.branch, headSha: state.summary?.head.sha, selected: state.selected, names: branchNames(), merged: mergedRefs(), mainline: state.summary?.mainline,
     onSelect: (commit) => select(commit.sha),
     onContext: (event, commit, ref) => { select(commit.sha); commitMenu(event, commit, ref); },
     onMore: () => { state.limit += LIMIT_STEP; void reload(); },
@@ -447,8 +461,11 @@ function renderSide() {
     b.ahead ? h("span.badge.ahead", { title: `${b.ahead} to push` }, `↑${b.ahead}`) : null,
     b.behind ? h("span.badge.behind", { title: `${b.behind} to pull` }, `↓${b.behind}`) : null,
     b.worktree && b.worktree !== (state.worktree ?? summary.root) ? h("span.badge", { title: `Checked out in ${b.worktree}` }, icon("folder_open")) : null,
+    b.merged ? mergedBadge() : null,
     b.current ? icon("check") : null);
-  parts.push(section("Branches", summary.branches.length, summary.branches.map(branch)));
+  const finished = deletableMerged();
+  parts.push(section("Branches", summary.branches.length, summary.branches.map(branch),
+    finished.length ? h("button.link", { type: "button", title: `Delete the ${finished.length} local branch${finished.length > 1 ? "es" : ""} already in ${summary.mainline}`, onclick: () => void actions.deleteMerged() }, "Delete merged…") : null));
 
   if (summary.worktrees.length > 1) parts.push(section("Worktrees", summary.worktrees.length, summary.worktrees.map((tree) => h("button.item" + ((state.worktree ?? summary.root) === tree.path ? ".current" : ""), {
     type: "button", title: tree.path,
@@ -459,27 +476,37 @@ function renderSide() {
     type: "button", title: b.subject,
     onclick: () => select(b.sha, { scroll: true }), ondblclick: () => void actions.checkout(b.name, { remote: true }),
     oncontextmenu: (event) => commitMenu(event, state.graph?.commits.find((x) => x.sha === b.sha) ?? { sha: b.sha }, { kind: "remote", name: b.name }),
-  }, icon("cloud_download"), h("span.name", {}, b.name)))));
+  }, icon("cloud_download"), h("span.name", {}, b.name), b.merged ? mergedBadge() : null))));
 
   if (summary.tags.length) parts.push(section("Tags", summary.tags.length, summary.tags.map((tag) => h("button.item", { type: "button", onclick: () => select(tag.sha, { scroll: true }) }, icon("label"), h("span.name", {}, tag.name)))));
   side.replaceChildren(...parts);
 }
 
-function section(title, count, items) {
-  return h("section", {}, h("h3", {}, title, h("span.count", {}, String(count))), h("div.list", {}, ...items));
+function section(title, count, items, action = null) {
+  return h("section", {}, h("h3", {}, title, h("span.count", {}, String(count)), action ? h("span.spacer") : null, action), h("div.list", {}, ...items));
 }
+
+const mergedBadge = () => h("span.badge.merged", { title: `Merged into ${state.summary?.mainline}: everything on it is there` }, icon("check_circle"), "merged");
+/** Local branches whose work is all in the main line and that nothing has checked out. */
+const deletableMerged = () => (state.summary?.branches ?? []).filter((b) => b.merged && !b.current && !b.worktree);
+/** Every ref name (local and remote) that is merged into the main line, for the graph's chips. */
+const mergedRefs = () => new Set([...(state.summary?.branches ?? []), ...(state.summary?.remoteBranches ?? [])].filter((b) => b.merged).map((b) => b.name));
+
+/** A card button whose label shortens with an ellipsis rather than widening the panel. */
+const cardButton = (glyph, label, run) => h("button.btn", { type: "button", title: label, onclick: run }, icon(glyph), h("span.label", {}, label));
 
 function commitCard(commit) {
   const branches = commit.refs.filter((r) => r.kind === "branch").map((r) => r.name);
   const buttons = [];
   for (const name of branches) {
-    if (name !== currentBranch()) buttons.push(h("button.btn", { type: "button", onclick: () => void actions.checkout(name) }, icon("call_split"), `Check out ${name}`));
-    if (currentBranch() && name !== currentBranch()) buttons.push(h("button.btn", { type: "button", onclick: () => void actions.merge(name) }, icon("merge"), `Merge into ${currentBranch()}`));
+    if (name !== currentBranch()) buttons.push(cardButton("call_split", `Check out ${name}`, () => void actions.checkout(name)));
+    if (currentBranch() && name !== currentBranch() && !mergedRefs().has(name)) buttons.push(cardButton("merge", `Merge into ${currentBranch()}`, () => void actions.merge(name)));
   }
-  buttons.push(h("button.btn", { type: "button", onclick: () => void actions.createBranch(commit.sha) }, icon("add"), "Branch here"));
+  buttons.push(cardButton("add", "Branch here", () => void actions.createBranch(commit.sha)));
+  const merged = mergedRefs();
   return h("div.card", {},
     h("h2", {}, commit.subject),
-    h("div", { style: { display: "flex", gap: "4px", flexWrap: "wrap" } }, ...commit.refs.filter((r) => r.kind !== "head").map((r) => refChip(r, { lane: commit.lane, current: r.name === currentBranch() }))),
+    h("div.chips", {}, ...commit.refs.filter((r) => r.kind !== "head").map((r) => refChip(r, { lane: commit.lane, current: r.name === currentBranch(), merged: merged.has(r.name) ? state.summary.mainline : null }))),
     h("dl.meta", {},
       ...(branchNames().get(commit.sha) ? [h("dt", {}, "Branch"), h("dd", {}, branchNames().get(commit.sha))] : []),
       h("dt", {}, "Commit"), h("dd.mono", { title: commit.sha }, commit.sha.slice(0, 12)),

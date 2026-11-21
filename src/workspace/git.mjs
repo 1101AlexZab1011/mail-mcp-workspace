@@ -21,6 +21,7 @@ const RS = "\x1e"; // between records
 const US = "\x1f"; // between fields
 const LOCAL_TIMEOUT = 30_000;
 const NETWORK_TIMEOUT = 120_000;
+const MAINLINE = ["main", "master", "trunk"]; // the branch others are merged into, the first that exists
 
 export class GitError extends Error {
   constructor(status, code, message, extra = {}) { super(message); this.status = status; this.code = code; Object.assign(this, extra); }
@@ -100,8 +101,16 @@ export class Git {
       entry[kind === "(push)" ? "push" : "fetch"] = url;
       return out;
     }, []);
+    // Branches whose every commit is already on the main line are finished: their work is in it.
+    const mainline = MAINLINE.find((name) => branches.some((b) => b.name === name)) ?? null;
+    if (mainline) {
+      const merged = new Set((await this.git(root, ["for-each-ref", `--merged=refs/heads/${mainline}`, "--format=%(refname)", "refs/heads", "refs/remotes"])).split(/\r?\n/).filter(Boolean));
+      for (const b of branches) b.merged = b.name !== mainline && merged.has(`refs/heads/${b.name}`);
+      // A remote copy of the main line itself (origin/main) is not a finished branch.
+      for (const b of remoteBranches) b.merged = b.name.split("/").slice(1).join("/") !== mainline && merged.has(`refs/remotes/${b.name}`);
+    }
     const head = await this.head(root);
-    return { root, head, branches, remoteBranches, tags, remotes, worktrees: await this.worktrees(root) };
+    return { root, head, mainline, branches, remoteBranches, tags, remotes, worktrees: await this.worktrees(root) };
   }
 
   async head(root) {

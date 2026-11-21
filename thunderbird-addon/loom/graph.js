@@ -34,19 +34,22 @@ export function shortDate(iso) {
  * A ref as a chip: local branches in their lane's colour (the checked-out one filled), remote
  * branches outlined, tags in amber. `extra` adds chips (Loom puts a running plan's stage here).
  */
-export function refChip(ref, { lane = 0, current = false } = {}) {
+export function refChip(ref, { lane = 0, current = false, merged = null } = {}) {
   const kind = ref.kind;
   const glyph = { branch: "call_split", remote: "cloud_download", tag: "label" }[kind];
-  return h(`span.ref.${kind}${current ? ".current" : ""}`, { style: { "--lane": laneColor(lane) }, title: ref.name }, glyph ? icon(glyph) : null, h("span.name", {}, ref.name));
+  // `merged`: the main line this branch is already in; the chip fades and says so.
+  return h(`span.ref.${kind}${current ? ".current" : ""}${merged ? ".merged" : ""}`, { style: { "--lane": laneColor(lane) }, title: merged ? `${ref.name}: merged into ${merged}` : ref.name },
+    glyph ? icon(glyph) : null, h("span.name", {}, ref.name), merged ? icon("check") : null);
 }
 
 /**
  * Draw `graph` ({ commits, lanes, more }). `head` is the checked-out branch name (its chip is filled),
- * `selected` a sha, `names` each commit's branch (branchesOf). Callbacks: onSelect(commit),
+ * `selected` a sha, `names` each commit's branch (branchesOf), `merged` the ref names already in the
+ * `mainline` branch. Callbacks: onSelect(commit),
  * onContext(event, commit, ref?), onMore(). `decorate(commit)` returns extra chips for a row (plans on
  * its branches). The result's `showLanes(scrollTop)` labels the lanes crossing the top edge.
  */
-export function renderGraph(graph, { head, headSha, selected, names = new Map(), onSelect, onContext, onMore, decorate = () => [] }) {
+export function renderGraph(graph, { head, headSha, selected, names = new Map(), merged = new Set(), mainline = null, onSelect, onContext, onMore, decorate = () => [] }) {
   const { commits } = graph;
   const rowOf = new Map(commits.map((commit, row) => [commit.sha, row]));
   const width = PAD * 2 + Math.max(graph.lanes - 1, 0) * LANE;
@@ -88,7 +91,7 @@ export function renderGraph(graph, { head, headSha, selected, names = new Map(),
 
   const rows = commits.map((commit) => {
     const chips = commit.refs.filter((ref) => ref.kind !== "head").map((ref) => {
-      const chip = refChip(ref, { lane: commit.lane, current: ref.kind === "branch" && ref.name === head });
+      const chip = refChip(ref, { lane: commit.lane, current: ref.kind === "branch" && ref.name === head, merged: merged.has(ref.name) ? mainline : null });
       chip.addEventListener("contextmenu", (event) => { event.stopPropagation(); onContext(event, commit, ref); });
       return chip;
     });

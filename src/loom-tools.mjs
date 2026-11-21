@@ -89,7 +89,7 @@ export function loomTools({ call, cwd = process.cwd() }) {
     },
 
     loom_status: {
-      description: "Where a project stands: the checked-out branch and its worktree state, every branch (ahead/behind, which worktree has it), worktrees, recent commits, the plans that are not finished, and which agents work on what.",
+      description: "Where a project stands: the checked-out branch and its worktree state, every branch (ahead/behind, which worktree has it, whether it is already merged into the main line), worktrees, recent commits, the plans that are not finished, and which agents work on what.",
       input: { project, commits: z.number().int().min(0).max(100).optional().describe("Recent commits to include (default 10)") }, readOnly: true,
       run: async ({ project: wanted, commits = 10 }) => {
         const p = await find(wanted);
@@ -106,7 +106,8 @@ export function loomTools({ call, cwd = process.cwd() }) {
           project: { id: p.id, name: p.name, path: p.path },
           head: summary.head,
           worktree: { branch: status.branch, upstream: status.upstream, ahead: status.ahead, behind: status.behind, clean: status.clean, merging: status.merging, staged: status.staged.length, changed: status.changed.length, untracked: status.untracked.length, conflicts: status.conflicts.map((c) => c.path) },
-          branches: summary.branches.map((b) => ({ name: b.name, current: b.current, upstream: b.upstream, ahead: b.ahead, behind: b.behind, worktree: b.worktree ?? null })),
+          branches: summary.branches.map((b) => ({ name: b.name, current: b.current, upstream: b.upstream, ahead: b.ahead, behind: b.behind, worktree: b.worktree ?? null, merged: b.merged ?? false })),
+          mainline: summary.mainline,
           worktrees: summary.worktrees.map((w) => ({ path: w.path, branch: w.branch ?? null, main: w.main })),
           commits: graph.commits.map((c) => ({ sha: c.sha.slice(0, 10), subject: c.subject, author: c.author, date: c.date, refs: c.refs.filter((r) => r.kind !== "head").map((r) => r.name) })),
           plans: plans.plans.filter((x) => !["Done", "Dropped"].includes(x.status)).map(brief),
