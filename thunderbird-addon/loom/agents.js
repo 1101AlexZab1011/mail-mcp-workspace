@@ -31,13 +31,16 @@ export function createAgents(ctx) {
     if (document.hidden) return;
     try {
       const { groups } = await broker("/v1/presence?channel=mail/chat/**");
+      // Only Loom's agents, and only whether they are attached and busy: a member's `waiting` flips
+      // each time its session renews its long poll, which would redraw the page every few seconds.
+      const ours = new Set(s.list.map((a) => a.session).filter(Boolean));
       const next = new Map();
       for (const group of groups) {
         const chat = sessionOfGroup(group.name);
         if (!chat) continue;
-        for (const member of group.members) next.set(member.agent, { chat, busy: member.working_on.length > 0, listening: Boolean(member.waiting) });
+        for (const member of group.members) if (ours.has(member.agent)) next.set(member.agent, { chat, busy: member.working_on.length > 0 });
       }
-      const changed = JSON.stringify([...next]) !== JSON.stringify([...s.presence]);
+      const changed = JSON.stringify([...next].sort()) !== JSON.stringify([...s.presence].sort());
       s.presence = next;
       if (changed) ctx.rerender();
     } catch { /* the broker is down: everyone shows as away until it is back */ }

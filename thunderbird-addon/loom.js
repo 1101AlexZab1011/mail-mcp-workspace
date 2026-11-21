@@ -523,9 +523,17 @@ registerPage("loom", {
 // ----------------------------------------------------------------------------------------- go --
 
 state.view = localStorage.getItem("loom.view") ?? "graph";
-void (async () => {
-  try { await loadProjects(); } catch (error) { state.error = error.message; render(); return; }
+/** Load the projects and open the last one; while the host (or the broker it asks) is down, try again. */
+async function start() {
+  try { await loadProjects(); } catch (error) {
+    state.error = `${error.message} · trying again`;
+    render();
+    setTimeout(() => void start(), 5000);
+    return;
+  }
+  state.error = null;
   const last = localStorage.getItem("loom.project");
-  const start = state.projects.find((p) => p.id === last) ?? state.projects[0];
-  if (start) await openProject(start.id); else render();
-})();
+  const first = state.projects.find((p) => p.id === last) ?? state.projects[0];
+  if (first) await openProject(first.id); else render();
+}
+void start();
