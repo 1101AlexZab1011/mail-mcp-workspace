@@ -42,3 +42,13 @@ test("the side bar, the Settings page and the settings allow-list use the same p
   assert.equal(pref(options), pref(groups));
   assert.match(settings, /"extensions\.mailworkspace\.tools": "string"/);
 });
+
+test("every grouped space's own button is hidden behind its group and wears its icon", async () => {
+  const groups = await read("experiments/workspace/groups.js");
+  const chrome = await read("theme/chrome.css");
+  const hidden = chrome.slice(chrome.indexOf(":root[mw-groups] #spacesToolbar :is("), chrome.indexOf("{ display: none !important; }", chrome.indexOf(":root[mw-groups] #spacesToolbar :is(")));
+  for (const [, id] of groups.matchAll(/selector: '\[id\$="spacesButton-([a-z]+)"\]'/g)) {
+    assert.ok(hidden.includes(`[id$="spacesButton-${id}"]`), `${id}'s own button is hidden`);
+    assert.ok(chrome.includes(`[id$="spacesButton-${id}"] img { content:`), `${id}'s button has its icon`);
+  }
+});

@@ -28,6 +28,8 @@ export const NAMES = [
   "first_page", "last_page", "replay_10", "forward_10", "keyboard_arrow_left", "keyboard_arrow_right", "wrap_text", "format_list_numbered", "stop",
   // spaces
   "mail", "calendar_month", "contacts", "task_alt", "preview", "widgets", "brush", "palette",
+  // loom
+  "account_tree", "commit", "merge", "call_split", "fork_right", "cloud_download", "cloud_upload", "person", "label", "flag", "view_kanban", "assignment", "radio_button_unchecked", "progress_activity", "block", "pending", "notifications",
   // paint
   "menu", "splitscreen_right", "splitscreen_bottom", "select", "lasso_select", "polyline", "select_all", "deselect", "content_cut", "aspect_ratio", "note_add", "keyboard", "arrow_selector_tool", "draw", "ink_highlighter", "ink_eraser", "horizontal_rule", "north_east", "rectangle", "circle",
   "title", "format_color_fill", "colorize", "crop", "undo", "redo", "pan_tool", "layers", "photo_library", "content_paste",

@@ -14,6 +14,8 @@
 //   publish:mail/workspace/review      supervisor review of a passage (runs Claude Code headless)
 //   read:mail/workspace/git            repositories: branches, worktrees, the commit graph, status
 //   publish:mail/workspace/git         checkout, branches, merge, fetch, pull, push (git.mjs)
+//   read:mail/workspace/loom           Loom's projects and their change feed
+//   publish:mail/workspace/loom        add, rename, open and remove Loom projects (loom.mjs)
 //
 // The add-on's token has all of them; the agent's token lacks the last two, so
 // an agent can write an artifact but never approve what it may do.
@@ -41,6 +43,7 @@ import { Draw } from "./draw.mjs";
 import { PdfTools } from "./pdf.mjs";
 import { Notes } from "./notes.mjs";
 import { Git } from "./git.mjs";
+import { Loom } from "./loom.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const here = dirname(fileURLToPath(import.meta.url));
@@ -117,6 +120,7 @@ export async function startHost({
   const pdfTools = new PdfTools({ files: writer });
   const notes = new Notes({ files: writer, configDir });
   const repos = new Git({ files: writer });
+  const loom = new Loom({ git: repos, configDir, log });
 
   // --- auth: tokens are listener-mcp tokens, verified by the broker, cached briefly.
   const principals = new Map();
@@ -448,6 +452,19 @@ export async function startHost({
   route("POST", "/v1/git/fetch", async ({ request, principal }) => { gitWrite(principal); const { path, remote, prune } = await readJson(request); return repos.fetch(path, { remote, prune }); });
   route("POST", "/v1/git/pull", async ({ request, principal }) => { gitWrite(principal); const { path, mode } = await readJson(request); return repos.pull(path, { mode }); });
   route("POST", "/v1/git/push", async ({ request, principal }) => { gitWrite(principal); const { path, remote, branch, setUpstream } = await readJson(request); return repos.push(path, { remote, branch, setUpstream }); });
+  // Loom: projects and their change feed.
+  const loomRead = (principal) => need(principal, "read", "mail/workspace/loom");
+  const loomWrite = (principal) => need(principal, "publish", "mail/workspace/loom");
+  route("GET", "/v1/loom/projects", async ({ principal }) => { loomRead(principal); return { projects: await loom.projects() }; });
+  route("POST", "/v1/loom/projects", async ({ request, principal }) => { loomWrite(principal); return loom.addProject(await readJson(request)); });
+  route("PATCH", "/v1/loom/projects", async ({ request, principal }) => { loomWrite(principal); const { id, name } = await readJson(request); return loom.renameProject(id, name); });
+  route("DELETE", "/v1/loom/projects", async ({ url, principal }) => { loomWrite(principal); return loom.removeProject(url.searchParams.get("id")); });
+  route("POST", "/v1/loom/projects/open", async ({ request, principal }) => { loomWrite(principal); return loom.openProject((await readJson(request)).id); });
+  route("GET", "/v1/loom/changes", async ({ url, principal }) => {
+    loomRead(principal);
+    const p = url.searchParams;
+    return loom.changes(p.get("project"), { since: Number(p.get("since") ?? 0), wait: Number(p.get("wait") ?? 0) });
+  });
   route("GET", "/v1/slides/fonts", async ({ principal }) => { need(principal, "read", "mail/workspace/files"); return { fonts: await decks.fonts() }; });
   route("POST", "/v1/slides/rewrite", async ({ request, principal }) => {
     need(principal, "publish", "mail/workspace/review");
@@ -582,7 +599,7 @@ export async function startHost({
   const actualPort = server.address().port;
   if (actualPort !== port) { allowedHosts.add(`127.0.0.1:${actualPort}`); allowedHosts.add(`localhost:${actualPort}`); }
   log(`mail-workspace host listening on http://127.0.0.1:${actualPort} (artifacts: ${store.root})`);
-  return { server, port: actualPort, store, capabilities, terminals, close: () => new Promise((r) => { watcher?.close(); capabilities.closeAll(); terminals.closeAll(); documents.close(); for (const wake of changeWaiters) wake(); server.closeAllConnections?.(); server.close(r); }) };
+  return { server, port: actualPort, store, capabilities, terminals, close: () => new Promise((r) => { watcher?.close(); loom.close(); capabilities.closeAll(); terminals.closeAll(); documents.close(); for (const wake of changeWaiters) wake(); server.closeAllConnections?.(); server.close(r); }) };
 }
 
 function escapeHtml(value) {

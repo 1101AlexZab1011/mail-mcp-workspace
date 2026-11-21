@@ -15,6 +15,7 @@ const SPACES = [
   { name: "draw", title: "Draw (Ctrl+Shift+9)", url: "draw.html", icon: "shape_line" },
   { name: "pdf", title: "PDF (Ctrl+Shift+0)", url: "pdf.html", icon: "picture_as_pdf" },
   { name: "notes", title: "Notes (Ctrl+Shift+8)", url: "notes.html", icon: "notes" },
+  { name: "loom", title: "Loom", url: "loom.html", icon: "account_tree" },
 ];
 
 async function installSpaces() {

@@ -11,9 +11,10 @@
 // checkout or a merge over uncommitted changes is refused, and a branch is deleted only once merged
 // unless `force` says so.
 import { execFile } from "node:child_process";
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { expand } from "./files.mjs";
 
 const run = promisify(execFile);
 const RS = "\x1e"; // between records
@@ -58,7 +59,13 @@ export class Git {
 
   /** The repository's top folder for a path inside it (a worktree's own top for a worktree). */
   async repo(path) {
-    const full = await this.files.target(path);
+    // FileWriter.target confines to the home folder and keeps out of protected folders; the home
+    // folder itself it refuses (it can't be written as a whole), but reading git there is fine.
+    const full = await this.files.target(path).catch(async (error) => {
+      const real = await realpath(expand(path)).catch(() => null);
+      if (real && real === (await realpath(this.files.root))) return real;
+      throw error;
+    });
     const info = await stat(full).catch(() => null);
     if (!info?.isDirectory()) throw new GitError(404, "not_found", `${path} is not a folder`);
     const top = (await this.git(full, ["rev-parse", "--show-toplevel"], { allowFail: true }))?.trim();

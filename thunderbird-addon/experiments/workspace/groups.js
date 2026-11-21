@@ -26,6 +26,7 @@ const TOOL_GROUPS = [
       { id: "files", selector: "#mw-files-dock-button", icon: "folder_open", dock: true },
       { id: "viewer", selector: '[id$="spacesButton-viewer"]', icon: "preview" },
       { id: "artifacts", selector: '[id$="spacesButton-artifacts"]', icon: "artifact" },
+      { id: "loom", selector: '[id$="spacesButton-loom"]', icon: "account_tree" },
     ],
   },
   {

@@ -87,7 +87,7 @@ void renderCodeTheme();
 const TOOLS_PREF = "extensions.mailworkspace.tools";
 const TOOL_SETTINGS = [
   { id: "communicate", label: "Mail and calendar", tools: [["mail", "Mail", "mail"], ["addressbook", "Address book", "contacts"], ["calendar", "Calendar", "calendar_month"], ["tasks", "Tasks", "task_alt"]] },
-  { id: "files", label: "Files", tools: [["files", "File browser", "folder_open"], ["viewer", "File viewer", "preview"], ["artifacts", "Artifacts", "artifact"]] },
+  { id: "files", label: "Files", tools: [["files", "File browser", "folder_open"], ["viewer", "File viewer", "preview"], ["artifacts", "Artifacts", "artifact"], ["loom", "Loom", "account_tree"]] },
   { id: "create", label: "Create", tools: [["notes", "Notes", "notes"], ["writer", "Writer", "writer"], ["pdf", "PDF", "picture_as_pdf"], ["paint", "Paint", "brush"], ["slides", "Slides", "slides"], ["draw", "Draw", "shape_line"]] },
   { id: "web", label: "Browser", tools: [["browser", "Browser", "public"]] },
 ];

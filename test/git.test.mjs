@@ -213,3 +213,8 @@ test("fetch, pull and push against a bare remote", async (t) => {
   assert.deepEqual(summary.remotes, [{ name: "origin", fetch: remote, push: remote }]);
   assert.ok(summary.remoteBranches.some((b) => b.name === "origin/main"));
 });
+
+test("the home folder itself can be read (it just isn't a repository here)", async (t) => {
+  const { home, git } = await setup(t);
+  await assert.rejects(git.summary(home), { code: "not_a_repository" });
+});
