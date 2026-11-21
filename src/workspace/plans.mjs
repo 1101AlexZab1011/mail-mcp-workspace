@@ -373,8 +373,13 @@ export class Plans {
     const project = await this.loom.project(projectId);
     const path = await this.#resolve(project, plan);
     await this.#write(project, path, (text) => {
-      const { text: out, added } = addSteps(ensureStepIds(text), Array.isArray(steps) ? steps : [steps]);
-      return appendLog(out, `${added.length === 1 ? `Step ${added[0].id} added` : `${added.length} steps added`}${by(who)}`);
+      const { text: withSteps, added } = addSteps(ensureStepIds(text), Array.isArray(steps) ? steps : [steps]);
+      let out = appendLog(withSteps, `${added.length === 1 ? `Step ${added[0].id} added` : `${added.length} steps added`}${by(who)}`);
+      // New work on a finished plan reopens it.
+      const p = parsePlan(out);
+      const next = statusAfter(p.properties.Status ?? "Idea", p.steps);
+      if (next && next !== p.properties.Status) out = appendLog(setProperties(out, { Status: next }), `Status: ${p.properties.Status ?? "Idea"} → ${next}`);
+      return out;
     }, { by: who });
     return this.get(projectId, path);
   }

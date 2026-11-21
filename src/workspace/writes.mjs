@@ -172,7 +172,21 @@ async function atomicWrite(full, bytes, mode) {
     throw error;
   }
   await handle.close();
-  try { await rename(temp, full); } catch (error) { await rm(temp, { force: true }); throw error; }
+  try { await replace(temp, full); } catch (error) { await rm(temp, { force: true }); throw error; }
+}
+
+/**
+ * Rename over an existing file. Windows refuses while another program holds the file open for a
+ * moment (an indexer, an antivirus scan, a reader without delete sharing): try again for about two
+ * seconds, as graceful-fs does, before giving up.
+ */
+async function replace(temp, full) {
+  for (let wait = 20; ; wait *= 2) {
+    try { return await rename(temp, full); } catch (error) {
+      if (!isWindows || !["EPERM", "EACCES", "EBUSY"].includes(error.code) || wait > 1500) throw error;
+      await new Promise((resolveWait) => setTimeout(resolveWait, wait));
+    }
+  }
 }
 
 /** Wait until the file's version differs from `since` (a hash), or `waitMs` passes. */

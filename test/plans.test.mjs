@@ -172,6 +172,9 @@ test("plans: a Notes database per project; ideas, plans with steps, stages and t
   await plans.step(project.id, "Plans board", { step: "s1", state: "running", by: "Kai" });
   assert.deepEqual((await waiting).events.map((e) => [e.kind, e.status, e.by]), [["status", "In progress", "Kai"]], "a waiting reader wakes");
   assert.deepEqual(await loom.eventsSince({ since: 3, epoch: "old" }).then((r) => r.events), [], "a reader from another host run starts over");
+  await plans.step(project.id, "Plans board", { step: "s1", state: "done" });
+  assert.equal((await plans.get(project.id, "Plans board")).status, "Done");
+  assert.equal((await plans.addSteps(project.id, "Plans board", { steps: ["Polish"] })).status, "In progress", "new work reopens a finished plan");
 
   // Writes wake the project's feed.
   const { version } = await loom.changes(project.id);
