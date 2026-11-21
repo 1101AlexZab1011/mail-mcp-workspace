@@ -20,6 +20,12 @@ function paneLayoutOf(window) {
   return window.gTabmail.currentAbout3Pane?.paneLayout ?? null;
 }
 
+/** The first mail tab's pane layout, whichever tab is shown; null until that view has started. */
+function mailPaneLayout(window) {
+  const tab = window.gTabmail?.tabInfo?.find((info) => info.mode?.name === "mail3PaneTab");
+  return tab?.chromeBrowser?.contentWindow?.paneLayout ?? null;
+}
+
 /** Minimum width the current tab's content needs, and what inside it can collapse. */
 function contentNeeds(window) {
   const mode = window.gTabmail?.currentTabInfo?.mode?.name ?? "default";
@@ -67,7 +73,7 @@ function fit(window, request = null, notify = () => {}) {
   const docks = { left: readDock("left"), right: readDock("right") };
   if (docks.left.state === "maximized" || docks.right.state === "maximized") return request?.width;
   if (request) { docks[request.side].state = "open"; docks[request.side].width = Math.max(MIN_WIDTH, request.width); }
-  const stack = (window.mwAutoStack ??= loadAutoStack(window, docks));
+  const stack = (window.mwAutoStack ??= loadAutoStack(window));
   const changed = new Set();
   const free = () => total - dockWidth(docks.left) - dockWidth(docks.right) - todayPane(window).width - contentNeeds(window).min;
 
@@ -91,14 +97,18 @@ function fit(window, request = null, notify = () => {}) {
       break;
     }
     next.collapse();
+    // One entry per panel: a pane the mail view showed again (mail.js) may still be on the stack.
+    const held = stack.findIndex((entry) => entry.key === next.key);
+    if (held >= 0) stack.splice(held, 1);
     stack.push(next);
   }
 
-  // Give space back, the most recently minimized first.
+  // Give space back, the most recently minimized first. A pane that cannot be shown yet (its mail
+  // tab still loading) keeps its place, or the folder pane would stay hidden for good.
   while (stack.length) {
     const last = stack.at(-1);
     if (free() < last.width + 8) break;
-    last.restore();
+    if (last.restore() === false) break;
     stack.pop();
   }
 
@@ -112,19 +122,24 @@ const AUTO_PREF = "extensions.mailworkspace.autoStack";
 function saveAutoStack(stack) {
   Services.prefs.setStringPref(AUTO_PREF, JSON.stringify(stack.map(({ key, width }) => ({ key, width }))));
 }
-function loadAutoStack(window, docks) {
+function loadAutoStack(window) {
   let saved = [];
   try { saved = JSON.parse(Services.prefs.getStringPref(AUTO_PREF, "[]")); } catch { saved = []; }
-  return saved.map(({ key, width }) => {
-    if (key.startsWith("dock:")) {
-      const side = key.slice(5);
-      return { key, width, restore: () => { const dock = readDock(side); dock.state = "open"; writeDock(dock); applyDock(window, dock); window.mwCtx?.notify?.(dock); } };
-    }
-    if (key === "todayPane") return { key, width, restore: () => todayPane(window).restore() };
-    if (key === "folderPane") return { key, width, restore: () => { const layout = paneLayoutOf(window); if (layout) layout.folderPaneVisible = true; } };
-    if (key === "messagePane") return { key, width, restore: () => { const layout = paneLayoutOf(window); if (layout) layout.messagePaneVisible = true; } };
-    return null;
-  }).filter(Boolean);
+  return saved.map(({ key, width }) => savedEntry(window, key, width)).filter(Boolean);
+}
+
+/** A stack entry from its key alone, after a restart. */
+function savedEntry(window, key, width) {
+  if (key.startsWith("dock:")) {
+    const side = key.slice(5);
+    return { key, width, restore: () => { const dock = readDock(side); dock.state = "open"; writeDock(dock); applyDock(window, dock); window.mwCtx?.notify?.(dock); } };
+  }
+  if (key === "todayPane") return { key, width, restore: () => todayPane(window).restore() };
+  // Given back by whichever tab is showing then (Thoth may open on the PDF or another space), so
+  // these look up the mail tab, not the current one.
+  if (key === "folderPane") return { key, width, restore: () => { const layout = mailPaneLayout(window); if (!layout) return false; layout.folderPaneVisible = true; return true; } };
+  if (key === "messagePane") return { key, width, restore: () => { const layout = mailPaneLayout(window); if (!layout) return false; layout.messagePaneVisible = true; return true; } };
+  return null;
 }
 
 /** The user changed a dock themselves: it is no longer the manager's to restore. */

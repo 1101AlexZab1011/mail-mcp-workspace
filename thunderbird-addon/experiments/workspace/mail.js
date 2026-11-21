@@ -3,7 +3,7 @@
    message header as a card with the sender's initials and Reply / Reply all / Forward / Archive /
    Delete with their labels. Thunderbird's own quick filter and header do the work.
    Called for each about:3pane and about:message document as it loads (themeDocument). */
-/* global Services, ChromeUtils */
+/* global Services, ChromeUtils, fit, ctxNotify */
 
 const MAIL_HEADER_DONE = "extensions.mailworkspace.mail.header-layout";
 
@@ -14,8 +14,38 @@ function mailPaneBehaviour(doc) {
   const ready = (fn) => (doc.readyState === "complete" ? fn() : win.addEventListener("load", fn, { once: true }));
   if (/^about:3pane/.test(doc.documentURI)) ready(() => { try { mailListBar(doc); } catch (error) { console.error("Thoth: mail list", error); } });
   if (/^about:3pane/.test(doc.documentURI)) ready(() => { try { mailConnectHome(doc); } catch (error) { console.error("Thoth: mail home", error); } });
+  if (/^about:3pane/.test(doc.documentURI)) mailPaneState(win);
   if (/^about:message/.test(doc.documentURI)) ready(() => { try { mailHeaderLayout(doc); } catch (error) { console.error("Thoth: message header", error); } });
   if (/multimessageview\.xhtml/.test(doc.documentURI)) ready(() => { try { mailSummary(doc); } catch (error) { console.error("Thoth: summary", error); } });
+}
+
+/**
+ * Which mail panes show is the space manager's call (shell.js, fit), not the saved session's: the
+ * session keeps whatever the manager last hid for a narrower window, and Thunderbird applies it on
+ * start (for the first tab even after the view has loaded), so the folder list stayed hidden for good,
+ * with Thoth showing no View menu to bring it back. Each restore now shows the folder and message
+ * panes, and the manager then hides what does not fit, to give it back when there is room.
+ */
+function mailPaneState(win) {
+  const original = win.restoreState;
+  if (original?.mwThoth) return;
+  if (typeof original !== "function") {
+    // Called as the document starts, before about3Pane.js has run. Its start-up is a DOMContentLoaded
+    // listener added by that script, so this one, added first, runs before it calls restoreState.
+    if (win.document.readyState === "loading") win.addEventListener("DOMContentLoaded", () => mailPaneState(win), { once: true });
+    return;
+  }
+  const restore = function (state = {}) {
+    // A search result (synthetic view) has no folder list: keep Thunderbird's choice there.
+    const shown = state?.syntheticView ? {} : { folderPaneVisible: true, messagePaneVisible: true };
+    const result = original.call(this, { ...state, ...shown });
+    const top = win.browsingContext?.topChromeWindow;
+    if (top?.mwCtx) win.setTimeout(() => { try { fit(top, null, ctxNotify(top)); } catch (error) { console.error("Thoth: mail fit", error); } }, 0);
+    return result;
+  };
+  restore.mwThoth = true;
+  // about3Pane.js is a classic script: its init calls the global restoreState, which this replaces.
+  win.restoreState = restore;
 }
 
 /** The conversation summary: senders by name (the address on hover), as in the list. */
