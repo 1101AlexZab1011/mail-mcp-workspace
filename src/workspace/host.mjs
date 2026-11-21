@@ -12,6 +12,8 @@
 //                                      agent trashes through the GUI, which asks the user)
 //   publish:mail/workspace/render      render Quarto documents
 //   publish:mail/workspace/review      supervisor review of a passage (runs Claude Code headless)
+//   read:mail/workspace/git            repositories: branches, worktrees, the commit graph, status
+//   publish:mail/workspace/git         checkout, branches, merge, fetch, pull, push (git.mjs)
 //
 // The add-on's token has all of them; the agent's token lacks the last two, so
 // an agent can write an artifact but never approve what it may do.
@@ -38,6 +40,7 @@ import { Slides } from "./slides.mjs";
 import { Draw } from "./draw.mjs";
 import { PdfTools } from "./pdf.mjs";
 import { Notes } from "./notes.mjs";
+import { Git } from "./git.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const here = dirname(fileURLToPath(import.meta.url));
@@ -113,6 +116,7 @@ export async function startHost({
   const drawings = new Draw({ files: writer });
   const pdfTools = new PdfTools({ files: writer });
   const notes = new Notes({ files: writer, configDir });
+  const repos = new Git({ files: writer });
 
   // --- auth: tokens are listener-mcp tokens, verified by the broker, cached briefly.
   const principals = new Map();
@@ -421,6 +425,29 @@ export async function startHost({
   });
   route("PUT", "/v1/notes/database", async ({ request, principal }) => { fsWrite(principal); const { path, schema } = await readJson(request); return notes.saveSchema(path, schema); });
   route("POST", "/v1/notes/database/row", async ({ request, principal }) => { fsWrite(principal); const { path, title, properties, body } = await readJson(request); return notes.addRow(path, { title, properties, body }); });
+  // Git (Loom): reading with read:mail/workspace/git, actions with publish:mail/workspace/git.
+  const gitRead = (principal) => need(principal, "read", "mail/workspace/git");
+  const gitWrite = (principal) => need(principal, "publish", "mail/workspace/git");
+  route("GET", "/v1/git/repo", async ({ url, principal }) => { gitRead(principal); return repos.summary(url.searchParams.get("path")); });
+  route("GET", "/v1/git/graph", async ({ url, principal }) => {
+    gitRead(principal);
+    const p = url.searchParams;
+    return repos.graph(p.get("path"), { limit: p.get("limit") ?? undefined, skip: p.get("skip") ?? undefined });
+  });
+  route("GET", "/v1/git/status", async ({ url, principal }) => { gitRead(principal); return repos.status(url.searchParams.get("path")); });
+  route("GET", "/v1/git/worktrees", async ({ url, principal }) => { gitRead(principal); return { worktrees: await repos.worktrees(url.searchParams.get("path")) }; });
+  route("POST", "/v1/git/checkout", async ({ request, principal }) => { gitWrite(principal); const { path, ref, create } = await readJson(request); return repos.checkout(path, { ref, create }); });
+  route("POST", "/v1/git/branch", async ({ request, principal }) => { gitWrite(principal); const { path, name, at } = await readJson(request); return repos.createBranch(path, { name, at }); });
+  route("DELETE", "/v1/git/branch", async ({ url, principal }) => {
+    gitWrite(principal);
+    const p = url.searchParams;
+    return repos.deleteBranch(p.get("path"), { name: p.get("name"), force: p.get("force") === "1" });
+  });
+  route("POST", "/v1/git/merge", async ({ request, principal }) => { gitWrite(principal); const { path, from, mode, message } = await readJson(request); return repos.merge(path, { from, mode, message }); });
+  route("POST", "/v1/git/merge/abort", async ({ request, principal }) => { gitWrite(principal); return repos.abortMerge((await readJson(request)).path); });
+  route("POST", "/v1/git/fetch", async ({ request, principal }) => { gitWrite(principal); const { path, remote, prune } = await readJson(request); return repos.fetch(path, { remote, prune }); });
+  route("POST", "/v1/git/pull", async ({ request, principal }) => { gitWrite(principal); const { path, mode } = await readJson(request); return repos.pull(path, { mode }); });
+  route("POST", "/v1/git/push", async ({ request, principal }) => { gitWrite(principal); const { path, remote, branch, setUpstream } = await readJson(request); return repos.push(path, { remote, branch, setUpstream }); });
   route("GET", "/v1/slides/fonts", async ({ principal }) => { need(principal, "read", "mail/workspace/files"); return { fonts: await decks.fonts() }; });
   route("POST", "/v1/slides/rewrite", async ({ request, principal }) => {
     need(principal, "publish", "mail/workspace/review");

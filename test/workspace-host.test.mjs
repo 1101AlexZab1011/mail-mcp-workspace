@@ -442,3 +442,36 @@ test("notes: vault, pages, links and backlinks, rename that rewrites links, data
   const trashed = await call(addon, "POST", "/v1/notes/trash", { path: renamed.value.path });
   assert.equal(trashed.value.trashed.length, 3, "the page, its rows folder and its database file");
 });
+
+test("git: routes for reading and actions, each behind its own scope", async (t) => {
+  const { home, call, addon, agent } = await setup(t);
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const repo = join(home, "files", "project");
+  await mkdir(repo, { recursive: true });
+  const git = (...args) => promisify(execFile)("git", ["-c", "user.name=Ada", "-c", "user.email=ada@example.org", ...args], { cwd: repo, windowsHide: true });
+  await git("init", "-q", "-b", "main");
+  await writeFile(join(repo, "a.txt"), "one\n");
+  await git("add", "a.txt");
+  await git("commit", "-q", "-m", "First");
+
+  // The agent's token in these tests has no git scope: Loom's tools need it granted.
+  assert.equal((await call(agent, "GET", `/v1/git/repo?path=${encodeURIComponent(repo)}`)).status, 403);
+  const summary = await call(addon, "GET", `/v1/git/repo?path=${encodeURIComponent(repo)}`);
+  assert.equal(summary.status, 200);
+  assert.equal(summary.value.head.branch, "main");
+  const graph = await call(addon, "GET", `/v1/git/graph?path=${encodeURIComponent(repo)}&limit=10`);
+  assert.equal(graph.value.commits[0].subject, "First");
+  assert.equal(graph.value.commits[0].lane, 0);
+
+  assert.equal((await call(agent, "POST", "/v1/git/branch", { path: repo, name: "feature" })).status, 403);
+  assert.equal((await call(addon, "POST", "/v1/git/branch", { path: repo, name: "feature" })).value.branch, "feature");
+  await writeFile(join(repo, "a.txt"), "dirty\n");
+  const refused = await call(addon, "POST", "/v1/git/checkout", { path: repo, ref: "feature" });
+  assert.equal(refused.status, 409);
+  assert.equal(refused.value.error.code, "dirty");
+  const status = await call(addon, "GET", `/v1/git/status?path=${encodeURIComponent(repo)}`);
+  assert.deepEqual(status.value.changed, [{ path: "a.txt", change: "modified" }]);
+  assert.equal((await call(addon, "GET", `/v1/git/repo?path=${encodeURIComponent(join(home, "elsewhere"))}`)).status, 403, "outside the home folder");
+  assert.equal((await call(addon, "DELETE", `/v1/git/branch?path=${encodeURIComponent(repo)}&name=feature`)).value.deleted, "feature");
+});
