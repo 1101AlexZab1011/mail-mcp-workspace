@@ -155,6 +155,24 @@ test("plans: a Notes database per project; ideas, plans with steps, stages and t
   assert.deepEqual(listed.map((p) => [p.title, p.status, p.steps]).sort(), [["Offline first", "Queued", 0], ["Plans board", "Done", 4]]);
   assert.equal("description" in listed[0], false, "the list leaves the text out");
 
+  // Searching the plans' text.
+  assert.deepEqual((await plans.list(project.id, { query: "host" })).plans.map((p) => p.title), ["Offline first"], "words in the description");
+  assert.deepEqual((await plans.list(project.id, { query: "which PORT" })).plans.map((p) => p.title), ["Plans board"], "a step's note, any case");
+  assert.deepEqual((await plans.list(project.id, { query: "port host" })).plans, [], "every word must match");
+
+  // The event log: statuses and stages that moved, signed by who moved them.
+  const events = (await loom.eventsSince({ since: 0 })).events;
+  assert.deepEqual(events.filter((e) => e.title === "Plans board").map((e) => [e.kind, e.status, e.by]).slice(0, 4), [
+    ["created", "Queued", "Ivy"], ["status", "In progress", "Ivy"], ["stage", "In progress", null], ["status", "Blocked", "Ivy"]]);
+  const blocked = events.find((e) => e.status === "Blocked");
+  assert.equal(blocked.note, "Which port?");
+  assert.equal(blocked.stage, "Routes");
+  const { seq, epoch } = await loom.eventsSince({ since: 0 });
+  const waiting = loom.eventsSince({ since: seq, epoch, wait: 5000 });
+  await plans.step(project.id, "Plans board", { step: "s1", state: "running", by: "Kai" });
+  assert.deepEqual((await waiting).events.map((e) => [e.kind, e.status, e.by]), [["status", "In progress", "Kai"]], "a waiting reader wakes");
+  assert.deepEqual(await loom.eventsSince({ since: 3, epoch: "old" }).then((r) => r.events), [], "a reader from another host run starts over");
+
   // Writes wake the project's feed.
   const { version } = await loom.changes(project.id);
   await plans.update(project.id, "Plans board", { agent: "Kai" });

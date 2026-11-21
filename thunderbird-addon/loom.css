@@ -100,9 +100,9 @@ body { background: var(--mw-bg); }
 
 /* Plans: the board */
 .board { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 12px; padding: 14px; overflow: auto; align-items: start; }
-.column { background: var(--mw-hover); border-radius: var(--mw-radius-l); padding: 8px; display: grid; gap: 8px; min-height: 120px; border: 2px dashed transparent; }
+.column { background: var(--mw-hover); border-radius: var(--mw-radius-l); padding: 8px; display: grid; align-content: start; gap: 8px; min-height: 120px; border: 2px dashed transparent; }
 .column.over { border-color: var(--mw-primary); }
-.column header { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 4px; color: var(--mw-text-2); }
+.column header { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 4px; color: var(--mw-text-2); }
 .column header .icon { width: 17px; height: 17px; }
 .column header strong { color: var(--mw-text); font-weight: 650; }
 .column header .count { font-size: 12px; }
@@ -175,3 +175,14 @@ body { background: var(--mw-bg); }
 .question .q .when { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--mw-text-3); white-space: nowrap; }
 .question .a { font-size: 13px; color: var(--mw-text-2); display: flex; gap: 4px; align-items: baseline; }
 .question .a.waiting { font-style: italic; color: var(--mw-text-3); }
+
+/* Plans: filters above the board */
+.board-view { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.board-view .board { flex: 1; }
+.filters { display: flex; align-items: center; gap: 8px; padding: 10px 14px 0; flex-wrap: wrap; color: var(--mw-text-3); }
+.filters > .icon { width: 18px; height: 18px; }
+.filters .search { width: min(320px, 40vw); }
+.filters .hint { font-size: 12.5px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; border-radius: var(--mw-radius-pill); border: 1px solid var(--mw-border); background: var(--mw-surface); color: var(--mw-text-2); font: inherit; font-size: 13px; cursor: pointer; }
+.chip .icon { width: 15px; height: 15px; }
+.chip[aria-pressed="true"] { background: var(--mw-danger-soft); color: var(--mw-danger); border-color: transparent; }

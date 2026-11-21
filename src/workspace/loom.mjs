@@ -33,6 +33,8 @@ export class Loom {
     this.log = log;
     this.data = null;
     this.feeds = new Map(); // project id → { version, waiters, watchers, timer }
+    // What happened to plans, for notifications: kept in memory (the newest 200), numbered per host run.
+    this.events = { epoch: randomUUID().slice(0, 8), seq: 0, list: [], waiters: [] };
   }
 
   async #load() {
@@ -210,7 +212,42 @@ export class Loom {
     data.inbox = data.inbox.filter((q) => !q.answered || Date.parse(q.answered) > month);
     await this.#save();
     this.touch(entry.project);
+    const project = data.projects.find((p) => p.id === entry.project);
+    this.emit({ project: entry.project, projectName: project?.name ?? entry.project, plan: null, title: entry.plan, kind: "answer", question: entry.question, answer: entry.answer, by: entry.by });
     return entry;
+  }
+
+  // ------------------------------------------------------------------------------------- events --
+
+  /**
+   * A plan's status or stage moved, a plan was made, or an agent answered a question:
+   * { project, projectName, plan, title, kind: created | status | stage | answer, status, stage,
+   *   progress, from, note, question, answer, by } (by: the agent; null when the user did it).
+   */
+  emit(event) {
+    const log = this.events;
+    log.list.push({ seq: ++log.seq, at: new Date().toISOString(), ...event });
+    if (log.list.length > 200) log.list.shift();
+    const waiters = log.waiters;
+    log.waiters = [];
+    for (const wake of waiters) wake();
+  }
+
+  /**
+   * Events after `since`, waiting up to `wait` ms for one. A reader from an earlier host run (another
+   * `epoch`) starts over from the current number, without the old events.
+   */
+  async eventsSince({ since = 0, epoch, wait = 0 } = {}) {
+    const log = this.events;
+    if (epoch !== undefined && epoch !== log.epoch) return { epoch: log.epoch, seq: log.seq, events: [] };
+    if (log.seq <= since && wait > 0) {
+      await new Promise((resolveWait) => {
+        const timer = setTimeout(done, Math.min(wait, 60_000));
+        function done() { clearTimeout(timer); resolveWait(); }
+        log.waiters.push(done);
+      });
+    }
+    return { epoch: log.epoch, seq: log.seq, events: log.list.filter((e) => e.seq > since) };
   }
 
   // -------------------------------------------------------------------------------- change feed --
@@ -283,5 +320,8 @@ export class Loom {
     this.feeds.delete(id);
   }
 
-  close() { for (const id of [...this.feeds.keys()]) this.#unwatch(id); }
+  close() {
+    for (const id of [...this.feeds.keys()]) this.#unwatch(id);
+    for (const wake of this.events.waiters) wake();
+  }
 }

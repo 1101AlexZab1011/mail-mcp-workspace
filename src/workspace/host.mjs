@@ -490,7 +490,13 @@ export async function startHost({
   route("POST", "/v1/loom/inbox", async ({ request, principal }) => { loomWrite(principal); return loom.ask(await readJson(request)); });
   route("POST", "/v1/loom/inbox/answer", async ({ request, principal }) => { loomWrite(principal); const { id, ...answer } = await readJson(request); return loom.answer(id, answer); });
   // Plans: pages of the project's Plans database in the Notes vault. `plan` is a title or a page path.
-  route("GET", "/v1/loom/plans", async ({ url, principal }) => { loomRead(principal); return plans.list(url.searchParams.get("project")); });
+  route("GET", "/v1/loom/plans", async ({ url, principal }) => { loomRead(principal); return plans.list(url.searchParams.get("project"), { query: url.searchParams.get("q") ?? undefined }); });
+  // What happened to plans (status, stage, answers), for notifications; long-polls with `wait`.
+  route("GET", "/v1/loom/events", async ({ url, principal }) => {
+    loomRead(principal);
+    const p = url.searchParams;
+    return loom.eventsSince({ since: Number(p.get("since") ?? 0), epoch: p.get("epoch") ?? undefined, wait: Number(p.get("wait") ?? 0) });
+  });
   route("GET", "/v1/loom/plan", async ({ url, principal }) => { loomRead(principal); return plans.get(url.searchParams.get("project"), url.searchParams.get("plan")); });
   route("POST", "/v1/loom/plans", async ({ request, principal }) => { loomWrite(principal); const { project, ...plan } = await readJson(request); return plans.create(project, plan); });
   route("PATCH", "/v1/loom/plan", async ({ request, principal }) => { loomWrite(principal); const { project, plan, ...changes } = await readJson(request); return plans.update(project, plan, changes); });

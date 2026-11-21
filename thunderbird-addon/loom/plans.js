@@ -4,6 +4,7 @@
 import { host } from "../shared/broker.js";
 import { icon } from "../shared/icons.js";
 import { h, iconButton, contextMenu, ask, background, dropdown } from "../shared/page.js";
+import { LOOM_NOTIFY } from "../background/loom-notify.js";
 
 /* global marked, DOMPurify */
 marked.setOptions({ gfm: true, breaks: false });
@@ -20,6 +21,8 @@ const STEP_ICON = { pending: "radio_button_unchecked", running: "progress_activi
 const STEP_LABEL = { pending: "To do", running: "Running", done: "Done", blocked: "Blocked", skipped: "Skipped" };
 const ACTIVE = new Set(["Queued", "In progress", "Blocked"]);
 const DRAG = "application/x-loom-plan";
+const NOBODY = "\u0000nobody";
+const NOTIFY = [["important", "Notify: blocked and finished plans, answers"], ["all", "Notify: every change agents make"], ["off", "No notifications"]];
 
 const q = (params) => new URLSearchParams(params).toString();
 const markdown = (text) => { const div = h("div.markdown"); div.innerHTML = DOMPurify.sanitize(marked.parse(text)); return div; };
@@ -31,16 +34,20 @@ const percent = (progress) => { const [done, all] = String(progress || "0/0").sp
  * agents (loom/agents.js: names, dot, ask, questionsFor).
  */
 export function createPlans(ctx) {
-  const s = { list: [], database: null, open: null, plan: null, expanded: new Set(), loaded: false };
+  const s = { list: [], database: null, open: null, plan: null, expanded: new Set(), loaded: false, filter: { query: "", agent: "", blocked: false } };
 
-  function reset() { Object.assign(s, { list: [], database: null, open: null, plan: null, loaded: false }); s.expanded.clear(); }
+  function reset() {
+    Object.assign(s, { list: [], database: null, open: null, plan: null, loaded: false, filter: { query: "", agent: "", blocked: false } });
+    s.expanded.clear();
+    search.value = "";
+  }
 
   /** The project's plans, and the open plan, again. */
   async function load() {
     const project = ctx.project();
     if (!project) return;
     try {
-      const result = await host(`/v1/loom/plans?${q({ project: project.id })}`);
+      const result = await host(`/v1/loom/plans?${q({ project: project.id, ...(s.filter.query ? { q: s.filter.query } : {}) })}`);
       if (ctx.project() !== project) return;
       Object.assign(s, { list: result.plans, database: result.database, loaded: true });
       if (s.open) {
@@ -97,6 +104,39 @@ export function createPlans(ctx) {
 
   // ------------------------------------------------------------------------------ the board --
 
+  // The search field lives across redraws, so typing in it is never interrupted.
+  let searchTimer = 0;
+  const search = h("input.input.search", {
+    type: "search", placeholder: "Search plans", "aria-label": "Search plans",
+    oninput: () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(async () => { s.filter.query = search.value.trim(); await load(); ctx.rerender(); }, 250);
+    },
+  });
+
+  const shownPlans = () => s.list.filter((p) =>
+    (!s.filter.blocked || p.status === "Blocked")
+    && (!s.filter.agent || (s.filter.agent === NOBODY ? !p.agent : p.agent?.toLowerCase() === s.filter.agent.toLowerCase())));
+
+  function filterBar() {
+    const names = [...new Set([...ctx.agents.names(), ...s.list.map((p) => p.agent).filter(Boolean)])];
+    const filtering = s.filter.query || s.filter.agent || s.filter.blocked;
+    const shown = shownPlans().length;
+    return h("div.filters", {},
+      icon("search"), search,
+      dropdown([["", "All agents"], ...names.map((n) => [n, n]), [NOBODY, "Nobody"]], s.filter.agent, (agent) => { s.filter.agent = agent; ctx.rerender(); }, { label: "Agent" }),
+      h("button.chip", { type: "button", "aria-pressed": String(s.filter.blocked), onclick: () => { s.filter.blocked = !s.filter.blocked; ctx.rerender(); } }, icon("block"), "Blocked"),
+      filtering ? h("span.hint", {}, `${shown} of ${s.list.length}${s.filter.query ? " (search)" : ""}`) : null,
+      filtering ? h("button.btn.ghost", { type: "button", onclick: async () => { search.value = ""; s.filter = { query: "", agent: "", blocked: false }; await load(); ctx.rerender(); } }, "Clear") : null);
+  }
+
+  async function notifyMenu(event) {
+    const { [LOOM_NOTIFY]: current = "important" } = await browser.storage.local.get(LOOM_NOTIFY);
+    contextMenu(event, [
+      ...NOTIFY.map(([value, label]) => ({ label, icon: value === current ? "check" : undefined, run: () => void browser.storage.local.set({ [LOOM_NOTIFY]: value }) })),
+    ]);
+  }
+
   function card(plan) {
     const meta = [
       plan.status === "Blocked" ? h("span.pill.blocked", {}, icon("block"), "Blocked") : null,
@@ -121,7 +161,7 @@ export function createPlans(ctx) {
     if (!s.loaded) { content.replaceChildren(h("div.empty-state", {}, h("p", {}, "Loading plans…"))); return; }
     const order = (a, b) => PRIORITIES.indexOf(a.priority) - PRIORITIES.indexOf(b.priority) || String(b.updated ?? "").localeCompare(String(a.updated ?? "")) || a.title.localeCompare(b.title);
     const columns = COLUMNS.map((column) => {
-      const plans = s.list.filter((p) => column.statuses.includes(p.status)).sort(order);
+      const plans = shownPlans().filter((p) => column.statuses.includes(p.status)).sort(order);
       const box = h("section.column", {
         "aria-label": column.label,
         ondragover: (event) => { if (event.dataTransfer.types.includes(DRAG)) { event.preventDefault(); box.classList.add("over"); } },
@@ -140,7 +180,9 @@ export function createPlans(ctx) {
         h("div.cards", {}, ...plans.map(card), plans.length ? null : h("p.hint", {}, column.add ? `${column.add}: the + above, or drag a card here` : "Drag a card here")));
       return box;
     });
-    content.replaceChildren(h("div.board", {}, ...columns));
+    const hadFocus = document.activeElement === search;
+    content.replaceChildren(h("div.board-view", {}, filterBar(), h("div.board", {}, ...columns)));
+    if (hadFocus) search.focus();
   }
 
   // ---------------------------------------------------------------------------- a plan's page --
@@ -246,6 +288,7 @@ export function createPlans(ctx) {
       iconButton("lightbulb", "New idea", () => void create("Idea")),
       iconButton("add", "New plan", () => void create("Queued")),
       iconButton("description", "Open the Plans database in Notes", () => { if (s.database) openInNotes(s.database); }),
+      iconButton("notifications", "Notifications", (event) => void notifyMenu(event)),
     ],
     /** Chips for the graph: each active plan on the row of its branch's head. */
     chips(commit) {

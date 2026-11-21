@@ -32,7 +32,7 @@ const agents = createAgents({
   // Presence changes often: redraw what shows it, but never under the user's typing.
   rerender: () => {
     renderSide();
-    if (state.view === "plans" && !document.activeElement?.matches("input, textarea")) renderContent();
+    if (state.view === "plans" && !document.activeElement?.matches("input:not(.search), textarea")) renderContent();
   },
 });
 const plans = createPlans({

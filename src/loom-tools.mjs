@@ -118,14 +118,15 @@ export function loomTools({ call, cwd = process.cwd() }) {
     },
 
     loom_plans: {
-      description: "A project's plans (title, status, stage, progress, branch, agent). Filter by status, branch or agent.",
+      description: "A project's plans (title, status, stage, progress, branch, agent). Filter by status, branch or agent; `query` searches their text (title, description, steps, notes, history).",
       input: {
         project,
         status: z.enum(STATUSES).optional(), branch: z.string().optional(), agent: z.string().optional(),
+        query: z.string().optional().describe("Words that must all appear in the plan"),
       }, readOnly: true,
-      run: async ({ project: wanted, status, branch, agent }) => {
+      run: async ({ project: wanted, status, branch, agent, query }) => {
         const p = await find(wanted);
-        const { plans } = await call("GET", `/v1/loom/plans?${q({ project: p.id })}`);
+        const { plans } = await call("GET", `/v1/loom/plans?${q({ project: p.id, q: query })}`);
         return { project: p.id, plans: plans.filter((x) => (!status || x.status === status) && (!branch || x.branch === branch) && (!agent || x.agent?.toLowerCase() === agent.toLowerCase())).map(brief) };
       },
     },

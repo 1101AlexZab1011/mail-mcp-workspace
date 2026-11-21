@@ -285,8 +285,15 @@ that turns Thunderbird into a workspace built around your agent.
   progress → Done) of the project's plans: rough ideas for later, and exact
   plans with steps that agents move as they work, each on its branch. Plans
   are pages of a database in your Notes vault (`Loom/<project>/Plans`), so you
-  can read and edit them there too. Agents get Loom through the `loom` MCP
-  server and skill (see [Loom for agents](#loom-for-agents)).
+  can read and edit them there too. Search the plans' text and filter the
+  board by agent or by what is blocked. Agents join Loom by name: the graph's
+  side panel shows each one's presence and what it works on, and **Ask** on a
+  plan, a step or an agent opens its chat session with the item quoted (an
+  agent that is away finds the question waiting when it joins, and its answer
+  shows on the plan). Loom notifies you when an agent blocks or finishes a
+  plan, or answers (the bell on the Plans tab: also every stage, or nothing).
+  Agents get Loom through the `loom` MCP server and skill (see
+  [Loom for agents](#loom-for-agents)).
 - **Terminal.** <kbd>Ctrl</kbd>+<kbd>`</kbd> slides a terminal up over the
   window, with tabs and horizontal or vertical splits. The agent can open
   terminals and run commands in them; you see everything it types.
@@ -416,9 +423,10 @@ working folder is in:
 
 | Tool | What it does |
 |------|--------------|
+| `loom_join`, `loom_inbox` | Say who the agent is (name, session, projects); the questions waiting for it, and answering them |
 | `loom_projects`, `loom_project_add` | The projects, and which one the agent is in; add a repository |
-| `loom_status` | Branch, worktree state, branches, worktrees, recent commits, unfinished plans |
-| `loom_plans`, `loom_plan_get` | Plans by status, branch or agent; one plan with its steps and history |
+| `loom_status` | Branch, worktree state, branches, worktrees, recent commits, unfinished plans, who works on what |
+| `loom_plans`, `loom_plan_get` | Plans by status, branch, agent or words in them; one plan with its steps and history |
 | `loom_plan_create`, `loom_plan_update` | New idea or plan; status, branch, agent, priority, title, description |
 | `loom_step`, `loom_steps_add` | Move a step (running, done, blocked with a note, skipped, pending); add steps |
 | `loom_git` | checkout, branch, delete_branch, merge, abort_merge, fetch, pull, push |

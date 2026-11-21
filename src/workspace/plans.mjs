@@ -211,7 +211,8 @@ function statusAfter(status, steps) {
   if (finished) return status === "Dropped" ? null : "Done";
   if (blocked) return "Blocked";
   const started = steps.some((s) => s.state === "running" || s.state === "done");
-  if (status === "Blocked" || ((status === "Idea" || status === "Queued") && started)) return "In progress";
+  // Unblocked, started, or a finished plan with a step reopened: it is in progress again.
+  if (status === "Blocked" || status === "Done" || ((status === "Idea" || status === "Queued") && started)) return "In progress";
   return null;
 }
 
@@ -282,13 +283,15 @@ export class Plans {
     };
   }
 
-  /** Every plan of a project, without their text. */
-  async list(projectId) {
+  /** Every plan of a project, without their text; `query` keeps those whose text has every word. */
+  async list(projectId, { query } = {}) {
     const project = await this.loom.project(projectId);
+    const words = String(query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
     const plans = [];
     for (const path of await this.#paths(project)) {
       const text = await readFile(path, "utf8").catch(() => null);
       if (text === null) continue;
+      if (words.length) { const haystack = `${titleOf(path)}\n${text}`.toLowerCase(); if (!words.every((w) => haystack.includes(w))) continue; }
       const { description, steps, log, ...summary } = this.#view(path, text);
       plans.push({ ...summary, steps: steps.length });
     }
@@ -316,7 +319,8 @@ export class Plans {
       properties: { Status: chosen, Branch: branch || undefined, Agent: agent || undefined, Priority: priority || "Normal" },
       body: splitPage(text).body,
     });
-    await this.#write(project, created.path, (current) => current); // fills Stage, Progress, Updated
+    await this.#write(project, created.path, (current) => current, { by: who }); // fills Stage, Progress, Updated
+    this.loom.emit({ project: project.id, projectName: project.name, plan: created.path, title: name, kind: "created", status: chosen, by: who ?? null });
     return this.get(projectId, created.path);
   }
 
@@ -337,7 +341,7 @@ export class Plans {
       if (description !== undefined) out = setDescription(out, description);
       for (const note of notes) out = appendLog(out, `${note}${by(who)}`);
       return out;
-    });
+    }, { by: who });
     const name = String(title ?? "").trim();
     if (name && name !== titleOf(path)) path = (await this.notes.rename(path, name)).path;
     this.loom.touch(project.id);
@@ -361,7 +365,7 @@ export class Plans {
         if (next && next !== p.properties.Status) out = appendLog(setProperties(out, { Status: next }), `Status: ${p.properties.Status ?? "Idea"} → ${next}`);
       }
       return out;
-    });
+    }, { by: who, note: state === "blocked" ? note : undefined });
     return this.get(projectId, path);
   }
 
@@ -371,23 +375,33 @@ export class Plans {
     await this.#write(project, path, (text) => {
       const { text: out, added } = addSteps(ensureStepIds(text), Array.isArray(steps) ? steps : [steps]);
       return appendLog(out, `${added.length === 1 ? `Step ${added[0].id} added` : `${added.length} steps added`}${by(who)}`);
-    });
+    }, { by: who });
     return this.get(projectId, path);
   }
 
-  /** Read, change and write one plan, then refresh what Notes' table shows and wake the project's feed. */
-  async #write(project, path, change) {
+  /**
+   * Read, change and write one plan, then refresh what Notes' table shows, wake the project's feed and
+   * tell Loom's event log when the plan's status or stage moved (`by` who, a block's `note`).
+   */
+  async #write(project, path, change, { by: who, note } = {}) {
     const previous = this.queues.get(path) ?? Promise.resolve();
+    let moved = null;
     const run = previous.catch(() => {}).then(async () => {
       const text = await readFile(path, "utf8").catch(() => { throw new LoomError(404, "no_plan", `${titleOf(path)} is gone`); });
+      const before = this.#view(path, text);
       let out = change(text);
       const { stage, progress } = stageOf(parsePlan(out).steps);
       out = setProperties(out, { Stage: stage || null, Progress: progress || null, Updated: today() });
       if (out !== text) await this.files.write(path, { text: out });
+      const after = this.#view(path, out);
+      if (after.status !== before.status) moved = { kind: "status", from: before.status };
+      else if (after.stage !== before.stage && after.stage) moved = { kind: "stage" };
+      if (moved) Object.assign(moved, { status: after.status, stage: after.stage || null, progress: after.progress || null });
     });
     this.queues.set(path, run);
     try { await run; } finally { if (this.queues.get(path) === run) this.queues.delete(path); }
     this.loom.touch(project.id);
+    if (moved) this.loom.emit({ project: project.id, projectName: project.name, plan: path, title: titleOf(path), ...moved, note: note ?? null, by: who ?? null });
   }
 }
 
