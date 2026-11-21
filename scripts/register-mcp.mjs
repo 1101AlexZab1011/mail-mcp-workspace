@@ -13,6 +13,7 @@ const servers = {
   "mail-workflow": { command: node, args: [join(repo, "src", "main.mjs"), "stdio"] },
   "mail-attachments": { command: node, args: [join(repo, "src", "attachments-main.mjs")] },
   "mail-gui": { command: node, args: [join(repo, "src", "gui-main.mjs")] },
+  loom: { command: node, args: [join(repo, "src", "loom-main.mjs")] },
 };
 
 const claude = (args) => runSync("claude", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });

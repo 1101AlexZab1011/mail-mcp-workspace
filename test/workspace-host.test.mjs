@@ -6,6 +6,7 @@ import test from "node:test";
 import { startBroker } from "listener-mcp/broker";
 import { ListenerClient } from "listener-mcp/client";
 import { startHost } from "../src/workspace/host.mjs";
+import { loomTools } from "../src/loom-tools.mjs";
 
 // The host sends Windows paths with "/" (C:/Users/…, see platform.mjs); the tests compare them as
 // Windows writes them.
@@ -507,4 +508,52 @@ test("loom: projects and plans, behind Loom's own scope", async (t) => {
   await call(addon, "PATCH", "/v1/loom/projects", { id: project.id, name: "Thoth app" });
   const moved = await call(addon, "GET", `/v1/loom/plan?project=${project.id}&plan=Plans%20board`);
   assert.equal(moved.value.path, join(home, "files/Notes/Loom/Thoth app/Plans/Plans board.md"));
+});
+
+test("loom tools: an agent with Loom's scopes plans, moves steps and branches, from its working folder", async (t) => {
+  const { home, base, admin, addon, call } = await setup(t);
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const repo = join(home, "files", "Thoth");
+  await mkdir(join(repo, "src"), { recursive: true });
+  const git = (...args) => promisify(execFile)("git", ["-c", "user.name=Ada", "-c", "user.email=ada@example.org", ...args], { cwd: repo, windowsHide: true });
+  await git("init", "-q", "-b", "main");
+  await git("commit", "-q", "--allow-empty", "-m", "First");
+  await call(addon, "POST", "/v1/notes/vault", { path: join(home, "files/Notes") });
+  const token = (await admin.createToken({ name: "loom-agent", scopes: ["read:mail/workspace/loom", "publish:mail/workspace/loom", "read:mail/workspace/git", "publish:mail/workspace/git"] })).token;
+  const hostCall = async (method, path, body) => {
+    const response = await fetch(base + path, { method, headers: { authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    const value = await response.json();
+    if (!response.ok) throw new Error(value.error.message);
+    return value;
+  };
+  const tools = loomTools({ call: hostCall, cwd: join(repo, "src"), who: () => "Ivy" });
+  const run = (name, params = {}) => tools[name].run(params);
+
+  await assert.rejects(run("loom_status"), /is not in a Loom project/);
+  const project = await run("loom_project_add", { path: repo });
+  assert.equal((await run("loom_projects")).current, project.id, "the working folder picks the project");
+
+  const plan = await run("loom_plan_create", { title: "Offline mode", steps: ["Cache", "Sync"], branch: "offline" });
+  assert.equal(plan.status, "Queued");
+  assert.equal(plan.agent, "Ivy", "a plan with steps is the creating agent's");
+  let step = await run("loom_step", { plan: "Offline mode", step: "s1", state: "running" });
+  assert.equal(step.status, "In progress");
+  step = await run("loom_step", { plan: "Offline mode", step: "2", state: "blocked", note: "Which conflict rule?" });
+  assert.equal(step.status, "Blocked");
+  await assert.rejects(run("loom_step", { plan: "Offline mode", step: "s1" }), /Give a state, a note, or both/);
+  const got = await run("loom_plan_get", { project: "Thoth", plan: "Offline mode" });
+  assert.equal(got.steps[1].details, "Which conflict rule?");
+  assert.ok(got.log.some((l) => /s2 Sync: blocked \(Which conflict rule\?\) \(Ivy\)/.test(l)));
+  await run("loom_steps_add", { plan: "Offline mode", steps: ["Docs"] });
+  assert.equal((await run("loom_plans", { agent: "ivy" })).plans[0].progress, "0/3");
+
+  assert.equal((await run("loom_git", { action: "checkout", ref: "main", name: "offline" })).head.branch, "offline");
+  const status = await run("loom_status");
+  assert.equal(status.worktree.branch, "offline");
+  assert.deepEqual(status.branches.map((b) => b.name).sort(), ["main", "offline"]);
+  assert.deepEqual(status.plans.map((p) => [p.title, p.status, p.stage]), [["Offline mode", "Blocked", "Cache"]]);
+  assert.equal(status.commits[0].subject, "First");
+  await assert.rejects(run("loom_git", { action: "delete_branch", name: "offline" }), /checked out|current|cannot delete/i);
+  await assert.rejects(run("loom_plans", { project: "Nope" }), /No Loom project "Nope"/);
 });

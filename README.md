@@ -94,6 +94,10 @@ args = ["/absolute/path/to/mail-mcp-workspace/src/attachments-main.mjs"]
 [mcp_servers.mail_gui]
 command = "node"
 args = ["/absolute/path/to/mail-mcp-workspace/src/gui-main.mjs"]
+
+[mcp_servers.loom]
+command = "node"
+args = ["/absolute/path/to/mail-mcp-workspace/src/loom-main.mjs"]
 ```
 
 For Claude Code, register the same servers in user scope, so agents started in
@@ -111,6 +115,7 @@ claude mcp add-json --scope user email "{\"command\":\"$repo/node_modules/.bin/e
 claude mcp add-json --scope user mail-workflow "{\"command\":\"node\",\"args\":[\"$repo/src/main.mjs\",\"stdio\"]}"
 claude mcp add-json --scope user mail-attachments "{\"command\":\"node\",\"args\":[\"$repo/src/attachments-main.mjs\",\"stdio\"]}"
 claude mcp add-json --scope user mail-gui "{\"command\":\"node\",\"args\":[\"$repo/src/gui-main.mjs\"]}"
+claude mcp add-json --scope user loom "{\"command\":\"node\",\"args\":[\"$repo/src/loom-main.mjs\"]}"
 ```
 
 Agent Chat's MCP server (`listener`) is added for every agent session by
@@ -180,6 +185,9 @@ email-mcp OAuth extension before this workflow process can connect directly.
   stops the Agent Chat conversation.
 - [listener](skills/listener/SKILL.md) is listener-mcp's general skill for
   receiving app events.
+- [loom](skills/loom/SKILL.md) keeps Loom's plans true while the agent works:
+  it registers the plan, moves steps, puts the branch on it and reports what
+  blocks it.
 
 Copy a skill directory into the skill location used by Codex, Claude Code, or
 another SKILL.md-compatible agent. The agent must also have access to the email
@@ -268,6 +276,17 @@ that turns Thunderbird into a workspace built around your agent.
     file), passwords and permissions (AES-256), sanitizing.
   - **Tools:** recognize text in scans (Tesseract), compress, export to Word
     and Excel, and compare two versions.
+- **Loom: projects, branches and plans** (in the Files group). Add a folder
+  with a git repository as a project and Loom shows it the way GitKraken
+  does: every branch, remote and tag on a lane graph, the selected commit,
+  branches with ahead/behind, worktrees, and the working tree's state. Check
+  out, branch, merge (with abort on conflicts), fetch, pull and push from the
+  graph; each asks first. The **Plans** tab is a board (Ideas → Planned → In
+  progress → Done) of the project's plans: rough ideas for later, and exact
+  plans with steps that agents move as they work, each on its branch. Plans
+  are pages of a database in your Notes vault (`Loom/<project>/Plans`), so you
+  can read and edit them there too. Agents get Loom through the `loom` MCP
+  server and skill (see [Loom for agents](#loom-for-agents)).
 - **Terminal.** <kbd>Ctrl</kbd>+<kbd>`</kbd> slides a terminal up over the
   window, with tabs and horizontal or vertical splits. The agent can open
   terminals and run commands in them; you see everything it types.
@@ -287,6 +306,7 @@ Parts:
 | `thunderbird-addon/` | The add-on: an Experiment API for the layout, theme and automation, plus the pages for chat, files, viewer, artifacts and paint |
 | `src/workspace/`, `src/workspace-main.mjs` | Workspace host on `127.0.0.1:47810`: files, conversions, highlighting, artifacts, grants and terminals |
 | `src/gui-main.mjs` | `mail-gui` MCP server: GUI, viewer, files, paint, artifact, PDF, settings and terminal tools |
+| `src/loom-main.mjs`, `src/loom-tools.mjs` | `loom` MCP server: Loom's projects, plans and git actions for agents |
 | [listener-mcp](https://github.com/1101AlexZab1011/listener-mcp) | Local broker the add-on and agents talk through (chat on `mail/chat/*`, GUI commands on `mail/gui/commands`) |
 
 Set it up on each machine:
@@ -340,7 +360,7 @@ them up. To make the skills available outside this repository, link them into
 your user skill folders:
 
 ```bash
-for skill in email-start-chat email-compose email-review-pending email-summary mail-workspace; do
+for skill in email-start-chat email-compose email-review-pending email-summary mail-workspace loom; do
   ln -sfn "$PWD/skills/$skill" ~/.claude/skills/$skill
   ln -sfn "$PWD/skills/$skill" ~/.agents/skills/$skill   # Codex
 done
@@ -349,7 +369,7 @@ done
 On Windows (PowerShell), junctions need no administrator rights:
 
 ```powershell
-foreach ($skill in "email-start-chat","email-compose","email-review-pending","email-summary","mail-workspace") {
+foreach ($skill in "email-start-chat","email-compose","email-review-pending","email-summary","mail-workspace","loom") {
   New-Item -ItemType Junction -Force -Path "$HOME\.claude\skills\$skill" -Target "$PWD\skills\$skill"
 }
 ```
@@ -377,6 +397,31 @@ such as `~/.ssh` and `~/.gnupg`. Writes are atomic and refuse to overwrite a
 file that changed since it was read. Trashing needs
 `publish:mail/workspace/fs-trash`, which only the add-on has, so the agent's
 `files_trash` always asks you in the chat first.
+
+### Loom for agents
+
+The `loom` MCP server (registered by `scripts/register-mcp.mjs`) gives an
+agent Loom's projects, plans and git actions. It works through the workspace
+host, so Thoth need not be open, and the screen follows what the agent does.
+It uses a listener-mcp credential of its own, `loom-agent` (`LOOM_CREDENTIAL`
+names another), with Loom's and git's scopes:
+
+```bash
+listener-mcp token create --name loom-agent --save --scopes "read:mail/workspace/loom,publish:mail/workspace/loom,read:mail/workspace/git,publish:mail/workspace/git"
+```
+
+Link the [loom skill](skills/loom/SKILL.md) with the others above. Tools take
+a `project` (id, name or folder) and default to the project the agent's
+working folder is in:
+
+| Tool | What it does |
+|------|--------------|
+| `loom_projects`, `loom_project_add` | The projects, and which one the agent is in; add a repository |
+| `loom_status` | Branch, worktree state, branches, worktrees, recent commits, unfinished plans |
+| `loom_plans`, `loom_plan_get` | Plans by status, branch or agent; one plan with its steps and history |
+| `loom_plan_create`, `loom_plan_update` | New idea or plan; status, branch, agent, priority, title, description |
+| `loom_step`, `loom_steps_add` | Move a step (running, done, blocked with a note, skipped, pending); add steps |
+| `loom_git` | checkout, branch, delete_branch, merge, abort_merge, fetch, pull, push |
 
 ### Files on each system
 

@@ -18,8 +18,9 @@
 //   publish:mail/workspace/loom        add, rename, open and remove Loom projects (loom.mjs); create
 //                                      and change plans and their steps (plans.mjs)
 //
-// The add-on's token has all of them; the agent's token lacks the last two, so
-// an agent can write an artifact but never approve what it may do.
+// The add-on's token has all of them. The agent's GUI credential lacks grants and
+// capabilities, so an agent can write an artifact but never approve what it may
+// do; git and loom belong to the loom MCP server's own credential (loom-agent).
 import { createServer } from "node:http";
 import { createHash, randomBytes } from "node:crypto";
 import { createReadStream, readFileSync, watch } from "node:fs";
