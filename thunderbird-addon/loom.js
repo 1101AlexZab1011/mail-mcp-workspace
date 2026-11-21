@@ -1,6 +1,6 @@
 // Loom: the project screen. Projects on the left (a git repository each); the commit graph in the
 // middle with every branch, remote and tag; branches, worktrees and the selected commit on the right;
-// the working tree's state below. Every git action asks first and says what it will do; the screen
+// the working tree's state below. The Plans tab shows the project's plans (loom/plans.js). Every git action asks first and says what it will do; the screen
 // follows the repository live, whoever changes it (the host watches the git folder).
 import { host, json } from "./shared/broker.js";
 import { icon } from "./shared/icons.js";
@@ -8,6 +8,7 @@ import { tildePath } from "./shared/paths.js";
 import { pickFiles } from "./shared/filepicker.js";
 import { $, h, iconButton, contextMenu, toast, ask, registerPage } from "./shared/page.js";
 import { renderGraph, refChip } from "./loom/graph.js";
+import { createPlans } from "./loom/plans.js";
 
 const LIMIT_STEP = 400;
 const state = {
@@ -24,8 +25,23 @@ const state = {
   error: null,
   busy: false,
 };
-const views = { graph: { label: "Graph", icon: "account_tree", render: renderGraphView } };
-export function addView(id, view) { views[id] = view; renderViews(); }
+const plans = createPlans({
+  project: () => state.project,
+  branches: () => state.summary?.branches.map((b) => b.name) ?? [],
+  rerender: () => { renderContent(); renderActions(); },
+  showError: (title, message) => showError(title, message),
+  showView: (id) => showView(id),
+  showBranch: (name) => {
+    const sha = state.summary?.branches.find((b) => b.name === name)?.sha;
+    if (!sha) { showError("Branch", `${name} is not a branch in this repository (yet)`); return; }
+    showView("graph");
+    select(sha, { scroll: true });
+  },
+});
+const views = {
+  graph: { label: "Graph", icon: "account_tree", render: renderGraphView },
+  plans: { label: "Plans", icon: "view_kanban", render: (content) => plans.render(content), actions: () => plans.actions() },
+};
 
 const q = (params) => new URLSearchParams(params).toString();
 const worktreePath = () => state.worktree ?? state.project?.path;
@@ -46,6 +62,7 @@ async function openProject(id) {
   state.selected = null;
   state.limit = LIMIT_STEP;
   state.version = 0;
+  plans.reset();
   localStorage.setItem("loom.project", id);
   void host("/v1/loom/projects/open", json({ id })).catch(() => {});
   renderProjects();
@@ -53,7 +70,7 @@ async function openProject(id) {
   follow();
 }
 
-/** Everything about the open project, again: summary, graph, the worktree's status. */
+/** Everything about the open project, again: summary, graph, the worktree's status, the plans. */
 async function reload() {
   const project = state.project;
   if (!project) return render();
@@ -62,6 +79,7 @@ async function reload() {
       host(`/v1/git/repo?${q({ path: project.path })}`),
       host(`/v1/git/graph?${q({ path: project.path, limit: state.limit })}`),
       host(`/v1/git/status?${q({ path: worktreePath() })}`),
+      plans.load(),
     ]);
     if (state.project !== project) return;
     Object.assign(state, { summary, graph, status, error: null });
@@ -311,8 +329,16 @@ function renderViews() {
   $("#views").hidden = Object.keys(views).length < 2 || !state.project;
   $("#views").replaceChildren(...Object.entries(views).map(([id, view]) => h("button", {
     type: "button", role: "tab", "aria-selected": String(id === state.view),
-    onclick: () => { state.view = id; localStorage.setItem("loom.view", id); renderViews(); renderActions(); renderContent(); },
+    onclick: () => showView(id),
   }, icon(view.icon), view.label)));
+}
+
+function showView(id) {
+  state.view = views[id] ? id : "graph";
+  localStorage.setItem("loom.view", state.view);
+  renderViews();
+  renderActions();
+  renderContent();
 }
 
 function renderBanner() {
@@ -351,7 +377,7 @@ function renderGraphView(content) {
     onSelect: (commit) => select(commit.sha),
     onContext: (event, commit, ref) => { select(commit.sha); commitMenu(event, commit, ref); },
     onMore: () => { state.limit += LIMIT_STEP; void reload(); },
-    decorate: graphDecorations,
+    decorate: (commit) => plans.chips(commit),
   }));
   const side = h("aside.side", { id: "side", "aria-label": "Details" });
   const scroll = document.querySelector(".graph-pane")?.scrollTop ?? 0;
@@ -359,10 +385,6 @@ function renderGraphView(content) {
   pane.scrollTop = scroll;
   renderSide();
 }
-
-/** Extra chips per commit row (plans add theirs). */
-let graphDecorations = () => [];
-export function setGraphDecorations(fn) { graphDecorations = fn; if (state.view === "graph") renderContent(); }
 
 function onGraphKey(event) {
   const commits = state.graph?.commits ?? [];
@@ -465,6 +487,7 @@ registerPage("loom", {
     clean: state.status?.clean ?? null,
     merging: state.status?.merging ?? false,
     projects: state.projects.map((p) => ({ id: p.id, name: p.name, path: p.path })),
+    ...plans.state(),
   }),
   commands: {
     // openSpace("loom", { project, view }) from the background or the agent.
@@ -474,7 +497,8 @@ registerPage("loom", {
         const project = state.projects.find((p) => p.id === query.project || p.path === query.project || p.name === query.project);
         if (project) await openProject(project.id);
       }
-      if (query.view && views[query.view]) { state.view = query.view; render(); }
+      if (query.plan && state.project) await plans.open(query.plan);
+      else if (query.view && views[query.view]) showView(query.view);
       return { project: state.project?.id ?? null, view: state.view };
     },
     reload: async () => { await loadProjects(); await reload(); return { ok: true }; },
@@ -482,8 +506,6 @@ registerPage("loom", {
 });
 
 // ----------------------------------------------------------------------------------------- go --
-
-export { state, reload, act, actions, select, showError, worktreePath, renderContent, renderActions };
 
 state.view = localStorage.getItem("loom.view") ?? "graph";
 void (async () => {

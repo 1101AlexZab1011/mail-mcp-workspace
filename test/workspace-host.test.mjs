@@ -475,3 +475,36 @@ test("git: routes for reading and actions, each behind its own scope", async (t)
   assert.equal((await call(addon, "GET", `/v1/git/repo?path=${encodeURIComponent(join(home, "elsewhere"))}`)).status, 403, "outside the home folder");
   assert.equal((await call(addon, "DELETE", `/v1/git/branch?path=${encodeURIComponent(repo)}&name=feature`)).value.deleted, "feature");
 });
+
+test("loom: projects and plans, behind Loom's own scope", async (t) => {
+  const { home, call, addon, agent } = await setup(t);
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const repo = join(home, "files", "Thoth");
+  await mkdir(repo, { recursive: true });
+  const git = (...args) => promisify(execFile)("git", ["-c", "user.name=Ada", "-c", "user.email=ada@example.org", ...args], { cwd: repo, windowsHide: true });
+  await git("init", "-q", "-b", "main");
+  await git("commit", "-q", "--allow-empty", "-m", "First");
+  await call(addon, "POST", "/v1/notes/vault", { path: join(home, "files/Notes") });
+
+  assert.equal((await call(agent, "POST", "/v1/loom/projects", { path: repo })).status, 403, "the agent needs Loom's scope");
+  const project = (await call(addon, "POST", "/v1/loom/projects", { path: repo })).value;
+  const plan = await call(addon, "POST", "/v1/loom/plans", { project: project.id, title: "Plans board", steps: ["Data model", "Board"], branch: "loom-plans" });
+  assert.equal(plan.status, 200, JSON.stringify(plan.value));
+  assert.equal(plan.value.path, join(home, "files/Notes/Loom/Thoth/Plans/Plans board.md"));
+  const step = await call(addon, "POST", "/v1/loom/plan/step", { project: project.id, plan: "Plans board", step: "s1", state: "running", by: "Ivy" });
+  assert.equal(step.value.status, "In progress");
+  const more = await call(addon, "POST", "/v1/loom/plan/steps", { project: project.id, plan: "Plans board", steps: ["Chips"] });
+  assert.equal(more.value.progress, "0/3");
+  const changed = await call(addon, "PATCH", "/v1/loom/plan", { project: project.id, plan: "Plans board", agent: "Ivy", priority: "High" });
+  assert.equal(changed.value.agent, "Ivy");
+  assert.equal((await call(addon, "PATCH", "/v1/loom/plan", { project: project.id, plan: "Plans board", status: "Soon" })).status, 400);
+  const list = await call(addon, "GET", `/v1/loom/plans?project=${project.id}`);
+  assert.deepEqual(list.value.plans.map((p) => [p.title, p.status, p.stage]), [["Plans board", "In progress", "Data model"]]);
+  assert.equal((await call(addon, "GET", `/v1/loom/plan?project=${project.id}&plan=Nope`)).status, 404);
+
+  // Renaming the project moves its plans in the vault.
+  await call(addon, "PATCH", "/v1/loom/projects", { id: project.id, name: "Thoth app" });
+  const moved = await call(addon, "GET", `/v1/loom/plan?project=${project.id}&plan=Plans%20board`);
+  assert.equal(moved.value.path, join(home, "files/Notes/Loom/Thoth app/Plans/Plans board.md"));
+});

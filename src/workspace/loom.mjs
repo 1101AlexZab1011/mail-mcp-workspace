@@ -2,7 +2,8 @@
 // change feed per project, so the screen redraws when anything happens in the repository, whoever
 // did it: Loom's buttons, an agent's git commands in a terminal, a commit from an editor. The feed
 // watches the repository's git folder (shared by all its worktrees) rather than waiting to be told,
-// because most changes come from programs that know nothing about Loom.
+// because most changes come from programs that know nothing about Loom; and the project's folder of
+// plans in the vault (`watchAlso`), which Notes, Obsidian or an agent may edit directly.
 //
 // Stored in <configDir>/loom.json: { projects: [{ id, name, path, added, opened }] }.
 import { createHash } from "node:crypto";
@@ -17,12 +18,13 @@ export class LoomError extends Error {
 const slug = (text) => String(text).toLowerCase().normalize("NFKD").replace(/[^\w\s-]/g, "").trim().replace(/[\s_]+/g, "-").replace(/-+/g, "-").slice(0, 40) || "project";
 
 export class Loom {
-  constructor({ git, configDir, log = () => {} }) {
+  constructor({ git, configDir, log = () => {}, watchAlso = async () => null }) {
     this.git = git;
+    this.watchAlso = watchAlso; // project → another folder whose changes count (made later, so tried again until it exists)
     this.file = join(configDir, "loom.json");
     this.log = log;
     this.data = null;
-    this.feeds = new Map(); // project id → { version, waiters, watcher, timer }
+    this.feeds = new Map(); // project id → { version, waiters, watchers, timer }
   }
 
   async #load() {
@@ -113,25 +115,40 @@ export class Loom {
   async #feed(id) {
     let feed = this.feeds.get(id);
     if (feed) return feed;
-    feed = { version: 1, waiters: [], watcher: null, timer: 0 };
+    feed = { version: 1, waiters: [], watchers: [], extra: false, timer: 0 };
     this.feeds.set(id, feed);
     const project = await this.project(id);
     try {
       // The common git folder holds every worktree's HEAD, index and refs.
       const common = resolve(project.path, (await this.git.git(project.path, ["rev-parse", "--git-common-dir"])).trim());
-      feed.watcher = watch(common, { recursive: true }, (_event, file) => {
-        if (file && /(^|[\\/])objects[\\/]/.test(String(file))) return; // objects come with a ref change anyway
-        clearTimeout(feed.timer);
-        feed.timer = setTimeout(() => this.touch(id), 250); // one bump per burst (a commit writes many files)
-      });
-      feed.watcher.on("error", (error) => this.log(`loom: watching ${project.path} stopped: ${error.message}`));
+      this.#watch(feed, id, common, (file) => !/(^|[\\/])objects[\\/]/.test(file)); // objects come with a ref change anyway
     } catch (error) { this.log(`loom: cannot watch ${project.path}: ${error.message}`); }
+    await this.#watchExtra(feed, project);
     return feed;
+  }
+
+  #watch(feed, id, folder, counts = () => true) {
+    const watcher = watch(folder, { recursive: true }, (_event, file) => {
+      if (file && !counts(String(file))) return;
+      clearTimeout(feed.timer);
+      feed.timer = setTimeout(() => this.touch(id), 250); // one bump per burst (a commit writes many files)
+    });
+    watcher.on("error", (error) => this.log(`loom: watching ${folder} stopped: ${error.message}`));
+    feed.watchers.push(watcher);
+  }
+
+  /** Watch the `watchAlso` folder once it exists (the plans folder is made on first use). */
+  async #watchExtra(feed, project) {
+    if (feed.extra) return;
+    const folder = await this.watchAlso(project).catch(() => null);
+    if (!folder) return;
+    try { this.#watch(feed, project.id, folder); feed.extra = true; } catch { /* not made yet: tried again on the next request */ }
   }
 
   /** The project's version, after waiting up to `wait` ms for it to pass `since`. */
   async changes(id, { since = 0, wait = 0 } = {}) {
     const feed = await this.#feed(id);
+    if (!feed.extra) await this.#watchExtra(feed, await this.project(id));
     if (feed.version <= since && wait > 0) {
       await new Promise((resolveWait) => {
         const timer = setTimeout(done, Math.min(wait, 60_000));
@@ -145,7 +162,7 @@ export class Loom {
   #unwatch(id) {
     const feed = this.feeds.get(id);
     if (!feed) return;
-    feed.watcher?.close();
+    for (const watcher of feed.watchers) watcher.close();
     clearTimeout(feed.timer);
     for (const wake of feed.waiters) wake();
     this.feeds.delete(id);

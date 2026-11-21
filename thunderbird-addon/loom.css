@@ -60,7 +60,8 @@ body { background: var(--mw-bg); }
 .ref.branch.current { background: var(--lane); color: var(--mw-surface); }
 .ref.remote { color: var(--mw-text-2); border-color: var(--mw-border-strong); }
 .ref.tag { background: var(--mw-warning-soft); color: var(--mw-warning); }
-.ref.plan { background: var(--mw-primary-soft); color: var(--mw-primary-soft-text); }
+.ref.plan { background: var(--mw-primary-soft); color: var(--mw-primary-soft-text); cursor: pointer; flex-shrink: 4; } /* a plan chip gives way before the branch names */
+.ref.plan.blocked { background: var(--mw-danger-soft); color: var(--mw-danger); }
 .graph-more { padding: 12px; text-align: center; }
 
 /* Side panel */
@@ -96,3 +97,67 @@ body { background: var(--mw-bg); }
 .empty-state .icon { width: 44px; height: 44px; color: var(--mw-text-3); }
 .empty-state h2 { margin: 0; color: var(--mw-text); font-size: 20px; }
 .empty-state p { margin: 0; max-width: 460px; }
+
+/* Plans: the board */
+.board { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 12px; padding: 14px; overflow: auto; align-items: start; }
+.column { background: var(--mw-hover); border-radius: var(--mw-radius-l); padding: 8px; display: grid; gap: 8px; min-height: 120px; border: 2px dashed transparent; }
+.column.over { border-color: var(--mw-primary); }
+.column header { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 4px; color: var(--mw-text-2); }
+.column header .icon { width: 17px; height: 17px; }
+.column header strong { color: var(--mw-text); font-weight: 650; }
+.column header .count { font-size: 12px; }
+.column .cards { display: grid; gap: 8px; }
+.column .hint { margin: 6px 4px; font-size: 12.5px; color: var(--mw-text-3); }
+.plan-card { background: var(--mw-surface); border: 1px solid var(--mw-border); border-radius: var(--mw-radius-l); padding: 10px 12px; display: grid; gap: 8px; cursor: pointer; text-align: left; }
+.plan-card:hover { border-color: var(--mw-border-strong); }
+.plan-card:focus-visible { outline: 2px solid var(--mw-primary); outline-offset: 1px; }
+.plan-card.blocked { border-left: 3px solid var(--mw-danger); }
+.plan-card.dropped { opacity: 0.6; }
+.plan-card .title { font-weight: 600; line-height: 1.35; }
+.plan-card .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--mw-text-2); }
+.pill { display: inline-flex; align-items: center; gap: 3px; height: 20px; padding: 0 7px; border-radius: var(--mw-radius-pill); background: var(--mw-hover); font-size: 11.5px; font-weight: 600; }
+.pill .icon, .agent .icon { width: 13px; height: 13px; }
+.pill.blocked { background: var(--mw-danger-soft); color: var(--mw-danger); }
+.pill.high { background: var(--mw-warning-soft); color: var(--mw-warning); }
+.agent { display: inline-flex; align-items: center; gap: 3px; }
+.progress { display: grid; gap: 4px; font-size: 12px; color: var(--mw-text-2); }
+.progress .bar { height: 4px; border-radius: 2px; background: var(--mw-hover); overflow: hidden; }
+.progress .bar span { display: block; height: 100%; background: var(--mw-success); }
+.progress .stage { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.progress.wide { min-width: 220px; }
+
+/* Plans: a plan's page */
+.plan-page { flex: 1; min-width: 0; overflow: auto; padding: 18px 28px 40px; display: grid; align-content: start; gap: 16px; max-width: 980px; }
+.plan-head { display: flex; align-items: center; gap: 10px; }
+.plan-head h1 { margin: 0; font-size: 21px; font-weight: 680; }
+.plan-fields { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: end; }
+.field { display: grid; gap: 4px; }
+.field .label { font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--mw-text-3); }
+.with-button { display: inline-flex; gap: 4px; align-items: center; }
+.plan-page .hint { margin: 0; color: var(--mw-text-3); }
+.plan-page h3 { margin: 0 0 6px; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--mw-text-3); display: flex; gap: 6px; }
+.plan-page h3 .count { letter-spacing: 0; font-weight: 500; }
+.steps { display: grid; gap: 2px; }
+.step { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: start; padding: 4px 6px; border-radius: var(--mw-radius); }
+.step:hover { background: var(--mw-hover); }
+.step .state { border: 0; background: none; padding: 2px; cursor: pointer; color: var(--mw-text-3); display: flex; border-radius: 50%; }
+.step .state:hover { background: var(--mw-hover); }
+.step .state .icon { width: 20px; height: 20px; }
+.step.running .state { color: var(--mw-primary); }
+.step.done .state { color: var(--mw-success); }
+.step.blocked .state { color: var(--mw-danger); }
+.step.done .text > span:first-child, .step.skipped .text > span:first-child { color: var(--mw-text-2); text-decoration: line-through; text-decoration-color: var(--mw-text-3); }
+.step .text { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.step .text[role="button"] { cursor: pointer; }
+.step .text .id { font: 11px var(--mw-mono, monospace); color: var(--mw-text-3); }
+.step .text .icon { width: 16px; height: 16px; color: var(--mw-text-3); }
+.step .markdown { margin: 2px 0 6px; padding: 8px 10px; border-left: 2px solid var(--mw-border-strong); color: var(--mw-text-2); font-size: 13px; }
+.step.blocked .markdown { border-left-color: var(--mw-danger); }
+.add-step { display: flex; align-items: center; gap: 8px; padding: 4px 6px; color: var(--mw-text-3); }
+.add-step .input { flex: 1; }
+.history ul { margin: 0; padding-left: 18px; display: grid; gap: 3px; font-size: 12.5px; color: var(--mw-text-2); }
+.markdown > :first-child { margin-top: 0; } .markdown > :last-child { margin-bottom: 0; }
+.markdown p { margin: 0 0 8px; } .markdown ul, .markdown ol { margin: 0 0 8px; padding-left: 20px; }
+.markdown h1, .markdown h2, .markdown h3 { margin: 12px 0 6px; font-size: 1.05em; text-transform: none; letter-spacing: 0; color: var(--mw-text); }
+.markdown a { color: var(--mw-primary); }
+.markdown code { font: 12.5px var(--mw-mono, monospace); background: var(--mw-hover); padding: 1px 4px; border-radius: 4px; }
